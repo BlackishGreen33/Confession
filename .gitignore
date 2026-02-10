@@ -29,6 +29,7 @@ Thumbs.db
 # Prisma
 web/prisma/*.db
 web/prisma/*.db-journal
+web/src/generated/
 
 # Debug
 npm-debug.log*
