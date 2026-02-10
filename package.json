@@ -1,5 +1,5 @@
 {
-  "name": "confession",
+  "name": "confession-monorepo",
   "private": true,
   "scripts": {
     "dev": "turbo dev",

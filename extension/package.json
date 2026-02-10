@@ -1,0 +1,115 @@
+{
+  "name": "confession-extension",
+  "displayName": "薄暮靜析的告解詩 — A Quiet Confession at Dusk",
+  "description": "Before the light fades, the code speaks. A static code analysis plugin that listens to your code in silence, revealing truths hidden within structure and syntax.",
+  "version": "0.0.1",
+  "publisher": "confession",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:go",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeVuln.scanFile",
+        "title": "Confession: Scan Current File"
+      },
+      {
+        "command": "codeVuln.scanWorkspace",
+        "title": "Confession: Scan Workspace"
+      },
+      {
+        "command": "codeVuln.openDashboard",
+        "title": "Confession: Open Security Dashboard"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "confession-security",
+          "title": "Security Audit",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "confession-security": [
+        {
+          "type": "webview",
+          "id": "confession.dashboard",
+          "name": "Security Dashboard"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Confession",
+      "properties": {
+        "confession.api.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Base URL for the Confession API server (local or remote)"
+        },
+        "confession.api.mode": {
+          "type": "string",
+          "enum": [
+            "local",
+            "remote"
+          ],
+          "default": "local",
+          "description": "API connection mode"
+        },
+        "confession.llm.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Gemini API key for LLM analysis"
+        },
+        "confession.analysis.triggerMode": {
+          "type": "string",
+          "enum": [
+            "onSave",
+            "manual"
+          ],
+          "default": "onSave",
+          "description": "When to trigger vulnerability analysis"
+        },
+        "confession.analysis.depth": {
+          "type": "string",
+          "enum": [
+            "quick",
+            "standard",
+            "deep"
+          ],
+          "default": "standard",
+          "description": "Analysis depth level"
+        },
+        "confession.analysis.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "description": "Debounce delay in milliseconds for save-triggered analysis"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "dev": "pnpm build --watch",
+    "lint": "eslint src/",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.25.0"
+  }
+}
