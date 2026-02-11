@@ -7,6 +7,16 @@ import unusedImports from 'eslint-plugin-unused-imports';
 
 /** @type {import('eslint').Linter.Config[]} */
 const eslintConfig = [
+  {
+    ignores: [
+      '**/node_modules/',
+      '**/dist/',
+      '**/.next/',
+      '**/out/',
+      '**/*.wasm',
+      '**/src/generated/',
+    ],
+  },
   eslintJs.configs.recommended,
   {
     files: ['**/*.{ts,tsx,js,jsx,mjs}'],
@@ -56,9 +66,6 @@ const eslintConfig = [
       'simple-import-sort/imports': 'warn',
       'simple-import-sort/exports': 'warn',
     },
-  },
-  {
-    ignores: ['node_modules/', 'dist/', '.next/', 'out/', '*.wasm'],
   },
   eslintConfigPrettier,
 ];

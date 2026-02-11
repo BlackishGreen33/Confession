@@ -5,14 +5,15 @@
  * Property: Inserting the same vulnerability twice via upsertVulnerabilities
  * results in exactly one record in the database (idempotent write).
  */
-import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest'
-import * as fc from 'fast-check'
-import { PrismaClient } from '../../generated/prisma/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
-import { createHash } from 'crypto'
 import Database from 'better-sqlite3'
-import path from 'path'
+import { createHash } from 'crypto'
+import * as fc from 'fast-check'
 import fs from 'fs'
+import path from 'path'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+
+import { PrismaClient } from '../../generated/prisma/client'
 
 const TEST_DB_PATH = path.resolve(__dirname, '../../../../test-idempotency.db')
 const TEST_DB_URL = `file:${TEST_DB_PATH}`
