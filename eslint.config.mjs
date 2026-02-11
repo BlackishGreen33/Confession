@@ -14,6 +14,7 @@ const eslintConfig = [
       '**/.next/',
       '**/out/',
       '**/*.wasm',
+      '**/wasm_exec.js',
       '**/src/generated/',
     ],
   },
@@ -41,6 +42,7 @@ const eslintConfig = [
         exports: 'readonly',
         React: 'readonly',
         JSX: 'readonly',
+        WebAssembly: 'readonly',
       },
     },
     plugins: {
