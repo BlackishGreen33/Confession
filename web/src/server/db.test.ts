@@ -13,7 +13,7 @@ import fs from 'fs'
 import path from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { PrismaClient } from '../../generated/prisma/client'
+import { PrismaClient } from '../generated/prisma/client'
 
 const TEST_DB_PATH = path.resolve(__dirname, '../../../../test-idempotency.db')
 const TEST_DB_URL = `file:${TEST_DB_PATH}`

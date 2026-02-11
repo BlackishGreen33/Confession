@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 
-import type { InteractionPoint } from '@/lib/types'
+import type { InteractionPoint } from '@/libs/types'
 
 /** 預設敏感關鍵詞，依類別分組 */
 const DEFAULT_KEYWORDS: Record<string, string[]> = {

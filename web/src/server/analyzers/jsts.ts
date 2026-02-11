@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import ts from 'typescript'
 
-import type { InteractionPoint } from '@/lib/types'
+import type { InteractionPoint } from '@/libs/types'
 
 /** JS/TS 程式碼中偵測的模式 */
 interface PatternMatch {

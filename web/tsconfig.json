@@ -28,6 +28,12 @@
       ],
       "@app/*": [
         "./src/app/*"
+      ],
+      "@server": [
+        "./src/server/index.ts"
+      ],
+      "@server/*": [
+        "./src/server/*"
       ]
     }
   },
