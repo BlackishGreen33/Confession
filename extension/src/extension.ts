@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 
 export function activate(context: vscode.ExtensionContext) {
-  // Register commands
+  // 註冊指令
   context.subscriptions.push(
     vscode.commands.registerCommand('codeVuln.scanFile', () => {
       vscode.window.showInformationMessage('Confession: Scanning current file…')
@@ -18,5 +18,5 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  // Cleanup will go here
+  // 清理資源
 }

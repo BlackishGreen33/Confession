@@ -3,7 +3,7 @@ import ts from 'typescript'
 
 import type { InteractionPoint } from '@/lib/types'
 
-/** Patterns we detect in JS/TS code */
+/** JS/TS 程式碼中偵測的模式 */
 interface PatternMatch {
   node: ts.Node
   type: InteractionPoint['type']
@@ -12,12 +12,12 @@ interface PatternMatch {
 }
 
 /**
- * Analyze JS/TS source code for high-risk interaction points using the
- * TypeScript Compiler API. Detects:
- * - eval() and similar dangerous calls
- * - innerHTML / outerHTML assignments
- * - Direct use of req.query / req.params / req.body (unsanitized input)
- * - Prototype chain mutations (__proto__, Object.setPrototypeOf, .prototype assignment)
+ * 使用 TypeScript Compiler API 分析 JS/TS 原始碼中的高風險交互點。
+ * 偵測項目：
+ * - eval() 等危險呼叫
+ * - innerHTML / outerHTML 賦值
+ * - 直接使用 req.query / req.params / req.body（未消毒輸入）
+ * - 原型鏈變異（__proto__、Object.setPrototypeOf、.prototype 賦值）
  */
 export function analyzeJsTs(
   code: string,
@@ -44,18 +44,18 @@ export function analyzeJsTs(
 
 
 // ---------------------------------------------------------------------------
-// Pattern detectors
+// 模式偵測器
 // ---------------------------------------------------------------------------
 
 const DANGEROUS_CALLS = new Set(['eval', 'Function', 'setTimeout', 'setInterval'])
 
-/** Detect eval(), new Function(), setTimeout(string), setInterval(string) */
+/** 偵測 eval()、new Function()、setTimeout(字串)、setInterval(字串) */
 function detectEval(node: ts.Node, out: PatternMatch[]) {
   if (!ts.isCallExpression(node)) return
 
   const name = extractCallName(node.expression)
   if (name !== null && DANGEROUS_CALLS.has(name)) {
-    // For setTimeout/setInterval, only flag when first arg is a string literal
+    // setTimeout/setInterval 僅在第一個參數為字串字面值時標記
     if ((name === 'setTimeout' || name === 'setInterval') && node.arguments.length > 0) {
       const firstArg = node.arguments[0]
       if (!ts.isStringLiteral(firstArg) && !ts.isTemplateExpression(firstArg) && !ts.isNoSubstitutionTemplateLiteral(firstArg)) {
@@ -66,7 +66,7 @@ function detectEval(node: ts.Node, out: PatternMatch[]) {
   }
 }
 
-/** Detect `new Function(...)` */
+/** 偵測 `new Function(...)` */
 function detectNewFunction(node: ts.Node, out: PatternMatch[]) {
   if (!ts.isNewExpression(node)) return
   const name = extractCallName(node.expression)
@@ -77,9 +77,9 @@ function detectNewFunction(node: ts.Node, out: PatternMatch[]) {
 
 const DANGEROUS_HTML_PROPS = new Set(['innerHTML', 'outerHTML'])
 
-/** Detect assignments to innerHTML / outerHTML */
+/** 偵測 innerHTML / outerHTML 賦值 */
 function detectInnerHtml(node: ts.Node, out: PatternMatch[]) {
-  // el.innerHTML = ... (BinaryExpression with PropertyAccessExpression on left)
+  // el.innerHTML = ...（左側為 PropertyAccessExpression 的 BinaryExpression）
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     const left = node.left
     if (ts.isPropertyAccessExpression(left) && DANGEROUS_HTML_PROPS.has(left.name.text)) {
@@ -87,37 +87,36 @@ function detectInnerHtml(node: ts.Node, out: PatternMatch[]) {
     }
   }
 
-  // Also detect property access reads like `el.innerHTML` used in other contexts
-  // (e.g., passed as argument). We focus on assignments for high confidence.
+  // 目前聚焦於賦值操作以確保高信心度
 }
 
 const DIRECT_QUERY_PROPS = new Set(['query', 'params', 'body'])
 const DIRECT_QUERY_OBJECTS = new Set(['req', 'request', 'ctx'])
 
-/** Detect direct use of req.query, req.params, req.body without sanitization */
+/** 偵測未消毒的 req.query、req.params、req.body 直接存取 */
 function detectDirectQuery(node: ts.Node, out: PatternMatch[]) {
   if (!ts.isPropertyAccessExpression(node)) return
 
   const propName = node.name.text
   if (!DIRECT_QUERY_PROPS.has(propName)) return
 
-  // Check if the object is a known request-like identifier
+  // 檢查物件是否為已知的 request 類識別符
   const objName = extractIdentifierName(node.expression)
   if (objName !== null && DIRECT_QUERY_OBJECTS.has(objName)) {
     out.push({ node, type: 'sensitive_data', patternName: `direct_query_${propName}`, confidence: 'medium' })
   }
 }
 
-/** Detect prototype chain mutations */
+/** 偵測原型鏈變異 */
 function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
-  // __proto__ assignment: obj.__proto__ = ...
+  // __proto__ 賦值：obj.__proto__ = ...
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     const left = node.left
     if (ts.isPropertyAccessExpression(left) && left.name.text === '__proto__') {
       out.push({ node, type: 'prototype_mutation', patternName: '__proto__', confidence: 'high' })
       return
     }
-    // .prototype = ... assignment
+    // .prototype = ... 賦值
     if (ts.isPropertyAccessExpression(left) && left.name.text === 'prototype') {
       out.push({ node, type: 'prototype_mutation', patternName: 'prototype_assignment', confidence: 'medium' })
       return
@@ -130,7 +129,7 @@ function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
     if (name === 'Object.setPrototypeOf') {
       out.push({ node, type: 'prototype_mutation', patternName: 'Object.setPrototypeOf', confidence: 'high' })
     }
-    // Object.assign with __proto__
+    // Object.assign 含 __proto__
     if (name === 'Object.assign' && node.arguments.length >= 2) {
       const secondArg = node.arguments[1]
       if (ts.isObjectLiteralExpression(secondArg)) {
@@ -151,17 +150,17 @@ function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
 
 
 // ---------------------------------------------------------------------------
-// Helpers
+// 輔助函式
 // ---------------------------------------------------------------------------
 
-/** Extract the simple name from a call expression (e.g., `eval` from `eval(...)`) */
+/** 從呼叫表達式中提取簡單名稱（如 `eval(...)` 中的 `eval`） */
 function extractCallName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text
   if (ts.isPropertyAccessExpression(expr)) return expr.name.text
   return null
 }
 
-/** Extract the full dotted name (e.g., `Object.setPrototypeOf`) */
+/** 提取完整的點分名稱（如 `Object.setPrototypeOf`） */
 function extractFullCallName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text
   if (ts.isPropertyAccessExpression(expr)) {
@@ -171,13 +170,13 @@ function extractFullCallName(expr: ts.Expression): string | null {
   return null
 }
 
-/** Extract identifier name from an expression, or null */
+/** 從表達式中提取識別符名稱，無則回傳 null */
 function extractIdentifierName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text
   return null
 }
 
-/** Convert a PatternMatch + AST node into an InteractionPoint */
+/** 將 PatternMatch + AST 節點轉換為 InteractionPoint */
 function nodeToInteractionPoint(
   match: PatternMatch,
   sourceFile: ts.SourceFile,
@@ -188,7 +187,7 @@ function nodeToInteractionPoint(
   const { line: startLine, character: startCol } = sourceFile.getLineAndCharacterOfPosition(match.node.getStart(sourceFile))
   const { line: endLine, character: endCol } = sourceFile.getLineAndCharacterOfPosition(match.node.getEnd())
 
-  // Extract the line(s) of source code containing this node
+  // 提取包含此節點的原始碼行
   const lines = code.split('\n')
   const snippetLines = lines.slice(startLine, endLine + 1)
   const codeSnippet = snippetLines.join('\n').trim()

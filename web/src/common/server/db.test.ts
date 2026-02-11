@@ -1,9 +1,9 @@
 /**
- * PBT: 漏洞記錄幂等性測試（P3）
- * **Validates: Requirements 2.6.2**
+ * PBT：漏洞記錄冪等性測試（P3）
+ * 驗證需求 2.6.2
  *
- * Property: Inserting the same vulnerability twice via upsertVulnerabilities
- * results in exactly one record in the database (idempotent write).
+ * 性質：透過 upsertVulnerabilities 插入相同漏洞兩次，
+ * 資料庫中應只存在一筆記錄（冪等寫入）。
  */
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import Database from 'better-sqlite3'
@@ -41,7 +41,7 @@ interface VulnerabilityInput {
   owaspCategory?: string | null
 }
 
-/** Replicates the upsert logic from db.ts against our test prisma client */
+/** 複製 db.ts 的 upsert 邏輯，使用測試用 prisma client */
 async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
   for (const v of vulns) {
     const codeHash = createHash('sha256').update(v.codeSnippet).digest('hex')
@@ -127,7 +127,7 @@ const vulnInputArb: fc.Arbitrary<VulnerabilityInput> = fc.record({
 beforeAll(async () => {
   if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH)
 
-  // Create schema directly via better-sqlite3 (instant, no CLI needed)
+  // 透過 better-sqlite3 直接建立 schema（無需 CLI）
   const db = new Database(TEST_DB_PATH)
   db.exec(SCHEMA_SQL)
   db.close()
@@ -151,11 +151,11 @@ describe('P3: Vulnerability record idempotency', () => {
       fc.asyncProperty(vulnInputArb, async (input) => {
         await prisma.vulnerability.deleteMany()
 
-        // Insert the same vulnerability twice
+        // 插入相同漏洞兩次
         await upsertVulnerabilities([input])
         await upsertVulnerabilities([input])
 
-        // Count records matching the unique composite key
+        // 計算符合唯一複合鍵的記錄數
         const codeHash = createHash('sha256').update(input.codeSnippet).digest('hex')
         const count = await prisma.vulnerability.count({
           where: {
