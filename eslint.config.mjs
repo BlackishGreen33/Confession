@@ -48,6 +48,7 @@ const eslintConfig = [
         Request: 'readonly',
         Headers: 'readonly',
         URL: 'readonly',
+        URLSearchParams: 'readonly',
       },
     },
     plugins: {
