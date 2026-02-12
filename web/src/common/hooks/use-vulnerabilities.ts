@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api } from '@/libs/api-client'
+import { api, deduplicatedGet } from '@/libs/api-client'
 import type { Vulnerability } from '@/libs/types'
 
 // 從 atoms.ts 重新匯出，保持同檔共置慣例
@@ -36,19 +36,21 @@ export interface TrendDataPoint {
 
 // === Hooks ===
 
-/** 漏洞列表查詢（篩選 / 排序 / 分頁） */
+/** 漏洞列表查詢（篩選 / 排序 / 分頁），30 秒內不重複請求 */
 export function useVulnerabilities(filters?: Record<string, unknown>) {
   return useQuery<VulnListResponse>({
     queryKey: ['vulnerabilities', filters],
-    queryFn: () => api.get('/api/vulnerabilities', { params: filters }).then((r) => r.data),
+    queryFn: () => deduplicatedGet<VulnListResponse>('/api/vulnerabilities', filters),
+    staleTime: 30_000,
   })
 }
 
-/** 漏洞統計數據 */
+/** 漏洞統計數據，30 秒內不重複請求 */
 export function useVulnStats() {
   return useQuery<VulnStatsResponse>({
     queryKey: ['vuln-stats'],
-    queryFn: () => api.get('/api/vulnerabilities/stats').then((r) => r.data),
+    queryFn: () => deduplicatedGet<VulnStatsResponse>('/api/vulnerabilities/stats'),
+    staleTime: 30_000,
   })
 }
 
@@ -65,10 +67,11 @@ export function useUpdateVuln() {
   })
 }
 
-/** 漏洞歷史趨勢 */
+/** 漏洞歷史趨勢，60 秒內不重複請求 */
 export function useVulnTrend() {
   return useQuery<TrendDataPoint[]>({
     queryKey: ['vuln-trend'],
-    queryFn: () => api.get('/api/vulnerabilities/trend').then((r) => r.data),
+    queryFn: () => deduplicatedGet<TrendDataPoint[]>('/api/vulnerabilities/trend'),
+    staleTime: 60_000,
   })
 }

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useConfig, useUpdateConfig } from '@/hooks/use-config'
+import { useExtensionBridge } from '@/hooks/use-extension-bridge'
 import type { PluginConfig } from '@/libs/types'
 
 // === LLM 配置區塊 ===
@@ -330,13 +331,16 @@ const ApiSection: React.FC<ApiSectionProps> = ({ api, onChange }) => {
 export const SettingsPanel: React.FC = () => {
   const config = useConfig()
   const updateConfig = useUpdateConfig()
+  const { sendConfigToExtension } = useExtensionBridge()
   const [saved, setSaved] = useState(false)
 
   const handleSave = useCallback(() => {
+    // 將目前配置寫回 VS Code settings.json（若在 webview 內）
+    sendConfigToExtension(config)
     setSaved(true)
     const timer = setTimeout(() => setSaved(false), 2000)
     return () => clearTimeout(timer)
-  }, [])
+  }, [config, sendConfigToExtension])
 
   const handleLlmChange = useCallback(
     (llm: Partial<PluginConfig['llm']>) => updateConfig({ llm }),

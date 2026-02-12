@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 
+import { generateMonitoringCode } from './monitoring'
 import type { Severity, Vulnerability } from './types'
 
 // === 漏洞儲存（按檔案路徑索引） ===
@@ -136,7 +137,17 @@ const codeActionProvider: vscode.CodeActionProvider = {
         )
         fixAction.diagnostics = [vulnToDiagnostic(vuln)]
         fixAction.edit = new vscode.WorkspaceEdit()
+
+        // 套用修復代碼
         fixAction.edit.replace(document.uri, vulnRange, vuln.fixNewCode)
+
+        // 插入嵌入式監測日誌（修復代碼下一行）
+        const monitoringCode = generateMonitoringCode(vuln, document.languageId)
+        if (monitoringCode) {
+          const insertPos = new vscode.Position(vuln.endLine, 0)
+          fixAction.edit.insert(document.uri, insertPos, monitoringCode + '\n')
+        }
+
         fixAction.isPreferred = true
         actions.push(fixAction)
       }

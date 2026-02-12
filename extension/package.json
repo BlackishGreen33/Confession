@@ -98,6 +98,28 @@
           "type": "number",
           "default": 500,
           "description": "Debounce delay in milliseconds for save-triggered analysis"
+        },
+        "confession.llm.endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Custom Gemini API endpoint (leave empty for default)"
+        },
+        "confession.llm.model": {
+          "type": "string",
+          "default": "",
+          "description": "Custom Gemini model name (leave empty for default)"
+        },
+        "confession.ignore.paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "File path patterns to exclude from analysis"
+        },
+        "confession.ignore.types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Vulnerability types to ignore"
         }
       }
     }

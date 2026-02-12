@@ -5,11 +5,13 @@ import { Provider as JotaiProvider } from 'jotai';
 import { ThemeProvider } from 'next-themes';
 import React, { type ReactNode, useState } from 'react';
 
+import { ExtensionBridgeInit } from '@/hooks/use-extension-bridge';
+
 interface ProvidersProps {
   children: ReactNode;
 }
 
-/** 全域 Provider 堆疊：主題 → Jotai → React Query */
+/** 全域 Provider 堆疊：主題 → Jotai → React Query → 擴充套件橋接 */
 export const Providers: React.FC<ProvidersProps> = ({ children }) => {
   const [queryClient] = useState(
     () =>
@@ -26,7 +28,10 @@ export const Providers: React.FC<ProvidersProps> = ({ children }) => {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <JotaiProvider>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          <ExtensionBridgeInit />
+          {children}
+        </QueryClientProvider>
       </JotaiProvider>
     </ThemeProvider>
   );

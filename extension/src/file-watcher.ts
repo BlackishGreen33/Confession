@@ -1,8 +1,10 @@
 import * as vscode from 'vscode'
 
 import { updateDiagnostics } from './diagnostics'
+import { fetchFileVulnerabilities, pollUntilDone, triggerScan } from './scan-client'
 import { setAnalyzing, setResult } from './status-bar'
-import type { PluginConfig, Vulnerability } from './types'
+import type { PluginConfig } from './types'
+import { sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 支援的語言 ID */
 const SUPPORTED_LANGUAGE_IDS = new Set([
@@ -55,86 +57,35 @@ async function triggerIncrementalScan(document: vscode.TextDocument, config: Plu
 
   log?.appendLine(`增量掃描: ${filePath}`)
   setAnalyzing()
+  sendScanProgress('running', 0)
 
   try {
     const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
-    const scanRes = await fetch(`${baseUrl}/api/scan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        files: [{ path: filePath, content, language }],
-        depth: config.analysis.depth,
-        includeLlmScan: config.analysis.depth === 'deep',
-      }),
+
+    const taskId = await triggerScan(baseUrl, [
+      { path: filePath, content, language },
+    ], {
+      depth: config.analysis.depth,
+      includeLlmScan: config.analysis.depth === 'deep',
     })
 
-    if (!scanRes.ok) {
-      log?.appendLine(`掃描 API 錯誤: ${scanRes.status}`)
-      setResult(0)
-      return
-    }
+    await pollUntilDone(baseUrl, taskId, (progress) => {
+      sendScanProgress('running', progress)
+    })
 
-    const { taskId } = (await scanRes.json()) as { taskId: string }
-
-    // 輪詢掃描進度
-    const vulns = await pollScanResult(baseUrl, taskId, filePath)
+    const vulns = await fetchFileVulnerabilities(baseUrl, filePath)
     updateDiagnostics(filePath, vulns)
     setResult(vulns.length)
+    sendVulnerabilities(vulns)
+    sendScanProgress('completed', 1)
 
     log?.appendLine(`掃描完成: ${filePath}, 發現 ${vulns.length} 個漏洞`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     log?.appendLine(`增量掃描失敗: ${msg}`)
     setResult(0)
+    sendScanProgress('failed', 0)
   }
-}
-
-/**
- * 輪詢掃描任務直到完成，然後取得該檔案的漏洞列表
- */
-async function pollScanResult(
-  baseUrl: string,
-  taskId: string,
-  filePath: string,
-  maxAttempts = 60,
-  intervalMs = 1000,
-): Promise<Vulnerability[]> {
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(intervalMs)
-
-    const statusRes = await fetch(`${baseUrl}/api/scan/status/${taskId}`)
-    if (!statusRes.ok) continue
-
-    const task = (await statusRes.json()) as { status: string; errorMessage?: string }
-
-    if (task.status === 'completed') {
-      return fetchVulnerabilities(baseUrl, filePath)
-    }
-
-    if (task.status === 'failed') {
-      log?.appendLine(`掃描任務失敗: ${task.errorMessage ?? '未知'}`)
-      return []
-    }
-  }
-
-  log?.appendLine('掃描任務逾時')
-  return []
-}
-
-/**
- * 取得指定檔案的漏洞列表
- */
-async function fetchVulnerabilities(baseUrl: string, filePath: string): Promise<Vulnerability[]> {
-  const params = new URLSearchParams({ filePath, status: 'open', pageSize: '100' })
-  const res = await fetch(`${baseUrl}/api/vulnerabilities?${params.toString()}`)
-  if (!res.ok) return []
-
-  const data = (await res.json()) as { items: Vulnerability[] }
-  return data.items ?? []
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**

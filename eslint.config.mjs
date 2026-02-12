@@ -49,6 +49,10 @@ const eslintConfig = [
         Headers: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
+        window: 'readonly',
+        MessageEvent: 'readonly',
+        addEventListener: 'readonly',
+        removeEventListener: 'readonly',
       },
     },
     plugins: {

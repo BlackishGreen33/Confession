@@ -1,5 +1,7 @@
 import * as vscode from 'vscode'
 
+import { generateMonitoringCode } from './monitoring'
+import { fetchVulnerabilityById } from './scan-client'
 import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
 
 /** 單例 Webview Panel 參考 */
@@ -7,6 +9,14 @@ let panel: vscode.WebviewPanel | undefined
 
 /** 訊息監聽器清理函數 */
 let messageDisposable: vscode.Disposable | undefined
+
+/** 取得目前配置的回呼（由 activate 注入） */
+let getConfigFn: (() => PluginConfig) | undefined
+
+/** 注入取得配置的回呼 */
+export function setGetConfigFn(fn: () => PluginConfig): void {
+  getConfigFn = fn
+}
 
 /**
  * 取得或建立 Webview Panel
@@ -100,15 +110,11 @@ function handleWebviewMessage(msg: WebToExtMsg): void {
       break
 
     case 'apply_fix':
-      vscode.window.showInformationMessage(
-        `Confession: 正在套用修復 (${msg.data.vulnerabilityId})…`,
-      )
+      void applyVulnerabilityFix(msg.data.vulnerabilityId)
       break
 
     case 'ignore_vulnerability':
-      vscode.window.showInformationMessage(
-        `Confession: 已忽略漏洞 (${msg.data.vulnerabilityId})`,
-      )
+      vscode.commands.executeCommand('codeVuln.ignoreVulnerability', msg.data.vulnerabilityId)
       break
 
     case 'navigate_to_code': {
@@ -121,6 +127,88 @@ function handleWebviewMessage(msg: WebToExtMsg): void {
       })
       break
     }
+
+    case 'update_config':
+      void writeConfigToSettings(msg.data)
+      break
+
+    case 'request_config':
+      if (getConfigFn) {
+        sendConfigUpdate(getConfigFn())
+      }
+      break
+  }
+}
+
+// === 內部：將 Webview 配置寫入 VS Code settings.json ===
+
+async function writeConfigToSettings(config: PluginConfig): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('confession')
+  try {
+    await cfg.update('llm.apiKey', config.llm.apiKey, vscode.ConfigurationTarget.Global)
+    await cfg.update('llm.endpoint', config.llm.endpoint || '', vscode.ConfigurationTarget.Global)
+    await cfg.update('llm.model', config.llm.model || '', vscode.ConfigurationTarget.Global)
+    await cfg.update('analysis.triggerMode', config.analysis.triggerMode, vscode.ConfigurationTarget.Global)
+    await cfg.update('analysis.depth', config.analysis.depth, vscode.ConfigurationTarget.Global)
+    await cfg.update('analysis.debounceMs', config.analysis.debounceMs, vscode.ConfigurationTarget.Global)
+    await cfg.update('ignore.paths', config.ignore.paths, vscode.ConfigurationTarget.Global)
+    await cfg.update('ignore.types', config.ignore.types, vscode.ConfigurationTarget.Global)
+    await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
+    await cfg.update('api.mode', config.api.mode, vscode.ConfigurationTarget.Global)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    vscode.window.showErrorMessage(`Confession: 儲存設定失敗 — ${msg}`)
+  }
+}
+
+// === 內部：套用漏洞修復 ===
+
+async function applyVulnerabilityFix(vulnId: string): Promise<void> {
+  const baseUrl = vscode.workspace
+    .getConfiguration('confession')
+    .get<string>('api.baseUrl', 'http://localhost:3000')!
+    .replace(/\/+$/, '')
+
+  try {
+    const vuln = await fetchVulnerabilityById(baseUrl, vulnId)
+    if (!vuln) {
+      vscode.window.showErrorMessage('Confession: 找不到漏洞記錄')
+      return
+    }
+
+    if (!vuln.fixOldCode || !vuln.fixNewCode) {
+      vscode.window.showWarningMessage('Confession: 此漏洞沒有可用的修復建議')
+      return
+    }
+
+    const uri = vscode.Uri.file(vuln.filePath)
+    const doc = await vscode.workspace.openTextDocument(uri)
+    const range = new vscode.Range(
+      new vscode.Position(vuln.line - 1, vuln.column - 1),
+      new vscode.Position(vuln.endLine - 1, vuln.endColumn - 1),
+    )
+
+    const edit = new vscode.WorkspaceEdit()
+    edit.replace(uri, range, vuln.fixNewCode)
+
+    // 插入嵌入式監測日誌（修復代碼下一行）
+    const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
+    if (monitoringCode) {
+      const insertPos = new vscode.Position(vuln.endLine, 0)
+      edit.insert(uri, insertPos, monitoringCode + '\n')
+    }
+
+    const applied = await vscode.workspace.applyEdit(edit)
+
+    if (applied) {
+      await doc.save()
+      vscode.window.showInformationMessage(`Confession: 已套用修復 (${vuln.type})`)
+    } else {
+      vscode.window.showErrorMessage('Confession: 套用修復失敗')
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    vscode.window.showErrorMessage(`Confession: 套用修復失敗 — ${msg}`)
   }
 }
 

@@ -67,3 +67,5 @@ export type WebToExtMsg =
   | { type: 'apply_fix'; data: { vulnerabilityId: string } }
   | { type: 'ignore_vulnerability'; data: { vulnerabilityId: string; reason?: string } }
   | { type: 'navigate_to_code'; data: { filePath: string; line: number; column: number } }
+  | { type: 'update_config'; data: PluginConfig }
+  | { type: 'request_config' }

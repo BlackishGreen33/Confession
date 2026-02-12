@@ -1,3 +1,4 @@
+import { computeContentHash, fileAnalysisCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
 
@@ -25,9 +26,21 @@ export interface OrchestrateResult {
 /**
  * Orchestrator：接收掃描請求，按語言分組並行調度 Agent，
  * 合併交互點後交由 LLM 分析，最後冪等存儲漏洞記錄。
+ *
+ * 增量分析：透過檔案內容雜湊快取，跳過未變更的檔案。
  */
 export async function orchestrate(request: ScanRequest): Promise<OrchestrateResult> {
-  const { go, jsts } = groupByLanguage(request.files)
+  // 增量分析：過濾掉內容未變更的檔案
+  const changedFiles = filterChangedFiles(request.files)
+
+  if (changedFiles.length === 0) {
+    return {
+      vulnerabilities: [],
+      summary: buildSummary([], request.files),
+    }
+  }
+
+  const { go, jsts } = groupByLanguage(changedFiles)
 
   // 並行調度語言 Agent
   const [goPoints, jstsPoints] = await Promise.all([
@@ -47,7 +60,7 @@ export async function orchestrate(request: ScanRequest): Promise<OrchestrateResu
 
   // 建構檔案內容對照表供 Analysis Agent 使用
   const fileContents: FileContentMap = new Map()
-  for (const file of request.files) {
+  for (const file of changedFiles) {
     fileContents.set(file.path, { content: file.content, language: file.language })
   }
 
@@ -60,7 +73,23 @@ export async function orchestrate(request: ScanRequest): Promise<OrchestrateResu
   // 冪等存儲
   await upsertVulnerabilities(vulns)
 
+  // 標記已分析的檔案
+  for (const file of changedFiles) {
+    const hash = computeContentHash(file.content)
+    fileAnalysisCache.set(`${file.path}:${hash}`, true)
+  }
+
   return { vulnerabilities: vulns, summary: buildSummary(vulns, request.files) }
+}
+
+/**
+ * 增量分析：過濾掉內容未變更的檔案（快取命中 = 已分析過相同內容）。
+ */
+function filterChangedFiles(files: ScanRequest['files']): ScanRequest['files'] {
+  return files.filter((f) => {
+    const hash = computeContentHash(f.content)
+    return !fileAnalysisCache.has(`${f.path}:${hash}`)
+  })
 }
 
 /**
