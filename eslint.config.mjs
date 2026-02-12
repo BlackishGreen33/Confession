@@ -43,6 +43,11 @@ const eslintConfig = [
         React: 'readonly',
         JSX: 'readonly',
         WebAssembly: 'readonly',
+        fetch: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
+        URL: 'readonly',
       },
     },
     plugins: {
