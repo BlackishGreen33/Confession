@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useConfig, useUpdateConfig } from '@/hooks/use-config'
+import { useConfig, useConfigQuery, useSaveConfig, useUpdateConfig } from '@/hooks/use-config'
 import { useExtensionBridge } from '@/hooks/use-extension-bridge'
 import type { PluginConfig } from '@/libs/types'
 
@@ -334,13 +334,20 @@ export const SettingsPanel: React.FC = () => {
   const { sendConfigToExtension } = useExtensionBridge()
   const [saved, setSaved] = useState(false)
 
+  // 掛載時從後端載入配置
+  useConfigQuery()
+
+  const saveConfig = useSaveConfig()
+
   const handleSave = useCallback(() => {
-    // 將目前配置寫回 VS Code settings.json（若在 webview 內）
+    // 寫入後端資料庫
+    saveConfig.mutate(config)
+    // 同步到 VS Code settings.json（若在 webview 內）
     sendConfigToExtension(config)
     setSaved(true)
     const timer = setTimeout(() => setSaved(false), 2000)
     return () => clearTimeout(timer)
-  }, [config, sendConfigToExtension])
+  }, [config, saveConfig, sendConfigToExtension])
 
   const handleLlmChange = useCallback(
     (llm: Partial<PluginConfig['llm']>) => updateConfig({ llm }),
@@ -370,9 +377,9 @@ export const SettingsPanel: React.FC = () => {
       <ApiSection api={config.api} onChange={handleApiChange} />
 
       <div className="flex items-center gap-3">
-        <Button onClick={handleSave}>
+        <Button onClick={handleSave} disabled={saveConfig.isPending}>
           <Save className="h-4 w-4" />
-          {saved ? '已儲存' : '儲存設定'}
+          {saveConfig.isPending ? '儲存中…' : saved ? '已儲存' : '儲存設定'}
         </Button>
         {saved && <span className="text-safe text-sm">設定已更新</span>}
       </div>

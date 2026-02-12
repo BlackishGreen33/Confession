@@ -59,3 +59,12 @@ model ScanTask {
 
   @@map("scan_tasks")
 }
+
+/// 單列配置表（singleton），id 固定為 "default"
+model Config {
+  id        String   @id @default("default")
+  data      String   // JSON 序列化的 PluginConfig
+  updatedAt DateTime @updatedAt
+
+  @@map("configs")
+}
