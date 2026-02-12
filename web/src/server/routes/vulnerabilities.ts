@@ -68,6 +68,45 @@ vulnerabilityRoutes.get('/', zValidator('query', listQuerySchema), async (c) => 
 })
 
 /**
+ * GET /api/vulnerabilities/trend — 歷史趨勢（依日期聚合，累計值）
+ */
+vulnerabilityRoutes.get('/trend', async (c) => {
+  const rows = await prisma.vulnerability.findMany({
+    select: { createdAt: true, status: true },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  // 依日期聚合
+  const map = new Map<string, { total: number; open: number; fixed: number; ignored: number }>()
+
+  for (const r of rows) {
+    const date = r.createdAt.toISOString().slice(0, 10)
+    const entry = map.get(date) ?? { total: 0, open: 0, fixed: 0, ignored: 0 }
+    entry.total += 1
+    if (r.status === 'open') entry.open += 1
+    else if (r.status === 'fixed') entry.fixed += 1
+    else if (r.status === 'ignored') entry.ignored += 1
+    map.set(date, entry)
+  }
+
+  // 轉為累計趨勢
+  let cumTotal = 0
+  let cumOpen = 0
+  let cumFixed = 0
+  let cumIgnored = 0
+
+  const trend = [...map.entries()].map(([date, counts]) => {
+    cumTotal += counts.total
+    cumOpen += counts.open
+    cumFixed += counts.fixed
+    cumIgnored += counts.ignored
+    return { date, total: cumTotal, open: cumOpen, fixed: cumFixed, ignored: cumIgnored }
+  })
+
+  return c.json(trend)
+})
+
+/**
  * GET /api/vulnerabilities/stats — 統計數據
  */
 vulnerabilityRoutes.get('/stats', async (c) => {

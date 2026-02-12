@@ -1,6 +1,6 @@
 @import 'tailwindcss';
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -43,75 +43,153 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 漏洞嚴重等級語義色 */
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-high: var(--severity-high);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-low: var(--severity-low);
+  --color-severity-info: var(--severity-info);
+  --color-safe: var(--safe);
 }
 
+/*
+ * 安全審計風格配色 — Light Mode
+ * 基調：冷灰藍，專業沉穩，搭配語義化嚴重等級色
+ * primary: 深靛藍（信任、專業）
+ * destructive: 紅色（危險操作）
+ * chart 色對應嚴重等級：critical → high → medium → low → info
+ */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  /* 基底 — 冷白灰 */
+  --background: oklch(0.98 0.005 250);
+  --foreground: oklch(0.15 0.015 260);
+
+  /* 卡片 */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.15 0.015 260);
+
+  /* 彈出層 */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.15 0.015 260);
+
+  /* 主色 — 深靛藍 */
+  --primary: oklch(0.35 0.1 260);
+  --primary-foreground: oklch(0.98 0.005 250);
+
+  /* 次要 — 淡藍灰 */
+  --secondary: oklch(0.95 0.01 250);
+  --secondary-foreground: oklch(0.25 0.02 260);
+
+  /* 靜音 */
+  --muted: oklch(0.94 0.008 250);
+  --muted-foreground: oklch(0.5 0.02 260);
+
+  /* 強調 — 青藍 */
+  --accent: oklch(0.93 0.015 240);
+  --accent-foreground: oklch(0.2 0.03 260);
+
+  /* 危險 — 紅 */
+  --destructive: oklch(0.55 0.22 25);
+
+  /* 邊框 / 輸入 / 焦點環 */
+  --border: oklch(0.9 0.01 250);
+  --input: oklch(0.9 0.01 250);
+  --ring: oklch(0.45 0.12 260);
+
+  /* 圖表色 — 對應嚴重等級 */
+  --chart-1: oklch(0.55 0.22 25);
+  --chart-2: oklch(0.6 0.2 40);
+  --chart-3: oklch(0.7 0.16 75);
+  --chart-4: oklch(0.65 0.14 230);
+  --chart-5: oklch(0.6 0.1 260);
+
+  /* 側邊欄 */
+  --sidebar: oklch(0.97 0.008 250);
+  --sidebar-foreground: oklch(0.15 0.015 260);
+  --sidebar-primary: oklch(0.35 0.1 260);
+  --sidebar-primary-foreground: oklch(0.98 0.005 250);
+  --sidebar-accent: oklch(0.93 0.015 240);
+  --sidebar-accent-foreground: oklch(0.2 0.03 260);
+  --sidebar-border: oklch(0.9 0.01 250);
+  --sidebar-ring: oklch(0.45 0.12 260);
+
+  /* 嚴重等級語義色 */
+  --severity-critical: oklch(0.55 0.22 25);
+  --severity-high: oklch(0.6 0.2 40);
+  --severity-medium: oklch(0.7 0.16 75);
+  --severity-low: oklch(0.65 0.14 230);
+  --severity-info: oklch(0.6 0.1 260);
+  --safe: oklch(0.6 0.17 155);
 }
 
+/*
+ * 安全審計風格配色 — Dark Mode
+ * 基調：深藍黑，低對比邊框，高對比文字
+ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  /* 基底 — 深藍黑 */
+  --background: oklch(0.14 0.015 260);
+  --foreground: oklch(0.95 0.005 250);
+
+  /* 卡片 — 略亮於背景 */
+  --card: oklch(0.19 0.018 260);
+  --card-foreground: oklch(0.95 0.005 250);
+
+  /* 彈出層 */
+  --popover: oklch(0.19 0.018 260);
+  --popover-foreground: oklch(0.95 0.005 250);
+
+  /* 主色 — 亮靛藍 */
+  --primary: oklch(0.7 0.14 260);
+  --primary-foreground: oklch(0.14 0.015 260);
+
+  /* 次要 */
+  --secondary: oklch(0.24 0.02 260);
+  --secondary-foreground: oklch(0.95 0.005 250);
+
+  /* 靜音 */
+  --muted: oklch(0.24 0.02 260);
+  --muted-foreground: oklch(0.65 0.02 260);
+
+  /* 強調 */
+  --accent: oklch(0.24 0.025 240);
+  --accent-foreground: oklch(0.95 0.005 250);
+
+  /* 危險 */
+  --destructive: oklch(0.65 0.2 25);
+
+  /* 邊框 / 輸入 / 焦點環 */
+  --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --ring: oklch(0.55 0.12 260);
+
+  /* 圖表色 — 暗色模式下稍亮 */
+  --chart-1: oklch(0.65 0.22 25);
+  --chart-2: oklch(0.68 0.2 40);
+  --chart-3: oklch(0.75 0.16 75);
+  --chart-4: oklch(0.7 0.14 230);
+  --chart-5: oklch(0.65 0.12 260);
+
+  /* 側邊欄 */
+  --sidebar: oklch(0.17 0.018 260);
+  --sidebar-foreground: oklch(0.95 0.005 250);
+  --sidebar-primary: oklch(0.7 0.14 260);
+  --sidebar-primary-foreground: oklch(0.14 0.015 260);
+  --sidebar-accent: oklch(0.24 0.025 240);
+  --sidebar-accent-foreground: oklch(0.95 0.005 250);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.55 0.12 260);
+
+  /* 嚴重等級語義色 — 暗色模式下稍亮 */
+  --severity-critical: oklch(0.65 0.22 25);
+  --severity-high: oklch(0.68 0.2 40);
+  --severity-medium: oklch(0.75 0.16 75);
+  --severity-low: oklch(0.7 0.14 230);
+  --severity-info: oklch(0.65 0.12 260);
+  --safe: oklch(0.65 0.17 155);
 }
 
 @layer base {

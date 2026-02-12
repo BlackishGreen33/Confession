@@ -1,0 +1,49 @@
+'use client'
+
+import { atom } from 'jotai'
+
+import type { PluginConfig, Vulnerability } from './types'
+
+// === 漏洞相關 ===
+
+/** 當前選中的漏洞 ID */
+export const selectedVulnIdAtom = atom<string | null>(null)
+
+/** 漏洞列表篩選條件 */
+export const vulnFiltersAtom = atom<{
+  status?: Vulnerability['status']
+  severity?: Vulnerability['severity']
+  search: string
+}>({ search: '' })
+
+// === 掃描相關 ===
+
+/** 掃描進度狀態 */
+export const scanStatusAtom = atom<{
+  isScanning: boolean
+  progress: number
+  message: string
+}>({ isScanning: false, progress: 0, message: '' })
+
+// === 配置相關 ===
+
+/** 插件配置（預設值） */
+export const configAtom = atom<PluginConfig>({
+  llm: {
+    provider: 'gemini',
+    apiKey: '',
+  },
+  analysis: {
+    triggerMode: 'onSave',
+    depth: 'standard',
+    debounceMs: 500,
+  },
+  ignore: {
+    paths: [],
+    types: [],
+  },
+  api: {
+    baseUrl: 'http://localhost:3000',
+    mode: 'local',
+  },
+})

@@ -2,11 +2,12 @@ import './globals.css';
 
 import type { Metadata } from 'next';
 
+import { NavBar } from '@/components/nav-bar';
 import { Providers } from '@/providers';
 
 export const metadata: Metadata = {
-  title: 'Confession - Code Vulnerability Scanner',
-  description: 'Code vulnerability detection and remediation dashboard',
+  title: 'Confession — 薄暮靜析的告解詩',
+  description: '靜態程式碼漏洞檢測與修復儀表盤',
 };
 
 export default function RootLayout({
@@ -15,9 +16,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-Hant" suppressHydrationWarning>
       <body className="antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          <NavBar />
+          {children}
+        </Providers>
       </body>
     </html>
   );
