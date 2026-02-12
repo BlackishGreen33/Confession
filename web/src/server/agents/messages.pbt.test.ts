@@ -58,8 +58,8 @@ describe('P4: Agent 消息序列化往返', () => {
     humanComment: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
     owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
     status: fc.constantFrom('open', 'fixed', 'ignored') as fc.Arbitrary<Vulnerability['status']>,
-    createdAt: fc.date().map((d) => d.toISOString()),
-    updatedAt: fc.date().map((d) => d.toISOString()),
+    createdAt: fc.integer({ min: 946684800000, max: 4102444800000 }).map((ts) => new Date(ts).toISOString()),
+    updatedAt: fc.integer({ min: 946684800000, max: 4102444800000 }).map((ts) => new Date(ts).toISOString()),
   })
 
   const scanRequestArb: fc.Arbitrary<ScanRequest> = fc.record({

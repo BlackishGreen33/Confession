@@ -12,7 +12,7 @@ import {
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setResult } from './status-bar'
 import type { PluginConfig } from './types'
-import { openDashboardPanel, sendConfigUpdate, sendScanProgress, sendVulnerabilities, setGetConfigFn } from './webview'
+import { registerDashboardProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 輸出頻道，用於記錄插件日誌 */
 let outputChannel: vscode.OutputChannel
@@ -53,8 +53,8 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`API 模式: ${pluginConfig.api.mode} (${pluginConfig.api.baseUrl})`)
   outputChannel.appendLine(`分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}`)
 
-  // --- 注入配置回呼供 webview 使用 ---
-  setGetConfigFn(getPluginConfig)
+  // --- 註冊側邊欄 Webview Provider ---
+  registerDashboardProvider(context, getPluginConfig)
 
   // --- 註冊指令 ---
   context.subscriptions.push(
@@ -67,10 +67,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('codeVuln.openDashboard', () => {
-      outputChannel.appendLine('打開安全儀表盤')
-      openDashboardPanel(context)
-      // 開啟儀表盤後推送目前配置
-      sendConfigUpdate(getPluginConfig())
+      outputChannel.appendLine('聚焦側邊欄安全儀表盤')
+      vscode.commands.executeCommand('confession.dashboard.focus')
     }),
 
     vscode.commands.registerCommand('codeVuln.ignoreVulnerability', (vulnId: string) => {

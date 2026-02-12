@@ -4,69 +4,79 @@ import { generateMonitoringCode } from './monitoring'
 import { fetchVulnerabilityById } from './scan-client'
 import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
 
-/** 單例 Webview Panel 參考 */
-let panel: vscode.WebviewPanel | undefined
+/** 模組層級 Provider 參考，供匯出函數使用 */
+let providerInstance: ConfessionViewProvider | undefined
 
-/** 訊息監聽器清理函數 */
-let messageDisposable: vscode.Disposable | undefined
+/** 側邊欄 Webview 視圖 Provider */
+class ConfessionViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'confession.dashboard'
 
-/** 取得目前配置的回呼（由 activate 注入） */
-let getConfigFn: (() => PluginConfig) | undefined
+  private view?: vscode.WebviewView
+  private readonly getConfig: () => PluginConfig
 
-/** 注入取得配置的回呼 */
-export function setGetConfigFn(fn: () => PluginConfig): void {
-  getConfigFn = fn
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    getConfig: () => PluginConfig,
+  ) {
+    this.getConfig = getConfig
+  }
+
+  /** VS Code 在視圖首次可見時呼叫 */
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken,
+  ): void {
+    this.view = webviewView
+
+    webviewView.webview.options = {
+      enableScripts: true,
+    }
+
+    const baseUrl = this.getConfig().api.baseUrl
+    webviewView.webview.html = buildHtml(baseUrl)
+
+    // 監聽 Webview → Extension 訊息
+    webviewView.webview.onDidReceiveMessage((msg: WebToExtMsg) => {
+      handleWebviewMessage(msg, this.getConfig)
+    })
+
+    // 視圖可見性變更時推送目前配置
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.postMessage({ type: 'config_updated', data: this.getConfig() })
+      }
+    })
+  }
+
+  /** 向 Webview 發送訊息 */
+  postMessage(message: ExtToWebMsg): void {
+    this.view?.webview.postMessage(message)
+  }
 }
 
 /**
- * 取得或建立 Webview Panel
+ * 建立並註冊 Provider，回傳實例供其他模組使用
  */
-export function openDashboardPanel(context: vscode.ExtensionContext): vscode.WebviewPanel {
-  if (panel) {
-    panel.reveal(vscode.ViewColumn.Beside)
-    return panel
-  }
-
-  panel = vscode.window.createWebviewPanel(
-    'confession.dashboard',
-    'Confession — Security Dashboard',
-    vscode.ViewColumn.Beside,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [],
-    },
+export function registerDashboardProvider(
+  context: vscode.ExtensionContext,
+  getConfig: () => PluginConfig,
+): ConfessionViewProvider {
+  const provider = new ConfessionViewProvider(context.extensionUri, getConfig)
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(ConfessionViewProvider.viewType, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
   )
-
-  const baseUrl = vscode.workspace
-    .getConfiguration('confession')
-    .get<string>('api.baseUrl', 'http://localhost:3000')
-
-  panel.webview.html = buildHtml(baseUrl)
-
-  // 監聽 Webview → Extension 訊息
-  messageDisposable = panel.webview.onDidReceiveMessage((msg: WebToExtMsg) => {
-    handleWebviewMessage(msg)
-  })
-  context.subscriptions.push(messageDisposable)
-
-  // Panel 關閉時清理
-  panel.onDidDispose(() => {
-    panel = undefined
-    messageDisposable?.dispose()
-    messageDisposable = undefined
-  })
-
-  context.subscriptions.push(panel)
-
-  return panel
+  providerInstance = provider
+  return provider
 }
 
 /**
  * 向 Webview 發送訊息
  */
 export function postMessageToWebview(message: ExtToWebMsg): void {
-  panel?.webview.postMessage(message)
+  providerInstance?.postMessage(message)
 }
 
 /**
@@ -90,16 +100,9 @@ export function sendConfigUpdate(config: PluginConfig): void {
   postMessageToWebview({ type: 'config_updated', data: config })
 }
 
-/**
- * 取得目前 Panel（可能為 undefined）
- */
-export function getPanel(): vscode.WebviewPanel | undefined {
-  return panel
-}
-
 // === 內部：處理 Webview 傳來的訊息 ===
 
-function handleWebviewMessage(msg: WebToExtMsg): void {
+function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): void {
   switch (msg.type) {
     case 'request_scan':
       if (msg.data.scope === 'file') {
@@ -133,9 +136,7 @@ function handleWebviewMessage(msg: WebToExtMsg): void {
       break
 
     case 'request_config':
-      if (getConfigFn) {
-        sendConfigUpdate(getConfigFn())
-      }
+      sendConfigUpdate(getConfig())
       break
   }
 }
@@ -214,7 +215,7 @@ async function applyVulnerabilityFix(vulnId: string): Promise<void> {
 
 // === 內部：產生 Webview HTML ===
 
-function buildHtml(baseUrl: string): string {
+export function buildHtml(baseUrl: string): string {
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -224,27 +225,63 @@ function buildHtml(baseUrl: string): string {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, iframe { width: 100%; height: 100vh; border: none; overflow: hidden; }
-    .loading {
-      display: flex; align-items: center; justify-content: center;
+    .loading, .error {
+      display: flex; align-items: center; justify-content: center; flex-direction: column;
       height: 100vh; font-family: system-ui, sans-serif;
       color: var(--vscode-foreground); background: var(--vscode-editor-background);
     }
+    .error { display: none; gap: 12px; }
+    .error-message { text-align: center; line-height: 1.5; }
+    .retry-button {
+      padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer;
+      background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+      font-size: 13px; font-family: system-ui, sans-serif;
+    }
+    .retry-button:hover { background: var(--vscode-button-hoverBackground); }
   </style>
 </head>
 <body>
   <div class="loading" id="loading">載入安全儀表盤中…</div>
+  <div class="error" id="error">
+    <div class="error-message">無法載入安全儀表盤，請確認服務是否已啟動。</div>
+    <button class="retry-button" id="retryBtn">重試</button>
+  </div>
   <iframe id="app" src="${baseUrl}" style="display:none;"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
       const iframe = document.getElementById('app');
       const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+      const retryBtn = document.getElementById('retryBtn');
+
+      /** 顯示錯誤狀態並隱藏載入提示與 iframe */
+      function showError() {
+        loading.style.display = 'none';
+        iframe.style.display = 'none';
+        error.style.display = 'flex';
+      }
+
+      /** 重試載入：重設 iframe src 並恢復載入提示 */
+      function retryLoad() {
+        error.style.display = 'none';
+        iframe.style.display = 'none';
+        loading.style.display = 'flex';
+        iframe.src = '${baseUrl}';
+      }
 
       // iframe 載入完成後顯示
       iframe.addEventListener('load', () => {
         loading.style.display = 'none';
+        error.style.display = 'none';
         iframe.style.display = 'block';
       });
+
+      // iframe 載入失敗時顯示錯誤訊息與重試按鈕
+      iframe.addEventListener('error', showError);
+
+      // 重試按鈕點擊事件
+      retryBtn.addEventListener('click', retryLoad);
 
       // Extension → Webview → iframe（轉發）
       window.addEventListener('message', (event) => {
@@ -265,3 +302,4 @@ function buildHtml(baseUrl: string): string {
 </body>
 </html>`
 }
+

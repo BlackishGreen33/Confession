@@ -24,17 +24,33 @@
     "commands": [
       {
         "command": "codeVuln.scanFile",
-        "title": "Confession: Scan Current File"
+        "title": "Confession: Scan Current File",
+        "icon": "$(file-code)"
       },
       {
         "command": "codeVuln.scanWorkspace",
-        "title": "Confession: Scan Workspace"
+        "title": "Confession: Scan Workspace",
+        "icon": "$(search)"
       },
       {
         "command": "codeVuln.openDashboard",
         "title": "Confession: Open Security Dashboard"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codeVuln.scanFile",
+          "when": "view == confession.dashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "codeVuln.scanWorkspace",
+          "when": "view == confession.dashboard",
+          "group": "navigation"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -111,13 +127,17 @@
         },
         "confession.ignore.paths": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "File path patterns to exclude from analysis"
         },
         "confession.ignore.types": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Vulnerability types to ignore"
         }
@@ -128,10 +148,13 @@
     "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
     "dev": "pnpm build --watch",
     "lint": "eslint src/",
+    "test": "vitest run",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "fast-check": "^4.5.3",
+    "vitest": "^4.0.18"
   }
 }
