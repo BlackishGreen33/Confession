@@ -12,7 +12,7 @@ import {
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setResult } from './status-bar'
 import type { PluginConfig } from './types'
-import { registerDashboardProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
+import { registerViewProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 輸出頻道，用於記錄插件日誌 */
 let outputChannel: vscode.OutputChannel
@@ -53,8 +53,16 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`API 模式: ${pluginConfig.api.mode} (${pluginConfig.api.baseUrl})`)
   outputChannel.appendLine(`分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}`)
 
-  // --- 註冊側邊欄 Webview Provider ---
-  registerDashboardProvider(context, getPluginConfig)
+  // --- 註冊三個側邊欄 Webview View Provider ---
+  const viewRoutes = [
+    { viewId: 'confession.dashboard', route: '/' },
+    { viewId: 'confession.vulnerabilities', route: '/vulnerabilities' },
+    { viewId: 'confession.settings', route: '/settings' },
+  ] as const
+
+  for (const { viewId, route } of viewRoutes) {
+    registerViewProvider(context, viewId, getPluginConfig, route)
+  }
 
   // --- 註冊指令 ---
   context.subscriptions.push(
@@ -69,6 +77,18 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('codeVuln.openDashboard', () => {
       outputChannel.appendLine('聚焦側邊欄安全儀表盤')
       vscode.commands.executeCommand('confession.dashboard.focus')
+    }),
+
+    vscode.commands.registerCommand('codeVuln.showDashboard', () => {
+      vscode.commands.executeCommand('confession.dashboard.focus')
+    }),
+
+    vscode.commands.registerCommand('codeVuln.showVulnerabilities', () => {
+      vscode.commands.executeCommand('confession.vulnerabilities.focus')
+    }),
+
+    vscode.commands.registerCommand('codeVuln.showSettings', () => {
+      vscode.commands.executeCommand('confession.settings.focus')
     }),
 
     vscode.commands.registerCommand('codeVuln.ignoreVulnerability', (vulnId: string) => {

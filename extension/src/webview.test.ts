@@ -19,21 +19,26 @@ import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './ty
 import { buildHtml, postMessageToWebview, registerDashboardProvider, sendConfigUpdate } from './webview'
 
 describe('Feature: sidebar-security-panel, Property 1: iframe URL 注入正確性', () => {
-  it('buildHtml(baseUrl) 產生的 HTML 應包含 iframe 且 src 等於 baseUrl', () => {
+  it('buildHtml(baseUrl, route) 產生的 HTML 應包含 iframe 且 src 等於 baseUrl + route', () => {
+    const routes = ['/', '/vulnerabilities', '/settings'] as const
     fc.assert(
-      fc.property(fc.webUrl(), (baseUrl) => {
-        const html = buildHtml(baseUrl)
+      fc.property(
+        fc.webUrl(),
+        fc.constantFrom(...routes),
+        (baseUrl, route) => {
+          const html = buildHtml(baseUrl, route)
 
-        // 驗證 HTML 包含 iframe 元素且 src 屬性值等於 baseUrl
-        const iframeSrcRegex = /<iframe[^>]*\ssrc="([^"]*)"[^>]*>/
-        const match = html.match(iframeSrcRegex)
+          // 驗證 HTML 包含 iframe 元素且 src 屬性值等於 baseUrl + route
+          const iframeSrcRegex = /<iframe[^>]*\ssrc="([^"]*)"[^>]*>/
+          const match = html.match(iframeSrcRegex)
 
-        // 必須找到 iframe
-        expect(match).not.toBeNull()
+          // 必須找到 iframe
+          expect(match).not.toBeNull()
 
-        // src 屬性值必須等於傳入的 baseUrl
-        expect(match![1]).toBe(baseUrl)
-      }),
+          // src 屬性值必須等於傳入的 baseUrl + route
+          expect(match![1]).toBe(baseUrl + route)
+        },
+      ),
       { numRuns: 100 },
     )
   })

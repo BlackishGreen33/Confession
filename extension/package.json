@@ -35,19 +35,49 @@
       {
         "command": "codeVuln.openDashboard",
         "title": "Confession: Open Security Dashboard"
+      },
+      {
+        "command": "codeVuln.showDashboard",
+        "title": "Confession: 儀表盤",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "codeVuln.showVulnerabilities",
+        "title": "Confession: 漏洞列表",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "codeVuln.showSettings",
+        "title": "Confession: 設定",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
       "view/title": [
         {
+          "command": "codeVuln.showDashboard",
+          "when": "view =~ /^confession\\./",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeVuln.showVulnerabilities",
+          "when": "view =~ /^confession\\./",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeVuln.showSettings",
+          "when": "view =~ /^confession\\./",
+          "group": "navigation@3"
+        },
+        {
           "command": "codeVuln.scanFile",
           "when": "view == confession.dashboard",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "codeVuln.scanWorkspace",
           "when": "view == confession.dashboard",
-          "group": "navigation"
+          "group": "navigation@5"
         }
       ]
     },
@@ -65,7 +95,17 @@
         {
           "type": "webview",
           "id": "confession.dashboard",
-          "name": "Security Dashboard"
+          "name": "儀表盤"
+        },
+        {
+          "type": "webview",
+          "id": "confession.vulnerabilities",
+          "name": "漏洞列表"
+        },
+        {
+          "type": "webview",
+          "id": "confession.settings",
+          "name": "設定"
         }
       ]
     },

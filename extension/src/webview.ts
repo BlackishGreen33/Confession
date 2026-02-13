@@ -4,19 +4,18 @@ import { generateMonitoringCode } from './monitoring'
 import { fetchVulnerabilityById } from './scan-client'
 import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
 
-/** 模組層級 Provider 參考，供匯出函數使用 */
-let providerInstance: ConfessionViewProvider | undefined
+/** 模組層級 Provider 參考（多視圖共用），供匯出函數使用 */
+const providerInstances: ConfessionViewProvider[] = []
 
-/** 側邊欄 Webview 視圖 Provider */
-class ConfessionViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'confession.dashboard'
-
+/** 側邊欄 Webview 視圖 Provider（通用，每個視圖實例持有自己的 route） */
+export class ConfessionViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView
   private readonly getConfig: () => PluginConfig
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     getConfig: () => PluginConfig,
+    private readonly route: string,
   ) {
     this.getConfig = getConfig
   }
@@ -34,9 +33,9 @@ class ConfessionViewProvider implements vscode.WebviewViewProvider {
     }
 
     const baseUrl = this.getConfig().api.baseUrl
-    webviewView.webview.html = buildHtml(baseUrl)
+    webviewView.webview.html = buildHtml(baseUrl, this.route)
 
-    // 監聽 Webview → Extension 訊息
+    // 監聯 Webview → Extension 訊息
     webviewView.webview.onDidReceiveMessage((msg: WebToExtMsg) => {
       handleWebviewMessage(msg, this.getConfig)
     })
@@ -56,27 +55,41 @@ class ConfessionViewProvider implements vscode.WebviewViewProvider {
 }
 
 /**
- * 建立並註冊 Provider，回傳實例供其他模組使用
+ * 註冊單一 View Provider，回傳實例供其他模組使用
+ */
+export function registerViewProvider(
+  context: vscode.ExtensionContext,
+  viewId: string,
+  getConfig: () => PluginConfig,
+  route: string,
+): ConfessionViewProvider {
+  const provider = new ConfessionViewProvider(context.extensionUri, getConfig, route)
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(viewId, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+  )
+  providerInstances.push(provider)
+  return provider
+}
+
+/**
+ * 向後相容：註冊 dashboard provider（route = '/'）
  */
 export function registerDashboardProvider(
   context: vscode.ExtensionContext,
   getConfig: () => PluginConfig,
 ): ConfessionViewProvider {
-  const provider = new ConfessionViewProvider(context.extensionUri, getConfig)
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(ConfessionViewProvider.viewType, provider, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
-  )
-  providerInstance = provider
-  return provider
+  return registerViewProvider(context, 'confession.dashboard', getConfig, '/')
 }
 
 /**
- * 向 Webview 發送訊息
+ * 向所有已註冊的 Webview 發送訊息
  */
 export function postMessageToWebview(message: ExtToWebMsg): void {
-  providerInstance?.postMessage(message)
+  for (const provider of providerInstances) {
+    provider.postMessage(message)
+  }
 }
 
 /**
@@ -138,6 +151,31 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
     case 'request_config':
       sendConfigUpdate(getConfig())
       break
+
+    case 'open_vulnerability_detail':
+      void handleOpenVulnerabilityDetail(msg.data.vulnerabilityId, getConfig)
+      break
+  }
+}
+
+/** 取得漏洞資料並開啟 Editor Panel */
+async function handleOpenVulnerabilityDetail(
+  vulnId: string,
+  getConfig: () => PluginConfig,
+): Promise<void> {
+  const config = getConfig()
+  const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
+
+  try {
+    const vuln = await fetchVulnerabilityById(baseUrl, vulnId)
+    if (!vuln) {
+      vscode.window.showErrorMessage('Confession: 找不到漏洞記錄')
+      return
+    }
+    openVulnerabilityDetail(vuln, baseUrl, getConfig)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    vscode.window.showErrorMessage(`Confession: 開啟漏洞詳情失敗 — ${msg}`)
   }
 }
 
@@ -213,9 +251,107 @@ async function applyVulnerabilityFix(vulnId: string): Promise<void> {
   }
 }
 
-// === 內部：產生 Webview HTML ===
+// === 漏洞詳情 Editor Panel ===
 
-export function buildHtml(baseUrl: string): string {
+/** 模組層級 detailPanel 參考，重複呼叫時 reveal 現有 panel */
+let detailPanel: vscode.WebviewPanel | undefined
+
+/**
+ * 在編輯器區域開啟漏洞詳情 Panel
+ * 若 panel 已存在則 reveal 並更新內容
+ */
+export function openVulnerabilityDetail(
+  vuln: Vulnerability,
+  baseUrl: string,
+  getConfig: () => PluginConfig,
+): void {
+  if (detailPanel) {
+    detailPanel.reveal(vscode.ViewColumn.One)
+  } else {
+    detailPanel = vscode.window.createWebviewPanel(
+      'confession.vulnerabilityDetail',
+      `漏洞詳情: ${vuln.cweId ?? vuln.type}`,
+      vscode.ViewColumn.One,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+    detailPanel.onDidDispose(() => {
+      detailPanel = undefined
+    })
+
+    // 監聽 Editor Panel → Extension 訊息
+    detailPanel.webview.onDidReceiveMessage((msg: WebToExtMsg) => {
+      handleWebviewMessage(msg, getConfig)
+    })
+  }
+
+  detailPanel.title = `漏洞詳情: ${vuln.cweId ?? vuln.type}`
+  detailPanel.webview.html = buildDetailHtml(baseUrl, vuln.id)
+
+  // 傳送漏洞資料至 Editor Panel
+  detailPanel.webview.postMessage({
+    type: 'vulnerability_detail_data',
+    data: vuln,
+  } satisfies ExtToWebMsg)
+}
+
+/**
+ * 產生漏洞詳情 Editor Panel 的 HTML
+ */
+export function buildDetailHtml(baseUrl: string, vulnId: string): string {
+  const iframeSrc = `${baseUrl}/vulnerability-detail?id=${vulnId}`
+  return /* html */ `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>漏洞詳情</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, iframe { width: 100%; height: 100vh; border: none; overflow: hidden; }
+    .loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100vh; font-family: system-ui, sans-serif;
+      color: var(--vscode-foreground); background: var(--vscode-editor-background);
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">載入漏洞詳情中…</div>
+  <iframe id="app" src="${iframeSrc}" style="display:none;"></iframe>
+  <script>
+    (function () {
+      const vscode = acquireVsCodeApi();
+      const iframe = document.getElementById('app');
+      const loading = document.getElementById('loading');
+
+      iframe.addEventListener('load', () => {
+        loading.style.display = 'none';
+        iframe.style.display = 'block';
+      });
+
+      // Extension → Panel → iframe（轉發）
+      window.addEventListener('message', (event) => {
+        if (event.data && event.data.type && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(event.data, '*');
+        }
+      });
+
+      // iframe → Panel → Extension（轉發）
+      window.addEventListener('message', (event) => {
+        if (event.source === iframe.contentWindow && event.data && event.data.type) {
+          vscode.postMessage(event.data);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>`
+}
+
+// === 內部：產生 Sidebar Webview HTML ===
+
+export function buildHtml(baseUrl: string, route: string): string {
+  const iframeSrc = baseUrl + route
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -246,7 +382,7 @@ export function buildHtml(baseUrl: string): string {
     <div class="error-message">無法載入安全儀表盤，請確認服務是否已啟動。</div>
     <button class="retry-button" id="retryBtn">重試</button>
   </div>
-  <iframe id="app" src="${baseUrl}" style="display:none;"></iframe>
+  <iframe id="app" src="${iframeSrc}" style="display:none;"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
@@ -254,6 +390,7 @@ export function buildHtml(baseUrl: string): string {
       const loading = document.getElementById('loading');
       const error = document.getElementById('error');
       const retryBtn = document.getElementById('retryBtn');
+      const iframeSrc = '${iframeSrc}';
 
       /** 顯示錯誤狀態並隱藏載入提示與 iframe */
       function showError() {
@@ -267,7 +404,7 @@ export function buildHtml(baseUrl: string): string {
         error.style.display = 'none';
         iframe.style.display = 'none';
         loading.style.display = 'flex';
-        iframe.src = '${baseUrl}';
+        iframe.src = iframeSrc;
       }
 
       // iframe 載入完成後顯示
