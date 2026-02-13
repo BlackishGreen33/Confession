@@ -59,6 +59,8 @@ export type ExtToWebMsg =
   | { type: 'vulnerabilities_updated'; data: Vulnerability[] }
   | { type: 'scan_progress'; data: { status: string; progress: number } }
   | { type: 'config_updated'; data: PluginConfig }
+  | { type: 'navigate_to_view'; data: { route: string } }
+  | { type: 'vulnerability_detail_data'; data: Vulnerability }
 
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
@@ -67,6 +69,7 @@ export type WebToExtMsg =
   | { type: 'navigate_to_code'; data: { filePath: string; line: number; column: number } }
   | { type: 'update_config'; data: PluginConfig }
   | { type: 'request_config' }
+  | { type: 'open_vulnerability_detail'; data: { vulnerabilityId: string } }
 
 // === 配置（Plugin Config） ===
 
