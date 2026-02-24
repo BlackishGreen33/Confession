@@ -8,6 +8,7 @@ import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { postToExtension } from '@/hooks/use-extension-bridge'
+import { useHealth } from '@/hooks/use-health'
 import { useVulnStats } from '@/hooks/use-vulnerabilities'
 
 import { TrendChart } from './trend-chart'
@@ -201,6 +202,20 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
 const DashboardHeader: React.FC = () => {
   const [isScanMenuOpen, setIsScanMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const { isHealthy, isLoading, isError } = useHealth()
+
+  // 根據健康狀態決定顯示樣式
+  const statusLabel = isLoading ? '檢測中…' : isError ? '連線異常' : isHealthy ? '正常運行' : '服務異常'
+  const statusColor = isLoading
+    ? 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary'
+    : isHealthy
+      ? 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary'
+      : 'border-red-500/30 bg-red-500/10 text-red-400'
+  const dotColor = isLoading
+    ? 'bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]'
+    : isHealthy
+      ? 'bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]'
+      : 'bg-red-500 animate-pulse shadow-[0_0_5px_#F85149]'
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -222,10 +237,10 @@ const DashboardHeader: React.FC = () => {
       <div className="space-y-2">
         <Badge
           variant="outline"
-          className="gap-2 border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary text-[10px] font-black uppercase tracking-[0.2em]"
+          className={`gap-2 ${statusColor} text-[10px] font-black uppercase tracking-[0.2em]`}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]" />
-          系統狀態：正常運行
+          <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+          系統狀態：{statusLabel}
         </Badge>
         <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tighter">
           安全態勢核心{' '}

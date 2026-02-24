@@ -55,29 +55,9 @@
     "menus": {
       "view/title": [
         {
-          "command": "codeVuln.showDashboard",
-          "when": "view =~ /^confession\\./",
-          "group": "navigation@1"
-        },
-        {
-          "command": "codeVuln.showVulnerabilities",
-          "when": "view =~ /^confession\\./",
-          "group": "navigation@2"
-        },
-        {
           "command": "codeVuln.showSettings",
           "when": "view =~ /^confession\\./",
-          "group": "navigation@3"
-        },
-        {
-          "command": "codeVuln.scanFile",
-          "when": "view == confession.dashboard",
-          "group": "navigation@4"
-        },
-        {
-          "command": "codeVuln.scanWorkspace",
-          "when": "view == confession.dashboard",
-          "group": "navigation@5"
+          "group": "navigation@1"
         }
       ]
     },
@@ -85,7 +65,7 @@
       "activitybar": [
         {
           "id": "confession-security",
-          "title": "Security Audit",
+          "title": "Confession",
           "icon": "$(shield)"
         }
       ]
