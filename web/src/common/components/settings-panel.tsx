@@ -16,6 +16,7 @@ import {
 import React, { useCallback, useState } from 'react'
 
 import { GlowButton } from '@/components/glow-button'
+import { StickyActionBar } from '@/components/sticky-action-bar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -475,19 +476,21 @@ export const SettingsPanel: React.FC = () => {
       </div>
 
       {/* 固定底部儲存列 */}
-      <div className="flex items-center justify-between border-t border-border bg-cyber-surface/95 px-4 py-3 backdrop-blur-sm">
-        <SyncIndicator isPending={saveConfig.isPending} saved={saved} />
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={handleReset}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            重置
-          </Button>
-          <GlowButton size="sm" onClick={handleSave} disabled={saveConfig.isPending}>
-            <Save className="h-3.5 w-3.5" />
-            {saveConfig.isPending ? '儲存中…' : '儲存'}
-          </GlowButton>
-        </div>
-      </div>
+      <StickyActionBar
+        left={<SyncIndicator isPending={saveConfig.isPending} saved={saved} />}
+        right={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={handleReset}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              重置
+            </Button>
+            <GlowButton size="sm" onClick={handleSave} disabled={saveConfig.isPending}>
+              <Save className="h-3.5 w-3.5" />
+              {saveConfig.isPending ? '儲存中…' : '儲存'}
+            </GlowButton>
+          </>
+        }
+      />
     </div>
   )
 }
