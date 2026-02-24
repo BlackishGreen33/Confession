@@ -2,7 +2,6 @@ import './globals.css';
 
 import type { Metadata } from 'next';
 
-import { NavBar } from '@/components/nav-bar';
 import { Providers } from '@/providers';
 
 export const metadata: Metadata = {
@@ -16,10 +15,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-Hant" suppressHydrationWarning>
+    <html lang="zh-Hant" className="dark" suppressHydrationWarning>
       <body className="antialiased">
         <Providers>
-          <NavBar />
           {children}
         </Providers>
       </body>

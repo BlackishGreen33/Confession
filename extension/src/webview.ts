@@ -294,6 +294,48 @@ export function openVulnerabilityDetail(
   } satisfies ExtToWebMsg)
 }
 
+// === 設定 Editor Panel ===
+
+/** 模組層級 settingsPanel 參考，重複呼叫時 reveal 現有 panel */
+let settingsPanel: vscode.WebviewPanel | undefined
+
+/**
+ * 在編輯器區域開啟設定 Panel（與代碼分頁並列）
+ * 若 panel 已存在則 reveal
+ */
+export function openSettingsPanel(getConfig: () => PluginConfig): void {
+  const baseUrl = getConfig().api.baseUrl.replace(/\/+$/, '')
+
+  if (settingsPanel) {
+    settingsPanel.reveal(vscode.ViewColumn.One)
+    return
+  }
+
+  settingsPanel = vscode.window.createWebviewPanel(
+    'confession.settings',
+    '設定',
+    vscode.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true },
+  )
+
+  settingsPanel.onDidDispose(() => {
+    settingsPanel = undefined
+  })
+
+  // 監聽 Settings Panel → Extension 訊息
+  settingsPanel.webview.onDidReceiveMessage((msg: WebToExtMsg) => {
+    handleWebviewMessage(msg, getConfig)
+  })
+
+  settingsPanel.webview.html = buildHtml(baseUrl, '/settings')
+
+  // 推送目前配置
+  settingsPanel.webview.postMessage({
+    type: 'config_updated',
+    data: getConfig(),
+  } satisfies ExtToWebMsg)
+}
+
 /**
  * 產生漏洞詳情 Editor Panel 的 HTML
  */

@@ -101,11 +101,6 @@
           "type": "webview",
           "id": "confession.vulnerabilities",
           "name": "漏洞列表"
-        },
-        {
-          "type": "webview",
-          "id": "confession.settings",
-          "name": "設定"
         }
       ]
     },

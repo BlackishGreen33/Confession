@@ -7,21 +7,30 @@ import { VulnerabilityDetail } from '@/components/vulnerability-detail'
 import { VulnerabilityList } from '@/components/vulnerability-list'
 import { selectedVulnIdAtom } from '@/hooks/use-vulnerabilities'
 
-/** 漏洞列表頁：左側列表 + 選中後顯示詳情 */
+/** 漏洞列表頁：左側列表 + 右側詳情（分割面板） */
 const VulnerabilitiesPage: React.FC = () => {
   const [selectedId, setSelectedId] = useAtom(selectedVulnIdAtom)
 
-  const handleBack = useCallback(() => {
+  const handleClose = useCallback(() => {
     setSelectedId(null)
   }, [setSelectedId])
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <h1 className="mb-6 text-2xl font-bold">漏洞列表</h1>
-      {selectedId ? (
-        <VulnerabilityDetail onBack={handleBack} />
-      ) : (
+    <main className="flex h-full bg-cyber-bg">
+      {/* 左側：漏洞列表（始終顯示） */}
+      <div
+        className={`h-full shrink-0 overflow-y-auto p-4 transition-all duration-300 md:p-6 ${
+          selectedId ? 'w-full lg:w-[480px] lg:border-r lg:border-cyber-border' : 'w-full'
+        }`}
+      >
         <VulnerabilityList />
+      </div>
+
+      {/* 右側：漏洞詳情（選中時展開） */}
+      {selectedId && (
+        <div className="hidden h-full min-w-0 flex-1 overflow-y-auto lg:block">
+          <VulnerabilityDetail onBack={handleClose} />
+        </div>
       )}
     </main>
   )

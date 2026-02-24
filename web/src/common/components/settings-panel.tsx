@@ -1,11 +1,23 @@
 'use client'
 
-import { Eye, EyeOff, Plus, Save, Trash2 } from 'lucide-react'
+import {
+  Bot,
+  Eye,
+  EyeOff,
+  Globe,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  ScanLine,
+  ShieldOff,
+  Trash2,
+} from 'lucide-react'
 import React, { useCallback, useState } from 'react'
 
+import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -15,158 +27,166 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConfig, useConfigQuery, useSaveConfig, useUpdateConfig } from '@/hooks/use-config'
 import { useExtensionBridge } from '@/hooks/use-extension-bridge'
 import type { PluginConfig } from '@/libs/types'
 
-// === LLM 配置區塊 ===
+// === 兩欄表單列元件 ===
 
-interface LlmSectionProps {
+interface FormRowProps {
+  label: string
+  description?: string
+  htmlFor?: string
+  children: React.ReactNode
+}
+
+/** 兩欄網格列：左側標籤描述、右側輸入控制項 */
+const FormRow: React.FC<FormRowProps> = ({ label, description, htmlFor, children }) => (
+  <div className="grid grid-cols-[1fr_1.2fr] items-start gap-4 border-b border-border/50 py-4 last:border-b-0">
+    <div className="flex flex-col gap-1">
+      <Label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        {label}
+      </Label>
+      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+    </div>
+    <div>{children}</div>
+  </div>
+)
+
+// === LLM 配置分頁 ===
+
+interface LlmTabProps {
   llm: PluginConfig['llm']
   onChange: (llm: Partial<PluginConfig['llm']>) => void
 }
 
-const LlmSection: React.FC<LlmSectionProps> = ({ llm, onChange }) => {
+const LlmTab: React.FC<LlmTabProps> = ({ llm, onChange }) => {
   const [showKey, setShowKey] = useState(false)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">LLM 配置</CardTitle>
-        <CardDescription>設定大型語言模型的連線資訊</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="llm-provider">提供商</Label>
-          <Select value={llm.provider} onValueChange={(v) => onChange({ provider: v as 'gemini' })}>
-            <SelectTrigger id="llm-provider" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="gemini">Google Gemini</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+    <div className="flex flex-col">
+      <FormRow label="提供商" description="選擇 LLM 服務提供商" htmlFor="llm-provider">
+        <Select value={llm.provider} onValueChange={(v) => onChange({ provider: v as 'gemini' })}>
+          <SelectTrigger id="llm-provider" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="gemini">Google Gemini</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormRow>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="llm-api-key">API Key</Label>
-          <div className="flex gap-2">
-            <Input
-              id="llm-api-key"
-              type={showKey ? 'text' : 'password'}
-              value={llm.apiKey}
-              onChange={(e) => onChange({ apiKey: e.target.value })}
-              placeholder="輸入 API Key…"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => setShowKey((p) => !p)}
-              aria-label={showKey ? '隱藏 API Key' : '顯示 API Key'}
-            >
-              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="llm-endpoint">端點（選填）</Label>
+      <FormRow label="API Key" description="用於驗證 LLM API 請求的金鑰" htmlFor="llm-api-key">
+        <div className="flex gap-2">
           <Input
-            id="llm-endpoint"
-            value={llm.endpoint ?? ''}
-            onChange={(e) => onChange({ endpoint: e.target.value || undefined })}
-            placeholder="https://generativelanguage.googleapis.com/v1beta"
+            id="llm-api-key"
+            type={showKey ? 'text' : 'password'}
+            value={llm.apiKey}
+            onChange={(e) => onChange({ apiKey: e.target.value })}
+            placeholder="輸入 API Key…"
           />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => setShowKey((p) => !p)}
+            aria-label={showKey ? '隱藏 API Key' : '顯示 API Key'}
+          >
+            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
         </div>
+      </FormRow>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="llm-model">模型（選填）</Label>
-          <Input
-            id="llm-model"
-            value={llm.model ?? ''}
-            onChange={(e) => onChange({ model: e.target.value || undefined })}
-            placeholder="gemini-2.5-flash"
-          />
-        </div>
-      </CardContent>
-    </Card>
+      <FormRow label="端點" description="自訂 API 端點 URL（選填）" htmlFor="llm-endpoint">
+        <Input
+          id="llm-endpoint"
+          value={llm.endpoint ?? ''}
+          onChange={(e) => onChange({ endpoint: e.target.value || undefined })}
+          placeholder="https://generativelanguage.googleapis.com/v1beta"
+        />
+      </FormRow>
+
+      <FormRow label="模型" description="指定使用的模型名稱（選填）" htmlFor="llm-model">
+        <Input
+          id="llm-model"
+          value={llm.model ?? ''}
+          onChange={(e) => onChange({ model: e.target.value || undefined })}
+          placeholder="gemini-2.5-flash"
+        />
+      </FormRow>
+    </div>
   )
 }
 
-// === 分析觸發區塊 ===
+// === 分析觸發分頁 ===
 
-interface AnalysisSectionProps {
+interface AnalysisTabProps {
   analysis: PluginConfig['analysis']
   onChange: (analysis: Partial<PluginConfig['analysis']>) => void
 }
 
-const AnalysisSection: React.FC<AnalysisSectionProps> = ({ analysis, onChange }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">分析觸發</CardTitle>
-        <CardDescription>設定漏洞分析的觸發方式與深度</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="trigger-mode">觸發方式</Label>
-          <Select
-            value={analysis.triggerMode}
-            onValueChange={(v) => onChange({ triggerMode: v as PluginConfig['analysis']['triggerMode'] })}
-          >
-            <SelectTrigger id="trigger-mode" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="onSave">儲存時自動分析</SelectItem>
-              <SelectItem value="manual">手動觸發</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+const AnalysisTab: React.FC<AnalysisTabProps> = ({ analysis, onChange }) => (
+  <div className="flex flex-col">
+    <FormRow label="觸發方式" description="設定漏洞分析的觸發時機" htmlFor="trigger-mode">
+      <Select
+        value={analysis.triggerMode}
+        onValueChange={(v) =>
+          onChange({ triggerMode: v as PluginConfig['analysis']['triggerMode'] })
+        }
+      >
+        <SelectTrigger id="trigger-mode" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="onSave">儲存時自動分析</SelectItem>
+          <SelectItem value="manual">手動觸發</SelectItem>
+        </SelectContent>
+      </Select>
+    </FormRow>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="analysis-depth">分析深度</Label>
-          <Select
-            value={analysis.depth}
-            onValueChange={(v) => onChange({ depth: v as PluginConfig['analysis']['depth'] })}
-          >
-            <SelectTrigger id="analysis-depth" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="quick">快速（僅 AST）</SelectItem>
-              <SelectItem value="standard">標準（AST + LLM）</SelectItem>
-              <SelectItem value="deep">深度（AST + LLM 宏觀掃描）</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+    <FormRow label="分析深度" description="控制掃描的精細程度與耗時" htmlFor="analysis-depth">
+      <Select
+        value={analysis.depth}
+        onValueChange={(v) => onChange({ depth: v as PluginConfig['analysis']['depth'] })}
+      >
+        <SelectTrigger id="analysis-depth" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="quick">快速（僅 AST）</SelectItem>
+          <SelectItem value="standard">標準（AST + LLM）</SelectItem>
+          <SelectItem value="deep">深度（AST + LLM 宏觀掃描）</SelectItem>
+        </SelectContent>
+      </Select>
+    </FormRow>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="debounce-ms">Debounce 延遲（毫秒）</Label>
-          <Input
-            id="debounce-ms"
-            type="number"
-            min={100}
-            max={5000}
-            step={100}
-            value={analysis.debounceMs}
-            onChange={(e) => onChange({ debounceMs: Number(e.target.value) || 500 })}
-          />
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
+    <FormRow
+      label="Debounce 延遲"
+      description="儲存後等待多久才觸發分析（毫秒）"
+      htmlFor="debounce-ms"
+    >
+      <Input
+        id="debounce-ms"
+        type="number"
+        min={100}
+        max={5000}
+        step={100}
+        value={analysis.debounceMs}
+        onChange={(e) => onChange({ debounceMs: Number(e.target.value) || 500 })}
+      />
+    </FormRow>
+  </div>
+)
 
-// === 忽略規則區塊 ===
+// === 忽略規則分頁 ===
 
-interface IgnoreSectionProps {
+interface IgnoreTabProps {
   ignore: PluginConfig['ignore']
   onChange: (ignore: Partial<PluginConfig['ignore']>) => void
 }
 
-const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
+const IgnoreTab: React.FC<IgnoreTabProps> = ({ ignore, onChange }) => {
   const [newPath, setNewPath] = useState('')
   const [newType, setNewType] = useState('')
 
@@ -201,15 +221,9 @@ const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
   )
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">忽略規則</CardTitle>
-        <CardDescription>設定不需要分析的檔案路徑與漏洞類型</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {/* 忽略路徑 */}
-        <div className="flex flex-col gap-1.5">
-          <Label>忽略路徑</Label>
+    <div className="flex flex-col">
+      <FormRow label="忽略路徑" description="不需要分析的檔案路徑模式">
+        <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <Input
               value={newPath}
@@ -219,12 +233,18 @@ const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
                 if (e.key === 'Enter') addPath()
               }}
             />
-            <Button type="button" variant="outline" size="icon" onClick={addPath} aria-label="新增忽略路徑">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={addPath}
+              aria-label="新增忽略路徑"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
           {ignore.paths.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
+            <div className="flex flex-wrap gap-1.5">
               {ignore.paths.map((path) => (
                 <Badge key={path} variant="secondary" className="gap-1 font-mono text-xs">
                   {path}
@@ -241,10 +261,10 @@ const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
             </div>
           )}
         </div>
+      </FormRow>
 
-        {/* 忽略漏洞類型 */}
-        <div className="flex flex-col gap-1.5">
-          <Label>忽略漏洞類型</Label>
+      <FormRow label="忽略漏洞類型" description="不需要報告的漏洞類型名稱">
+        <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <Input
               value={newType}
@@ -254,12 +274,18 @@ const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
                 if (e.key === 'Enter') addType()
               }}
             />
-            <Button type="button" variant="outline" size="icon" onClick={addType} aria-label="新增忽略類型">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={addType}
+              aria-label="新增忽略類型"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
           {ignore.types.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
+            <div className="flex flex-wrap gap-1.5">
               {ignore.types.map((type) => (
                 <Badge key={type} variant="secondary" className="gap-1 font-mono text-xs">
                   {type}
@@ -276,57 +302,87 @@ const IgnoreSection: React.FC<IgnoreSectionProps> = ({ ignore, onChange }) => {
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </FormRow>
+    </div>
   )
 }
 
-// === API 地址區塊 ===
+// === API 地址分頁 ===
 
-interface ApiSectionProps {
+interface ApiTabProps {
   api: PluginConfig['api']
   onChange: (api: Partial<PluginConfig['api']>) => void
 }
 
-const ApiSection: React.FC<ApiSectionProps> = ({ api, onChange }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">API 地址</CardTitle>
-        <CardDescription>設定後端 API 的連線模式與位址</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="api-mode">連線模式</Label>
-          <Select
-            value={api.mode}
-            onValueChange={(v) => onChange({ mode: v as PluginConfig['api']['mode'] })}
-          >
-            <SelectTrigger id="api-mode" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="local">本地開發</SelectItem>
-              <SelectItem value="remote">遠端伺服器</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+const ApiTab: React.FC<ApiTabProps> = ({ api, onChange }) => (
+  <div className="flex flex-col">
+    <FormRow label="連線模式" description="選擇本地開發或遠端伺服器" htmlFor="api-mode">
+      <Select
+        value={api.mode}
+        onValueChange={(v) => onChange({ mode: v as PluginConfig['api']['mode'] })}
+      >
+        <SelectTrigger id="api-mode" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="local">本地開發</SelectItem>
+          <SelectItem value="remote">遠端伺服器</SelectItem>
+        </SelectContent>
+      </Select>
+    </FormRow>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="api-base-url">API 基礎 URL</Label>
-          <Input
-            id="api-base-url"
-            value={api.baseUrl}
-            onChange={(e) => onChange({ baseUrl: e.target.value })}
-            placeholder="http://localhost:3000"
-          />
-        </div>
-      </CardContent>
-    </Card>
+    <FormRow label="API 基礎 URL" description="後端 API 的連線位址" htmlFor="api-base-url">
+      <Input
+        id="api-base-url"
+        value={api.baseUrl}
+        onChange={(e) => onChange({ baseUrl: e.target.value })}
+        placeholder="http://localhost:3000"
+      />
+    </FormRow>
+  </div>
+)
+
+// === 同步狀態指示器 ===
+
+interface SyncIndicatorProps {
+  isPending: boolean
+  saved: boolean
+}
+
+const SyncIndicator: React.FC<SyncIndicatorProps> = ({ isPending, saved }) => {
+  if (isPending) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>同步中…</span>
+      </div>
+    )
+  }
+  if (saved) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-safe">
+        <span className="h-2 w-2 rounded-full bg-safe animate-pulse-glow" />
+        <span>已同步</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="h-2 w-2 rounded-full bg-muted-foreground/50" />
+      <span>未儲存</span>
+    </div>
   )
 }
 
 // === 設定面板主元件 ===
+
+/** 預設配置，用於重置 */
+const DEFAULT_CONFIG: PluginConfig = {
+  llm: { provider: 'gemini', apiKey: '' },
+  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
+  ignore: { paths: [], types: [] },
+  api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+}
 
 export const SettingsPanel: React.FC = () => {
   const config = useConfig()
@@ -340,14 +396,16 @@ export const SettingsPanel: React.FC = () => {
   const saveConfig = useSaveConfig()
 
   const handleSave = useCallback(() => {
-    // 寫入後端資料庫
     saveConfig.mutate(config)
-    // 同步到 VS Code settings.json（若在 webview 內）
     sendConfigToExtension(config)
     setSaved(true)
     const timer = setTimeout(() => setSaved(false), 2000)
     return () => clearTimeout(timer)
   }, [config, saveConfig, sendConfigToExtension])
+
+  const handleReset = useCallback(() => {
+    updateConfig(DEFAULT_CONFIG)
+  }, [updateConfig])
 
   const handleLlmChange = useCallback(
     (llm: Partial<PluginConfig['llm']>) => updateConfig({ llm }),
@@ -370,18 +428,65 @@ export const SettingsPanel: React.FC = () => {
   )
 
   return (
-    <div className="flex flex-col gap-6">
-      <LlmSection llm={config.llm} onChange={handleLlmChange} />
-      <AnalysisSection analysis={config.analysis} onChange={handleAnalysisChange} />
-      <IgnoreSection ignore={config.ignore} onChange={handleIgnoreChange} />
-      <ApiSection api={config.api} onChange={handleApiChange} />
+    <div className="relative flex h-full flex-col overflow-hidden">
+      {/* 可捲動內容區 */}
+      <div className="custom-scrollbar flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6 lg:px-8">
+          <h1 className="mb-6 text-2xl font-bold">設定</h1>
 
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={saveConfig.isPending}>
-          <Save className="h-4 w-4" />
-          {saveConfig.isPending ? '儲存中…' : saved ? '已儲存' : '儲存設定'}
-        </Button>
-        {saved && <span className="text-safe text-sm">設定已更新</span>}
+          <Tabs defaultValue="llm">
+            <TabsList
+              className="w-full shrink-0 justify-start gap-1 rounded-lg bg-cyber-surface p-1"
+            >
+              <TabsTrigger value="llm" className="gap-1.5 text-xs">
+                <Bot className="h-3.5 w-3.5" />
+                LLM
+              </TabsTrigger>
+              <TabsTrigger value="analysis" className="gap-1.5 text-xs">
+                <ScanLine className="h-3.5 w-3.5" />
+                觸發
+              </TabsTrigger>
+              <TabsTrigger value="ignore" className="gap-1.5 text-xs">
+                <ShieldOff className="h-3.5 w-3.5" />
+                規則
+              </TabsTrigger>
+              <TabsTrigger value="api" className="gap-1.5 text-xs">
+                <Globe className="h-3.5 w-3.5" />
+                API
+              </TabsTrigger>
+            </TabsList>
+
+            <div className="pb-24">
+              <TabsContent value="llm">
+                <LlmTab llm={config.llm} onChange={handleLlmChange} />
+              </TabsContent>
+              <TabsContent value="analysis">
+                <AnalysisTab analysis={config.analysis} onChange={handleAnalysisChange} />
+              </TabsContent>
+              <TabsContent value="ignore">
+                <IgnoreTab ignore={config.ignore} onChange={handleIgnoreChange} />
+              </TabsContent>
+              <TabsContent value="api">
+                <ApiTab api={config.api} onChange={handleApiChange} />
+              </TabsContent>
+            </div>
+          </Tabs>
+        </div>
+      </div>
+
+      {/* 固定底部儲存列 */}
+      <div className="flex items-center justify-between border-t border-border bg-cyber-surface/95 px-4 py-3 backdrop-blur-sm">
+        <SyncIndicator isPending={saveConfig.isPending} saved={saved} />
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={handleReset}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            重置
+          </Button>
+          <GlowButton size="sm" onClick={handleSave} disabled={saveConfig.isPending}>
+            <Save className="h-3.5 w-3.5" />
+            {saveConfig.isPending ? '儲存中…' : '儲存'}
+          </GlowButton>
+        </div>
       </div>
     </div>
   )

@@ -9,6 +9,10 @@ import type { PluginConfig, Vulnerability } from './types'
 /** 當前選中的漏洞 ID */
 export const selectedVulnIdAtom = atom<string | null>(null)
 
+/** 當前漏洞詳情資料（由 Extension Bridge 透過 postMessage 寫入） */
+export const vulnerabilityDetailAtom = atom<Vulnerability | null>(null)
+
+
 /** 漏洞列表篩選條件 */
 export const vulnFiltersAtom = atom<{
   status?: Vulnerability['status']

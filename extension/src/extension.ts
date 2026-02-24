@@ -12,7 +12,7 @@ import {
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setResult } from './status-bar'
 import type { PluginConfig } from './types'
-import { registerViewProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
+import { openSettingsPanel, registerViewProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 輸出頻道，用於記錄插件日誌 */
 let outputChannel: vscode.OutputChannel
@@ -53,11 +53,10 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`API 模式: ${pluginConfig.api.mode} (${pluginConfig.api.baseUrl})`)
   outputChannel.appendLine(`分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}`)
 
-  // --- 註冊三個側邊欄 Webview View Provider ---
+  // --- 註冊兩個側邊欄 Webview View Provider ---
   const viewRoutes = [
     { viewId: 'confession.dashboard', route: '/' },
     { viewId: 'confession.vulnerabilities', route: '/vulnerabilities' },
-    { viewId: 'confession.settings', route: '/settings' },
   ] as const
 
   for (const { viewId, route } of viewRoutes) {
@@ -88,7 +87,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('codeVuln.showSettings', () => {
-      vscode.commands.executeCommand('confession.settings.focus')
+      openSettingsPanel(getPluginConfig)
     }),
 
     vscode.commands.registerCommand('codeVuln.ignoreVulnerability', (vulnId: string) => {

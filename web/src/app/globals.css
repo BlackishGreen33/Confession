@@ -51,145 +51,146 @@
   --color-severity-low: var(--severity-low);
   --color-severity-info: var(--severity-info);
   --color-safe: var(--safe);
+
+  /* Cyber 主題色（供 Tailwind 使用） */
+  --color-cyber-bg: var(--cyber-bg);
+  --color-cyber-surface: var(--cyber-surface);
+  --color-cyber-surface2: var(--cyber-surface2);
+  --color-cyber-border: var(--cyber-border);
+  --color-cyber-primary: var(--cyber-primary);
+  --color-cyber-text: var(--cyber-text);
+  --color-cyber-textmuted: var(--cyber-textmuted);
+  --color-cyber-accent: var(--cyber-accent);
+
+  /* 動畫 */
+  --animate-slide-in: slide-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-fade-in: fade-in 0.6s ease-out forwards;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-gradient-border: gradient-border 3s linear infinite;
 }
 
 /*
- * 安全審計風格配色 — Light Mode
- * 基調：冷灰藍，專業沉穩，搭配語義化嚴重等級色
- * primary: 深靛藍（信任、專業）
- * destructive: 紅色（危險操作）
- * chart 色對應嚴重等級：critical → high → medium → low → info
+ * Cyber 暗色主題 — 強制為預設
+ * 基調：深藍黑賽博風格，源自 sample-new-fe-design
+ * 所有 cyber 自訂屬性映射至 shadcn/ui CSS 變數
  */
 :root {
   --radius: 0.625rem;
 
-  /* 基底 — 冷白灰 */
-  --background: oklch(0.98 0.005 250);
-  --foreground: oklch(0.15 0.015 260);
+  /* Cyber 主題自訂屬性 */
+  --cyber-bg: #0A0C10;
+  --cyber-surface: #161B22;
+  --cyber-surface2: #21262D;
+  --cyber-border: #30363D;
+  --cyber-primary: #58A6FF;
+  --cyber-text: #E6EDF3;
+  --cyber-textmuted: #8B949E;
+  --cyber-accent: #2EA043;
 
-  /* 卡片 */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.15 0.015 260);
+  /* 映射至 shadcn/ui 變數 — 預設即為 cyber 暗色 */
+  --background: var(--cyber-bg);
+  --foreground: var(--cyber-text);
 
-  /* 彈出層 */
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.15 0.015 260);
+  --card: var(--cyber-surface);
+  --card-foreground: var(--cyber-text);
 
-  /* 主色 — 深靛藍 */
-  --primary: oklch(0.35 0.1 260);
-  --primary-foreground: oklch(0.98 0.005 250);
+  --popover: var(--cyber-surface);
+  --popover-foreground: var(--cyber-text);
 
-  /* 次要 — 淡藍灰 */
-  --secondary: oklch(0.95 0.01 250);
-  --secondary-foreground: oklch(0.25 0.02 260);
+  --primary: var(--cyber-primary);
+  --primary-foreground: var(--cyber-bg);
 
-  /* 靜音 */
-  --muted: oklch(0.94 0.008 250);
-  --muted-foreground: oklch(0.5 0.02 260);
+  --secondary: var(--cyber-surface2);
+  --secondary-foreground: var(--cyber-text);
 
-  /* 強調 — 青藍 */
-  --accent: oklch(0.93 0.015 240);
-  --accent-foreground: oklch(0.2 0.03 260);
+  --muted: var(--cyber-surface2);
+  --muted-foreground: var(--cyber-textmuted);
 
-  /* 危險 — 紅 */
-  --destructive: oklch(0.55 0.22 25);
+  --accent: var(--cyber-accent);
+  --accent-foreground: #ffffff;
 
-  /* 邊框 / 輸入 / 焦點環 */
-  --border: oklch(0.9 0.01 250);
-  --input: oklch(0.9 0.01 250);
-  --ring: oklch(0.45 0.12 260);
+  --destructive: #F85149;
+
+  --border: var(--cyber-border);
+  --input: var(--cyber-border);
+  --ring: var(--cyber-primary);
 
   /* 圖表色 — 對應嚴重等級 */
-  --chart-1: oklch(0.55 0.22 25);
-  --chart-2: oklch(0.6 0.2 40);
-  --chart-3: oklch(0.7 0.16 75);
-  --chart-4: oklch(0.65 0.14 230);
-  --chart-5: oklch(0.6 0.1 260);
+  --chart-1: #F85149;
+  --chart-2: #D29922;
+  --chart-3: #E3B341;
+  --chart-4: var(--cyber-primary);
+  --chart-5: var(--cyber-accent);
 
   /* 側邊欄 */
-  --sidebar: oklch(0.97 0.008 250);
-  --sidebar-foreground: oklch(0.15 0.015 260);
-  --sidebar-primary: oklch(0.35 0.1 260);
-  --sidebar-primary-foreground: oklch(0.98 0.005 250);
-  --sidebar-accent: oklch(0.93 0.015 240);
-  --sidebar-accent-foreground: oklch(0.2 0.03 260);
-  --sidebar-border: oklch(0.9 0.01 250);
-  --sidebar-ring: oklch(0.45 0.12 260);
+  --sidebar: var(--cyber-surface);
+  --sidebar-foreground: var(--cyber-text);
+  --sidebar-primary: var(--cyber-primary);
+  --sidebar-primary-foreground: var(--cyber-bg);
+  --sidebar-accent: var(--cyber-surface2);
+  --sidebar-accent-foreground: var(--cyber-text);
+  --sidebar-border: var(--cyber-border);
+  --sidebar-ring: var(--cyber-primary);
 
   /* 嚴重等級語義色 */
-  --severity-critical: oklch(0.55 0.22 25);
-  --severity-high: oklch(0.6 0.2 40);
-  --severity-medium: oklch(0.7 0.16 75);
-  --severity-low: oklch(0.65 0.14 230);
-  --severity-info: oklch(0.6 0.1 260);
-  --safe: oklch(0.6 0.17 155);
+  --severity-critical: #F85149;
+  --severity-high: #D29922;
+  --severity-medium: #E3B341;
+  --severity-low: var(--cyber-primary);
+  --severity-info: var(--cyber-textmuted);
+  --safe: var(--cyber-accent);
 }
 
-/*
- * 安全審計風格配色 — Dark Mode
- * 基調：深藍黑，低對比邊框，高對比文字
- */
+/* .dark 類別保持相同值，確保 shadcn/ui dark mode 一致 */
 .dark {
-  /* 基底 — 深藍黑 */
-  --background: oklch(0.14 0.015 260);
-  --foreground: oklch(0.95 0.005 250);
+  --background: var(--cyber-bg);
+  --foreground: var(--cyber-text);
 
-  /* 卡片 — 略亮於背景 */
-  --card: oklch(0.19 0.018 260);
-  --card-foreground: oklch(0.95 0.005 250);
+  --card: var(--cyber-surface);
+  --card-foreground: var(--cyber-text);
 
-  /* 彈出層 */
-  --popover: oklch(0.19 0.018 260);
-  --popover-foreground: oklch(0.95 0.005 250);
+  --popover: var(--cyber-surface);
+  --popover-foreground: var(--cyber-text);
 
-  /* 主色 — 亮靛藍 */
-  --primary: oklch(0.7 0.14 260);
-  --primary-foreground: oklch(0.14 0.015 260);
+  --primary: var(--cyber-primary);
+  --primary-foreground: var(--cyber-bg);
 
-  /* 次要 */
-  --secondary: oklch(0.24 0.02 260);
-  --secondary-foreground: oklch(0.95 0.005 250);
+  --secondary: var(--cyber-surface2);
+  --secondary-foreground: var(--cyber-text);
 
-  /* 靜音 */
-  --muted: oklch(0.24 0.02 260);
-  --muted-foreground: oklch(0.65 0.02 260);
+  --muted: var(--cyber-surface2);
+  --muted-foreground: var(--cyber-textmuted);
 
-  /* 強調 */
-  --accent: oklch(0.24 0.025 240);
-  --accent-foreground: oklch(0.95 0.005 250);
+  --accent: var(--cyber-accent);
+  --accent-foreground: #ffffff;
 
-  /* 危險 */
-  --destructive: oklch(0.65 0.2 25);
+  --destructive: #F85149;
 
-  /* 邊框 / 輸入 / 焦點環 */
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.55 0.12 260);
+  --border: var(--cyber-border);
+  --input: var(--cyber-border);
+  --ring: var(--cyber-primary);
 
-  /* 圖表色 — 暗色模式下稍亮 */
-  --chart-1: oklch(0.65 0.22 25);
-  --chart-2: oklch(0.68 0.2 40);
-  --chart-3: oklch(0.75 0.16 75);
-  --chart-4: oklch(0.7 0.14 230);
-  --chart-5: oklch(0.65 0.12 260);
+  --chart-1: #F85149;
+  --chart-2: #D29922;
+  --chart-3: #E3B341;
+  --chart-4: var(--cyber-primary);
+  --chart-5: var(--cyber-accent);
 
-  /* 側邊欄 */
-  --sidebar: oklch(0.17 0.018 260);
-  --sidebar-foreground: oklch(0.95 0.005 250);
-  --sidebar-primary: oklch(0.7 0.14 260);
-  --sidebar-primary-foreground: oklch(0.14 0.015 260);
-  --sidebar-accent: oklch(0.24 0.025 240);
-  --sidebar-accent-foreground: oklch(0.95 0.005 250);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.55 0.12 260);
+  --sidebar: var(--cyber-surface);
+  --sidebar-foreground: var(--cyber-text);
+  --sidebar-primary: var(--cyber-primary);
+  --sidebar-primary-foreground: var(--cyber-bg);
+  --sidebar-accent: var(--cyber-surface2);
+  --sidebar-accent-foreground: var(--cyber-text);
+  --sidebar-border: var(--cyber-border);
+  --sidebar-ring: var(--cyber-primary);
 
-  /* 嚴重等級語義色 — 暗色模式下稍亮 */
-  --severity-critical: oklch(0.65 0.22 25);
-  --severity-high: oklch(0.68 0.2 40);
-  --severity-medium: oklch(0.75 0.16 75);
-  --severity-low: oklch(0.7 0.14 230);
-  --severity-info: oklch(0.65 0.12 260);
-  --safe: oklch(0.65 0.17 155);
+  --severity-critical: #F85149;
+  --severity-high: #D29922;
+  --severity-medium: #E3B341;
+  --severity-low: var(--cyber-primary);
+  --severity-info: var(--cyber-textmuted);
+  --safe: var(--cyber-accent);
 }
 
 @layer base {
@@ -200,3 +201,86 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Cyber 工具類別 */
+
+/* 玻璃面板效果 */
+.glass-panel {
+  backdrop-filter: blur(12px);
+  background: rgba(22, 27, 34, 0.8);
+}
+
+/* 自訂捲軸 */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--cyber-bg);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--cyber-border);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--cyber-primary);
+}
+
+/* 初始隱藏，靠動畫 forwards 顯示 */
+.animate-on-load {
+  opacity: 0;
+}
+
+/* 動畫 keyframes */
+@keyframes slide-in {
+  0% { transform: translateY(15px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 5px rgba(88, 166, 255, 0.4)); }
+  50% { opacity: 0.8; filter: drop-shadow(0 0 15px rgba(88, 166, 255, 0.8)); }
+}
+
+@keyframes gradient-border {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 發光陰影 */
+.glow-shadow {
+  box-shadow: 0 0 15px rgba(88, 166, 255, 0.15), 0 0 30px rgba(88, 166, 255, 0.05);
+}
+
+/* 動畫漸層邊框 */
+.gradient-border {
+  position: relative;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--cyber-primary), var(--cyber-accent), var(--cyber-primary));
+  background-size: 200% 200%;
+  animation: gradient-border 3s linear infinite;
+  z-index: -1;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+}
+
+/* 動畫延遲工具類別 */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
