@@ -36,6 +36,16 @@ export interface TrendDataPoint {
 
 // === Hooks ===
 
+/** 單筆漏洞查詢，30 秒內不重複請求 */
+export function useVulnerability(id: string | null) {
+  return useQuery<Vulnerability>({
+    queryKey: ['vulnerability', id],
+    queryFn: () => deduplicatedGet<Vulnerability>(`/api/vulnerabilities/${id}`),
+    staleTime: 30_000,
+    enabled: !!id,
+  })
+}
+
 /** 漏洞列表查詢（篩選 / 排序 / 分頁），30 秒內不重複請求 */
 export function useVulnerabilities(filters?: Record<string, unknown>) {
   return useQuery<VulnListResponse>({

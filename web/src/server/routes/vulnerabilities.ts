@@ -135,6 +135,18 @@ vulnerabilityRoutes.get('/stats', async (c) => {
 })
 
 /**
+ * GET /api/vulnerabilities/:id — 單筆漏洞詳情
+ */
+vulnerabilityRoutes.get('/:id', async (c) => {
+  const id = c.req.param('id')
+  const vuln = await prisma.vulnerability.findUnique({ where: { id } })
+  if (!vuln) {
+    return c.json({ error: '漏洞不存在' }, 404)
+  }
+  return c.json(serializeVuln(vuln))
+})
+
+/**
  * PATCH /api/vulnerabilities/:id — 更新狀態 / 歸因
  */
 vulnerabilityRoutes.patch('/:id', zValidator('json', patchBodySchema), async (c) => {
