@@ -82,8 +82,8 @@ export const TrendChart: React.FC = () => {
         </p>
       </div>
 
-      {/* 面積圖 */}
-      <div className="flex-1 px-4 min-h-[280px] mt-2">
+      {/* 面積圖：ResponsiveContainer 需要可計算高度，避免圖表高度為 0 */}
+      <div className="px-4 mt-2 h-[280px] sm:h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={trend} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
             <defs>
@@ -177,10 +177,10 @@ export const TrendChart: React.FC = () => {
           <Shield className="size-6 text-cyber-accent" />
           <div>
             <span className="text-[11px] font-black text-white uppercase tracking-widest block">
-              AI 引擎主動防禦中
+              AI 分析採手動觸發
             </span>
             <span className="text-[9px] text-cyber-textmuted font-bold">
-              所有安全節點已通過驗證
+              僅在你主動操作時才會呼叫模型
             </span>
           </div>
         </div>
