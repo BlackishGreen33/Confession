@@ -1,15 +1,17 @@
 'use client'
 
 import { ChevronDown, FileText, FolderOpen, Zap } from 'lucide-react'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 
+import { CyberDropdownMenu } from '@/components/cyber-dropdown-menu'
 import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { postToExtension } from '@/hooks/use-extension-bridge'
 import { useHealth } from '@/hooks/use-health'
 import { useVulnStats } from '@/hooks/use-vulnerabilities'
+import { api } from '@/libs/api-client'
 
 import { TrendChart } from './trend-chart'
 
@@ -201,7 +203,9 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
 
 const DashboardHeader: React.FC = () => {
   const [isScanMenuOpen, setIsScanMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const { isHealthy, isLoading, isError } = useHealth()
 
   // 根據健康狀態決定顯示樣式
@@ -217,19 +221,44 @@ const DashboardHeader: React.FC = () => {
       ? 'bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]'
       : 'bg-red-500 animate-pulse shadow-[0_0_5px_#F85149]'
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsScanMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
   const handleScan = useCallback((scope: 'file' | 'workspace') => {
     postToExtension({ type: 'request_scan', data: { scope } })
     setIsScanMenuOpen(false)
+  }, [])
+
+  const handleExport = useCallback(async (format: 'json' | 'csv') => {
+    setIsExporting(true)
+    setExportError(null)
+
+    try {
+      const response = await api.post('/api/export', { format }, { responseType: 'blob' })
+      const disposition = response.headers['content-disposition'] as string | undefined
+      const matched = disposition?.match(/filename="([^"]+)"/)
+      const now = new Date()
+      const yyyy = now.getFullYear()
+      const mm = String(now.getMonth() + 1).padStart(2, '0')
+      const dd = String(now.getDate()).padStart(2, '0')
+      const hh = String(now.getHours()).padStart(2, '0')
+      const min = String(now.getMinutes()).padStart(2, '0')
+      const ss = String(now.getSeconds()).padStart(2, '0')
+      const fallbackName = `confession-vulnerabilities-${yyyy}${mm}${dd}-${hh}${min}${ss}.${format}`
+      const filename = matched?.[1] ?? fallbackName
+
+      const url = window.URL.createObjectURL(response.data)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+
+      setIsExportMenuOpen(false)
+    } catch {
+      setExportError('匯出失敗，請稍後再試')
+    } finally {
+      setIsExporting(false)
+    }
   }, [])
 
   return (
@@ -250,48 +279,81 @@ const DashboardHeader: React.FC = () => {
         </h1>
       </div>
       <div className="flex gap-3 items-center">
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-[10px] font-black uppercase tracking-widest glass-panel"
-        >
-          匯出報告
-        </Button>
-
-        {/* 掃描按鈕下拉選單 */}
-        <div className="relative" ref={menuRef}>
-          <GlowButton
-            size="sm"
-            className="gap-2 text-[11px]"
-            onClick={() => setIsScanMenuOpen(!isScanMenuOpen)}
-          >
-            <Zap className="size-4" />
-            執行掃描
-            <ChevronDown className="size-3" />
-          </GlowButton>
-
-          {isScanMenuOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-cyber-surface border border-cyber-primary/40 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] z-50 overflow-hidden backdrop-blur-xl animate-slide-in">
-              <div className="absolute top-0 left-0 w-full h-px bg-cyber-primary/40" />
-              <button
-                type="button"
-                onClick={() => handleScan('file')}
-                className="w-full px-5 py-3.5 text-left text-[11px] font-bold text-white hover:bg-cyber-primary/10 hover:text-cyber-primary transition-all flex items-center gap-3 border-b border-cyber-border/50 group cursor-pointer"
+        <div className="relative">
+          <CyberDropdownMenu
+            open={isExportMenuOpen}
+            onOpenChange={(open) => {
+              if (!isExporting) setIsExportMenuOpen(open)
+            }}
+            trigger={
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isExporting}
+                className="text-[10px] font-black uppercase tracking-widest glass-panel"
+                onClick={() => setExportError(null)}
               >
-                <FileText className="size-5 text-cyber-primary opacity-70 group-hover:opacity-100" />
-                <span>掃描當前文件</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleScan('workspace')}
-                className="w-full px-5 py-3.5 text-left text-[11px] font-bold text-white hover:bg-cyber-primary/10 hover:text-cyber-primary transition-all flex items-center gap-3 group cursor-pointer"
-              >
-                <FolderOpen className="size-5 text-cyber-primary opacity-70 group-hover:opacity-100" />
-                <span>掃描整個工作區</span>
-              </button>
-            </div>
+                {isExporting ? '匯出中…' : '匯出報告'}
+                <ChevronDown className="ml-2 size-3" />
+              </Button>
+            }
+            items={[
+              {
+                key: 'json',
+                label: '匯出 JSON',
+                disabled: isExporting,
+                onSelect: () => {
+                  setIsExportMenuOpen(false)
+                  void handleExport('json')
+                },
+              },
+              {
+                key: 'csv',
+                label: '匯出 CSV',
+                disabled: isExporting,
+                onSelect: () => {
+                  setIsExportMenuOpen(false)
+                  void handleExport('csv')
+                },
+              },
+            ]}
+            contentClassName="w-44"
+          />
+          {exportError && (
+            <p className="absolute right-0 mt-2 text-[10px] font-bold text-red-400 whitespace-nowrap">
+              {exportError}
+            </p>
           )}
         </div>
+
+        <CyberDropdownMenu
+          open={isScanMenuOpen}
+          onOpenChange={setIsScanMenuOpen}
+          trigger={
+            <GlowButton size="sm" className="gap-2 text-[11px]">
+              <Zap className="size-4" />
+              執行掃描
+              <ChevronDown className="size-3" />
+            </GlowButton>
+          }
+          items={[
+            {
+              key: 'file',
+              label: '掃描當前文件',
+              onSelect: () => handleScan('file'),
+              icon: <FileText className="mr-3 size-5 text-cyber-primary opacity-70" />,
+              className: 'px-5 py-3.5',
+            },
+            {
+              key: 'workspace',
+              label: '掃描整個工作區',
+              onSelect: () => handleScan('workspace'),
+              icon: <FolderOpen className="mr-3 size-5 text-cyber-primary opacity-70" />,
+              className: 'px-5 py-3.5',
+            },
+          ]}
+          contentClassName="w-56"
+        />
       </div>
     </header>
   )

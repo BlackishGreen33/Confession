@@ -17,6 +17,17 @@ const exportBodySchema = z.object({
 
 export const exportRoutes = new Hono()
 
+function buildExportFilename(format: 'json' | 'csv'): string {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `confession-vulnerabilities-${yyyy}${mm}${dd}-${hh}${min}${ss}.${format}`
+}
+
 /**
  * POST /api/export — 導出漏洞報告（JSON / CSV）
  *
@@ -24,6 +35,7 @@ export const exportRoutes = new Hono()
  */
 exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
   const { format, filters } = c.req.valid('json')
+  const filename = buildExportFilename(format)
 
   // 組裝 where 條件
   const where: Record<string, unknown> = {}
@@ -39,9 +51,11 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
 
   if (format === 'csv') {
     const csv = toCsv(vulns)
-    return c.text(csv, 200, {
+    // 加入 UTF-8 BOM，避免繁中在部分試算表工具開啟時出現亂碼
+    const csvWithBom = `\uFEFF${csv}`
+    return c.text(csvWithBom, 200, {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="vulnerabilities-${Date.now()}.csv"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     })
   }
 
@@ -50,7 +64,7 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
   return c.json(
     { exportedAt: new Date().toISOString(), total: data.length, items: data },
     200,
-    { 'Content-Disposition': `attachment; filename="vulnerabilities-${Date.now()}.json"` },
+    { 'Content-Disposition': `attachment; filename="${filename}"` },
   )
 })
 
