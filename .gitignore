@@ -29,6 +29,8 @@ Thumbs.db
 # Prisma
 web/prisma/*.db
 web/prisma/*.db-journal
+web/*.db
+web/*.db-journal
 web/src/generated/
 
 # Debug
