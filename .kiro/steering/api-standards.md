@@ -1,18 +1,19 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: "**/api/**/*"
+fileMatchPattern: "**/src/server/**/*"
 ---
 
 # API 標準
 
-後端使用 Hono 框架，透過 Next.js catch-all route `/api/[...route]` 掛載。
+後端使用 Hono 框架，透過 Next.js catch-all route `web/src/app/api/[...route]/route.ts` 掛載。
 
 ## 路由表
 
 | 路由 | 方法 | 用途 |
 |------|------|------|
+| `/api/health` | GET | 健康檢查 |
 | `/api/config` | GET | 取得目前配置 |
-| `/api/config` | PUT | 儲存配置（完整覆寫） |
+| `/api/config` | PUT | 儲存配置（局部更新後合併） |
 | `/api/scan` | POST | 觸發掃描 |
 | `/api/scan/status/:id` | GET | 掃描進度 |
 | `/api/vulnerabilities` | GET | 列表（篩選/排序/分頁） |
@@ -25,10 +26,11 @@ fileMatchPattern: "**/api/**/*"
 
 ## 規範
 
-- 請求驗證一律使用 Zod + `@hono/zod-validator`
+- 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式統一：`{ error: string, details?: unknown }`
-- 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/common/server/db.ts]]
+- 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]
 - Schema 定義：#[[file:web/prisma/schema.prisma]]
+- 掃描任務需支援請求去重（fingerprint）與背景執行，不阻塞回應
 
 ## Agent 系統
 

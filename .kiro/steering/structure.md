@@ -16,6 +16,7 @@ confession/
 │   ├── src/status-bar.ts   # 狀態列指示器
 │   └── src/types.ts        # 通訊協議型別
 ├── web/                    # Next.js (App Router) + Hono 後端
+│   ├── src/generated/       # Prisma 產生型別與 client
 │   ├── src/app/            # 頁面路由
 │   │   ├── page.tsx        # / 儀表盤首頁
 │   │   ├── vulnerabilities/page.tsx  # /vulnerabilities 漏洞列表
@@ -25,10 +26,10 @@ confession/
 │   ├── src/common/         # @/ 別名目標
 │   │   ├── components/     # shadcn/ui 元件（含 nav-bar.tsx 頂部導航、glow-button.tsx 炫光主操作按鈕）
 │   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
-│   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts, utils.ts
+│   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts
 │   │   └── utils/          # cn() 等工具函數
 │   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, db.ts, cache.ts, monitoring.ts
-│       └── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts
+│       └── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts 宣告）
 ├── go-analyzer/            # Go AST → WASM
 │   ├── main.go             # 入口：go/parser + go/ast 遍歷，WASM 橋接
 │   ├── go.mod              # Go module 定義
