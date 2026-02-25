@@ -77,6 +77,10 @@ confession/
 └── README.md
 ```
 
+補充（近期新增）：
+- `web/src/common/components/cyber-dropdown-menu.tsx`：共用 cyber 風格下拉封裝
+- `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
+
 邊界規則：
 - 前端程式碼僅在 `web/`
 - 擴充套件程式碼僅在 `extension/`
@@ -126,6 +130,9 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - Prisma client 入口：`web/src/server/db.ts`
 - Schema：`web/prisma/schema.prisma`
 - 掃描流程需保留去重（fingerprint）與背景執行
+- `POST /api/export`：
+  - CSV 回應需附加 UTF-8 BOM，避免繁中開啟亂碼
+  - 下載檔名格式統一為 `confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 
 ## 7. Extension 規範
 
@@ -145,6 +152,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `codeVuln.showVulnerabilities`
 - `codeVuln.showSettings`
 - `codeVuln.ignoreVulnerability`
+
+通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
+- Ext → Web：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`
+- Web → Ext：`request_scan`、`apply_fix`、`ignore_vulnerability`、`navigate_to_code`、`open_vulnerability_detail`、`update_config`、`request_config`
 
 ## 8. 程式碼規範
 

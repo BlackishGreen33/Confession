@@ -24,7 +24,7 @@ confession/
 │   │   ├── vulnerability-detail/page.tsx  # /vulnerability-detail 漏洞詳情（Editor_Panel）
 │   │   └── api/[...route]/ # Hono catch-all
 │   ├── src/common/         # @/ 別名目標
-│   │   ├── components/     # shadcn/ui 元件（含 nav-bar.tsx 頂部導航、glow-button.tsx 炫光主操作按鈕）
+│   │   ├── components/     # UI 元件（含 cyber-dropdown-menu.tsx 共用 cyber 下拉）與 components/ui/dropdown-menu.tsx（shadcn Radix Portal 下拉）
 │   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
 │   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts
 │   │   └── utils/          # cn() 等工具函數
