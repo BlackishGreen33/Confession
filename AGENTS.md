@@ -44,6 +44,11 @@
 
 ```text
 confession/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # GitHub Actions（quality + commit-check）
+├── .husky/
+│   └── commit-msg                  # commit 訊息檢查 hook
 ├── extension/              # VSCode 擴充套件（esbuild → CommonJS）
 │   ├── src/extension.ts
 │   ├── src/diagnostics.ts
@@ -78,6 +83,7 @@ confession/
 │       ├── index.ts
 │       └── monitoring.ts
 ├── go-analyzer/
+├── commitlint.config.mjs   # commitlint 規則（emoji + conventional + 必填 scope）
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -114,6 +120,8 @@ confession/
 - 資料庫：Prisma + SQLite
 - 測試：Vitest + fast-check（PBT）
 - LLM：Google Gemini API（可自訂 endpoint/model）
+- CI/CD：GitHub Actions（`quality` + `commit-check`）
+- Commit 檢查：commitlint + husky（`commit-msg` hook）
 
 ## 6. API 規範
 
@@ -183,6 +191,9 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - React 元件使用箭頭函式 + `React.FC<Props>`
 - hooks 檔案維持「React Query hooks 與 Jotai atoms 同檔共置」
 - 漏洞冪等鍵：`[filePath, line, column, codeHash, type]`
+- Commit 訊息格式：`<emoji> <type>(<scope>): <description>`
+- `scope` 必填，`type` 僅允許：`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`
+- Commit 檢查必須同時覆蓋本機 hook 與 CI
 
 ## 9. 測試規範
 
@@ -192,11 +203,20 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 單元測試：`<name>.test.ts`
   - 屬性測試：`<name>.pbt.test.ts`
 - 指令：
+  - 全部測試（根層級）：`pnpm test`
   - 全部測試：`pnpm --filter web test && pnpm --filter confession-extension test`
   - web 單檔：`pnpm --filter web exec vitest run <path>`
   - extension：`pnpm --filter confession-extension test`
 
-## 10. Steering 同步責任
+## 10. CI 與 Commit 檢查
+
+- CI workflow 位置：`.github/workflows/ci.yml`
+- CI 觸發：`pull_request(main)`、`push(main)`
+- `quality` job：`pnpm install --frozen-lockfile` + `pnpm check:ci`
+- `commit-check` job：依事件計算 commit range 後執行 `pnpm commitlint:range --from <from> --to <to>`
+- 本機 hook：`.husky/commit-msg` 執行 `pnpm commitlint --edit "$1"`
+
+## 11. Steering 同步責任
 
 以下任一變更發生時，必須同步更新 `.kiro/steering` 與 `AGENTS.md`：
 - 目錄結構變動

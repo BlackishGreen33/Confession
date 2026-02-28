@@ -14,9 +14,12 @@
 
 ```
 confession/
+├── .github/workflows/ # GitHub Actions CI
+├── .husky/            # Git hooks（commit-msg）
 ├── extension/       # VS Code 擴充套件（esbuild → CJS）
 ├── web/             # Next.js App Router + Hono 後端
 ├── go-analyzer/     # Go AST → WASM 分析器
+├── commitlint.config.mjs # commit 訊息規則
 ├── turbo.json       # Turborepo 設定
 └── pnpm-workspace.yaml
 ```
@@ -85,9 +88,33 @@ pnpm lint
 # 測試
 pnpm test
 
+# CI 檢查（lint + build + test）
+pnpm check:ci
+
+# Commit 訊息檢查（最近一筆）
+pnpm commitlint --from HEAD~1 --to HEAD
+
 # 格式化
 pnpm format
 ```
+
+## CI 與 Commit 規範
+
+- CI 使用 GitHub Actions，workflow 位於 `.github/workflows/ci.yml`
+- 觸發條件：`pull_request(main)` 與 `push(main)`
+- `quality` job 執行 `pnpm check:ci`
+- `commit-check` job 針對 commit range 執行 `pnpm commitlint:range`
+- 本機提交會由 `.husky/commit-msg` 觸發檢查
+
+### Commit 格式
+
+提交訊息必須符合：
+
+```text
+<emoji> <type>(<scope>): <description>
+```
+
+`type` 僅允許：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`，且 `scope` 必填。
 
 ## Go WASM 分析器
 

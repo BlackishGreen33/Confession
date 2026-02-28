@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run quality checks
+        run: pnpm check:ci
+
+  commit-check:
+    name: commit-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve commit range
+        id: commit_range
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            FROM_SHA="${{ github.event.pull_request.base.sha }}"
+            TO_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            FROM_SHA="${{ github.event.before }}"
+            TO_SHA="${{ github.sha }}"
+
+            if [[ "$FROM_SHA" =~ ^0+$ ]]; then
+              FROM_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+            fi
+          fi
+
+          echo "from=$FROM_SHA" >> "$GITHUB_OUTPUT"
+          echo "to=$TO_SHA" >> "$GITHUB_OUTPUT"
+          echo "Commit range: $FROM_SHA..$TO_SHA"
+
+      - name: Validate commit messages
+        run: |
+          pnpm commitlint:range \
+            --from "${{ steps.commit_range.outputs.from }}" \
+            --to "${{ steps.commit_range.outputs.to }}"
