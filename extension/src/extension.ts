@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand('codeVuln.ignoreVulnerability', (vulnId: string) => {
-      void handleIgnoreVulnerability(vulnId, getPluginConfig)
+      return handleIgnoreVulnerability(vulnId, getPluginConfig)
     }),
   )
 
@@ -281,7 +281,7 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
 }
 
 /** 忽略漏洞 */
-async function handleIgnoreVulnerability(vulnId: string, getConfig: () => PluginConfig): Promise<void> {
+async function handleIgnoreVulnerability(vulnId: string, getConfig: () => PluginConfig): Promise<boolean> {
   const config = getConfig()
   const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
 
@@ -289,20 +289,35 @@ async function handleIgnoreVulnerability(vulnId: string, getConfig: () => Plugin
     const ok = await ignoreVulnerability(baseUrl, vulnId)
     if (!ok) {
       vscode.window.showErrorMessage('Confession: 忽略漏洞失敗')
-      return
+      return false
     }
 
-    // 取得漏洞資訊以更新 diagnostics
-    const vuln = await fetchVulnerabilityById(baseUrl, vulnId)
-    if (vuln) {
-      const vulns = await fetchFileVulnerabilities(baseUrl, vuln.filePath)
-      updateDiagnostics(vuln.filePath, vulns)
-      setResult(vulns.length)
+    try {
+      // 取得漏洞資訊以更新 diagnostics
+      const vuln = await fetchVulnerabilityById(baseUrl, vulnId)
+      if (vuln) {
+        const vulns = await fetchFileVulnerabilities(baseUrl, vuln.filePath)
+        updateDiagnostics(vuln.filePath, vulns)
+        setResult(vulns.length)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '未知錯誤'
+      vscode.window.showWarningMessage(`Confession: 忽略成功，但更新診斷資訊失敗 — ${msg}`)
+    }
+
+    try {
+      const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl)
+      sendVulnerabilities(allOpenVulns)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '未知錯誤'
+      vscode.window.showWarningMessage(`Confession: 忽略成功，但同步漏洞列表失敗 — ${msg}`)
     }
 
     vscode.window.showInformationMessage('Confession: 已忽略此漏洞')
+    return true
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     vscode.window.showErrorMessage(`Confession: 忽略漏洞失敗 — ${msg}`)
+    return false
   }
 }

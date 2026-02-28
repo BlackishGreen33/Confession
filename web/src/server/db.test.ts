@@ -55,7 +55,17 @@ async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
           type: v.type,
         },
       },
-      create: { ...v, codeHash },
+      create: {
+        ...v,
+        codeHash,
+        events: {
+          create: {
+            eventType: 'scan_detected',
+            message: '掃描發現新漏洞',
+            toStatus: 'open',
+          },
+        },
+      },
       update: {
         description: v.description,
         severity: v.severity,
@@ -101,6 +111,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS "vulnerabilities_filePath_line_column_codeHash
 CREATE INDEX IF NOT EXISTS "vulnerabilities_status_idx" ON "vulnerabilities"("status");
 CREATE INDEX IF NOT EXISTS "vulnerabilities_severity_idx" ON "vulnerabilities"("severity");
 CREATE INDEX IF NOT EXISTS "vulnerabilities_filePath_idx" ON "vulnerabilities"("filePath");
+CREATE TABLE IF NOT EXISTS "vulnerability_events" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "vulnerabilityId" TEXT NOT NULL,
+    "eventType" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "fromStatus" TEXT,
+    "toStatus" TEXT,
+    "fromHumanStatus" TEXT,
+    "toHumanStatus" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "vulnerability_events_vulnerabilityId_fkey"
+      FOREIGN KEY ("vulnerabilityId") REFERENCES "vulnerabilities" ("id")
+      ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "vulnerability_events_vulnerabilityId_createdAt_idx"
+  ON "vulnerability_events"("vulnerabilityId", "createdAt" DESC);
 `
 
 const vulnInputArb: fc.Arbitrary<VulnerabilityInput> = fc.record({
@@ -170,6 +196,41 @@ describe('P3: Vulnerability record idempotency', () => {
         expect(count).toBe(1)
       }),
       { numRuns: 50 },
+    )
+  })
+
+  it('new vulnerability create should append one scan_detected event', async () => {
+    await fc.assert(
+      fc.asyncProperty(vulnInputArb, async (input) => {
+        await prisma.vulnerabilityEvent.deleteMany()
+        await prisma.vulnerability.deleteMany()
+
+        await upsertVulnerabilities([input])
+
+        const codeHash = createHash('sha256').update(input.codeSnippet).digest('hex')
+        const vuln = await prisma.vulnerability.findUnique({
+          where: {
+            vuln_idempotent: {
+              filePath: input.filePath,
+              line: input.line,
+              column: input.column,
+              codeHash,
+              type: input.type,
+            },
+          },
+        })
+        expect(vuln).not.toBeNull()
+
+        const count = await prisma.vulnerabilityEvent.count({
+          where: {
+            vulnerabilityId: vuln!.id,
+            eventType: 'scan_detected',
+            toStatus: 'open',
+          },
+        })
+        expect(count).toBe(1)
+      }),
+      { numRuns: 30 },
     )
   })
 })

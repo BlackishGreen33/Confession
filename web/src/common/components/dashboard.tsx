@@ -4,7 +4,7 @@ import { ChevronDown, FileText, FolderOpen, Zap } from 'lucide-react'
 import React, { useCallback, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 
-import { CyberDropdownMenu } from '@/components/cyber-dropdown-menu'
+import { CyberDropdownMenu } from '@/components/elements/cyber-dropdown-menu'
 import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, deduplicatedGet } from '@/libs/api-client'
-import type { Vulnerability } from '@/libs/types'
+import type { Vulnerability, VulnerabilityEvent } from '@/libs/types'
 
 // 從 atoms.ts 重新匯出，保持同檔共置慣例
 export { selectedVulnIdAtom, vulnFiltersAtom } from '@/libs/atoms'
@@ -34,6 +34,10 @@ export interface TrendDataPoint {
   ignored: number
 }
 
+interface VulnerabilityEventsQuery {
+  limit?: number
+}
+
 // === Hooks ===
 
 /** 單筆漏洞查詢，30 秒內不重複請求 */
@@ -42,6 +46,19 @@ export function useVulnerability(id: string | null) {
     queryKey: ['vulnerability', id],
     queryFn: () => deduplicatedGet<Vulnerability>(`/api/vulnerabilities/${id}`),
     staleTime: 30_000,
+    enabled: !!id,
+  })
+}
+
+/** 單筆漏洞事件流查詢（新到舊） */
+export function useVulnerabilityEvents(id: string | null, query?: VulnerabilityEventsQuery) {
+  return useQuery<VulnerabilityEvent[]>({
+    queryKey: ['vulnerability-events', id, query?.limit ?? 20],
+    queryFn: () =>
+      deduplicatedGet<VulnerabilityEvent[]>(`/api/vulnerabilities/${id}/events`, {
+        limit: query?.limit ?? 20,
+      }),
+    staleTime: 15_000,
     enabled: !!id,
   })
 }
@@ -68,11 +85,25 @@ export function useVulnStats() {
 export function useUpdateVuln() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      api.patch(`/api/vulnerabilities/${id}`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['vulnerabilities'] })
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+      const res = await api.patch<Vulnerability>(`/api/vulnerabilities/${id}`, data)
+      return res.data
+    },
+    onSuccess: (updated) => {
+      // 同步單筆快取，避免詳情頁 Select 顯示舊值造成「看起來無法修改」
+      qc.setQueryData<Vulnerability>(['vulnerability', updated.id], updated)
+      qc.setQueriesData<VulnListResponse>({ queryKey: ['vulnerabilities'] }, (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          items: old.items.map((item) => (item.id === updated.id ? updated : item)),
+        }
+      })
+      // 讓含狀態篩選/分頁的列表也能立刻重算，避免殘留舊項目
+      void qc.invalidateQueries({ queryKey: ['vulnerabilities'] })
       qc.invalidateQueries({ queryKey: ['vuln-stats'] })
+      qc.invalidateQueries({ queryKey: ['vuln-trend'] })
+      void qc.invalidateQueries({ queryKey: ['vulnerability-events', updated.id] })
     },
   })
 }

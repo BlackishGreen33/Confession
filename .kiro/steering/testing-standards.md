@@ -7,9 +7,9 @@ fileMatchPattern: "**/*.test.*"
 
 - 測試框架：Vitest + fast-check（屬性測試）
 - 設定檔：#[[file:web/vitest.config.ts]]
-- 執行測試：`pnpm test`
+- 執行測試（全部）：`pnpm --filter web test && pnpm --filter confession-extension test`
 - 單一檔案：`pnpm --filter web exec vitest run <path>`
-- 擴充套件測試：`pnpm --filter extension test`
+- 擴充套件測試：`pnpm --filter confession-extension test`
 
 ## 慣例
 

@@ -35,6 +35,10 @@
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
+- 專家審核流程：
+  - 審核狀態變更需按「儲存審核」成功後才生效
+  - 僅 `humanStatus = confirmed` 時可顯示/執行修復或忽略操作
+  - 分析引擎狀態文案需依 `/api/health` 動態顯示，不可寫死
 
 ## 3. 專案結構（最新）
 
@@ -59,6 +63,8 @@ confession/
 │   │   └── api/[...route]/route.ts
 │   ├── src/common/
 │   │   ├── components/
+│   │   │   ├── elements/          # 通用原子元件（cyber-select、cyber-dropdown-menu）
+│   │   │   └── ui/                # shadcn 元件封裝（select、dropdown-menu 等）
 │   │   ├── hooks/
 │   │   ├── libs/
 │   │   └── utils/
@@ -79,8 +85,10 @@ confession/
 ```
 
 補充（近期新增）：
-- `web/src/common/components/cyber-dropdown-menu.tsx`：共用 cyber 風格下拉封裝
+- `web/src/common/components/elements/cyber-select.tsx`：共用 cyber 風格 Select（基於 shadcn Select 樣式覆蓋）
+- `web/src/common/components/elements/cyber-dropdown-menu.tsx`：共用 cyber 風格 DropdownMenu（基於 shadcn DropdownMenu 樣式覆蓋）
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
+- `web/src/common/components/ui/sonner.tsx`：shadcn/sonner Toast 樣式封裝元件
 
 邊界規則：
 - 前端程式碼僅在 `web/`
@@ -98,8 +106,8 @@ confession/
 
 - 套件管理：pnpm 9.x + Turborepo
 - 語言：TypeScript strict mode
-- 前端：Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + next-themes
-- 狀態管理：Jotai + Bunshi
+- 前端：Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes
+- 狀態管理：Jotai（主要）+ Bunshi（保留於依賴）
 - 資料取得：React Query + Axios
 - 後端：Hono（掛載於 Next.js `/api/[...route]`）
 - 驗證：`zod/v4` + `@hono/zod-validator`
@@ -121,6 +129,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `GET /api/vulnerabilities/trend`
 - `GET /api/vulnerabilities/stats`
 - `GET /api/vulnerabilities/:id`
+- `GET /api/vulnerabilities/:id/events`
 - `PATCH /api/vulnerabilities/:id`
 - `POST /api/export`
 - `POST /api/monitoring/generate`
@@ -131,6 +140,12 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - Prisma client 入口：`web/src/server/db.ts`
 - Schema：`web/prisma/schema.prisma`
 - 掃描流程需保留去重（fingerprint）與背景執行
+- 漏洞事件流：
+  - `scan_detected`：新漏洞建立時記錄
+  - `review_saved`：`humanStatus/humanComment/owaspCategory` 任一變更時記錄
+  - `status_changed`：`status` 變更時記錄
+  - 漏洞狀態更新與事件寫入必須同 transaction
+  - 相容舊 DB：`vulnerability_events` 尚未存在時，`/trend` 回退舊聚合，`/:id/events` 回空陣列
 - `POST /api/export`：
   - CSV 回應需附加 UTF-8 BOM，避免繁中開啟亂碼
   - 下載檔名格式統一為 `confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
@@ -155,8 +170,9 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `codeVuln.ignoreVulnerability`
 
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
-- Ext → Web：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`
-- Web → Ext：`request_scan`、`apply_fix`、`ignore_vulnerability`、`navigate_to_code`、`open_vulnerability_detail`、`update_config`、`request_config`
+- Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
+- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`request_config`
+- `vulnerabilities_updated` 為變更通知事件，前端不可依賴 payload 完整性，需以 query invalidate/refetch 收斂。
 
 ## 8. 程式碼規範
 
@@ -176,9 +192,9 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 單元測試：`<name>.test.ts`
   - 屬性測試：`<name>.pbt.test.ts`
 - 指令：
-  - 全部測試：`pnpm test`
+  - 全部測試：`pnpm --filter web test && pnpm --filter confession-extension test`
   - web 單檔：`pnpm --filter web exec vitest run <path>`
-  - extension：`pnpm --filter extension test`
+  - extension：`pnpm --filter confession-extension test`
 
 ## 10. Steering 同步責任
 
