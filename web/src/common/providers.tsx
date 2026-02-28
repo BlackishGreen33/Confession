@@ -5,6 +5,7 @@ import { Provider as JotaiProvider } from 'jotai';
 import { ThemeProvider } from 'next-themes';
 import React, { type ReactNode, useState } from 'react';
 
+import { SonnerToaster } from '@/components/ui/sonner';
 import { ExtensionBridgeInit } from '@/hooks/use-extension-bridge';
 
 interface ProvidersProps {
@@ -31,6 +32,7 @@ export const Providers: React.FC<ProvidersProps> = ({ children }) => {
         <QueryClientProvider client={queryClient}>
           <ExtensionBridgeInit />
           {children}
+          <SonnerToaster position="top-right" />
         </QueryClientProvider>
       </JotaiProvider>
     </ThemeProvider>

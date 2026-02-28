@@ -110,6 +110,30 @@ describe('P4: Agent 消息序列化往返', () => {
       type: fc.constant('config_updated') as fc.Arbitrary<'config_updated'>,
       data: pluginConfigArb,
     }),
+    fc.record({
+      type: fc.constant('operation_result') as fc.Arbitrary<'operation_result'>,
+      data: fc.record({
+        requestId: fc.string({ minLength: 1, maxLength: 64 }),
+        operation: fc.constantFrom(
+          'apply_fix',
+          'ignore_vulnerability',
+          'refresh_vulnerabilities',
+          'update_config',
+        ) as fc.Arbitrary<
+          'apply_fix' | 'ignore_vulnerability' | 'refresh_vulnerabilities' | 'update_config'
+        >,
+        success: fc.boolean(),
+        message: fc.string({ minLength: 1, maxLength: 100 }),
+        payload: fc.option(
+          fc.record({
+            vulnerabilityId: fc.option(fc.uuid(), { nil: undefined }),
+            updatedVulnerability: fc.option(vulnerabilityArb, { nil: undefined }),
+            config: fc.option(pluginConfigArb, { nil: undefined }),
+          }),
+          { nil: undefined },
+        ),
+      }),
+    }),
   )
 
   const webToExtMsgArb: fc.Arbitrary<WebToExtMsg> = fc.oneof(
@@ -119,11 +143,25 @@ describe('P4: Agent 消息序列化往返', () => {
     }),
     fc.record({
       type: fc.constant('apply_fix') as fc.Arbitrary<'apply_fix'>,
+      requestId: fc.string({ minLength: 1, maxLength: 64 }),
       data: fc.record({ vulnerabilityId: fc.uuid() }),
     }),
     fc.record({
       type: fc.constant('ignore_vulnerability') as fc.Arbitrary<'ignore_vulnerability'>,
+      requestId: fc.string({ minLength: 1, maxLength: 64 }),
       data: fc.record({ vulnerabilityId: fc.uuid(), reason: fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: undefined }) }),
+    }),
+    fc.record({
+      type: fc.constant('refresh_vulnerabilities') as fc.Arbitrary<'refresh_vulnerabilities'>,
+      requestId: fc.string({ minLength: 1, maxLength: 64 }),
+    }),
+    fc.record({
+      type: fc.constant('update_config') as fc.Arbitrary<'update_config'>,
+      requestId: fc.string({ minLength: 1, maxLength: 64 }),
+      data: pluginConfigArb,
+    }),
+    fc.record({
+      type: fc.constant('request_config') as fc.Arbitrary<'request_config'>,
     }),
     fc.record({
       type: fc.constant('navigate_to_code') as fc.Arbitrary<'navigate_to_code'>,

@@ -34,24 +34,67 @@ export interface VulnerabilityInput {
 export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
   for (const v of vulns) {
     const codeHash = createHash('sha256').update(v.codeSnippet).digest('hex')
-    await prisma.vulnerability.upsert({
-      where: {
-        vuln_idempotent: {
-          filePath: v.filePath,
-          line: v.line,
-          column: v.column,
-          codeHash,
-          type: v.type,
+    try {
+      await prisma.vulnerability.upsert({
+        where: {
+          vuln_idempotent: {
+            filePath: v.filePath,
+            line: v.line,
+            column: v.column,
+            codeHash,
+            type: v.type,
+          },
         },
-      },
-      create: { ...v, codeHash },
-      update: {
-        description: v.description,
-        severity: v.severity,
-        fixOldCode: v.fixOldCode,
-        fixNewCode: v.fixNewCode,
-        fixExplanation: v.fixExplanation,
-      },
-    })
+        create: {
+          ...v,
+          codeHash,
+          events: {
+            create: {
+              eventType: 'scan_detected',
+              message: '掃描發現新漏洞',
+              toStatus: 'open',
+            },
+          },
+        },
+        update: {
+          description: v.description,
+          severity: v.severity,
+          fixOldCode: v.fixOldCode,
+          fixNewCode: v.fixNewCode,
+          fixExplanation: v.fixExplanation,
+        },
+      })
+    } catch (err) {
+      // 相容舊 DB：migration 尚未套用時回退舊 upsert，避免掃描全失敗
+      if (!isMissingEventsTableError(err)) throw err
+      await prisma.vulnerability.upsert({
+        where: {
+          vuln_idempotent: {
+            filePath: v.filePath,
+            line: v.line,
+            column: v.column,
+            codeHash,
+            type: v.type,
+          },
+        },
+        create: { ...v, codeHash },
+        update: {
+          description: v.description,
+          severity: v.severity,
+          fixOldCode: v.fixOldCode,
+          fixNewCode: v.fixNewCode,
+          fixExplanation: v.fixExplanation,
+        },
+      })
+    }
   }
+}
+
+function isMissingEventsTableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const maybeCode = (err as { code?: unknown }).code
+  const maybeMessage = (err as { message?: unknown }).message
+  const code = typeof maybeCode === 'string' ? maybeCode : ''
+  const message = typeof maybeMessage === 'string' ? maybeMessage : ''
+  return code === 'P2021' || /vulnerability_events/i.test(message)
 }

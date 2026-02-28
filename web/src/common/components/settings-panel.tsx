@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import React, { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 
 import { GlowButton } from '@/components/glow-button'
 import { StickyActionBar } from '@/components/sticky-action-bar'
@@ -346,20 +347,35 @@ const ApiTab: React.FC<ApiTabProps> = ({ api, onChange }) => (
 // === 同步狀態指示器 ===
 
 interface SyncIndicatorProps {
-  isPending: boolean
-  saved: boolean
+  phase:
+    | 'idle'
+    | 'syncing_extension'
+    | 'extension_failed'
+    | 'syncing_backend'
+    | 'backend_failed'
+    | 'synced'
 }
 
-const SyncIndicator: React.FC<SyncIndicatorProps> = ({ isPending, saved }) => {
-  if (isPending) {
+const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase }) => {
+  if (phase === 'syncing_extension') {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-cyber-primary">
         <Loader2 className="h-3 w-3 animate-spin" />
-        <span>同步中…</span>
+        <span>同步 Extension 設定…</span>
       </div>
     )
   }
-  if (saved) {
+
+  if (phase === 'syncing_backend') {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>同步後端鏡像…</span>
+      </div>
+    )
+  }
+
+  if (phase === 'synced') {
     return (
       <div className="flex items-center gap-1.5 text-xs text-safe">
         <span className="h-2 w-2 rounded-full bg-safe animate-pulse-glow" />
@@ -367,6 +383,25 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ isPending, saved }) => {
       </div>
     )
   }
+
+  if (phase === 'extension_failed') {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-severity-critical">
+        <span className="h-2 w-2 rounded-full bg-severity-critical" />
+        <span>Extension 套用失敗</span>
+      </div>
+    )
+  }
+
+  if (phase === 'backend_failed') {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-severity-medium">
+        <span className="h-2 w-2 rounded-full bg-severity-medium" />
+        <span>後端鏡像失敗</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className="h-2 w-2 rounded-full bg-muted-foreground/50" />
@@ -388,24 +423,69 @@ const DEFAULT_CONFIG: PluginConfig = {
 export const SettingsPanel: React.FC = () => {
   const config = useConfig()
   const updateConfig = useUpdateConfig()
-  const { sendConfigToExtension } = useExtensionBridge()
-  const [saved, setSaved] = useState(false)
+  const { sendConfigToExtensionAndWait, isInVscodeWebview } = useExtensionBridge()
+  const [syncPhase, setSyncPhase] = useState<
+    'idle' | 'syncing_extension' | 'extension_failed' | 'syncing_backend' | 'backend_failed' | 'synced'
+  >('idle')
 
   // 掛載時從後端載入配置
   useConfigQuery()
 
   const saveConfig = useSaveConfig()
 
-  const handleSave = useCallback(() => {
-    saveConfig.mutate(config)
-    sendConfigToExtension(config)
-    setSaved(true)
-    const timer = setTimeout(() => setSaved(false), 2000)
-    return () => clearTimeout(timer)
-  }, [config, saveConfig, sendConfigToExtension])
+  const handleSave = useCallback(async () => {
+    if (syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend') return
+
+    if (!isInVscodeWebview) {
+      setSyncPhase('syncing_backend')
+      try {
+        await saveConfig.mutateAsync(config)
+        setSyncPhase('synced')
+        toast.success('設定已儲存')
+        setTimeout(() => {
+          setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev))
+        }, 2500)
+      } catch {
+        setSyncPhase('backend_failed')
+        toast.error('儲存設定失敗')
+      }
+      return
+    }
+
+    setSyncPhase('syncing_extension')
+    try {
+      const extResult = await sendConfigToExtensionAndWait(config)
+      if (!extResult.success) {
+        setSyncPhase('extension_failed')
+        toast.error(extResult.message || 'Extension 設定寫入失敗')
+        return
+      }
+      toast.success(extResult.message || 'Extension 設定已套用')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '未知錯誤'
+      setSyncPhase('extension_failed')
+      toast.error(`Extension 設定寫入失敗：${msg}`)
+      return
+    }
+
+    setSyncPhase('syncing_backend')
+    try {
+      await saveConfig.mutateAsync(config)
+      setSyncPhase('synced')
+      toast.success('設定已完成同步')
+      setTimeout(() => {
+        setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev))
+      }, 2500)
+    } catch {
+      setSyncPhase('backend_failed')
+      toast.warning('Extension 設定已套用，但後端鏡像失敗')
+    }
+  }, [config, isInVscodeWebview, saveConfig, sendConfigToExtensionAndWait, syncPhase])
 
   const handleReset = useCallback(() => {
     updateConfig(DEFAULT_CONFIG)
+    setSyncPhase('idle')
+    toast.success('已重置為預設設定')
   }, [updateConfig])
 
   const handleLlmChange = useCallback(
@@ -477,16 +557,26 @@ export const SettingsPanel: React.FC = () => {
 
       {/* 固定底部儲存列 */}
       <StickyActionBar
-        left={<SyncIndicator isPending={saveConfig.isPending} saved={saved} />}
+        left={<SyncIndicator phase={syncPhase} />}
         right={
           <>
             <Button type="button" variant="outline" size="sm" onClick={handleReset}>
               <RefreshCw className="h-3.5 w-3.5" />
               重置
             </Button>
-            <GlowButton size="sm" onClick={handleSave} disabled={saveConfig.isPending}>
+            <GlowButton
+              size="sm"
+              onClick={() => {
+                void handleSave()
+              }}
+              disabled={syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend'}
+            >
               <Save className="h-3.5 w-3.5" />
-              {saveConfig.isPending ? '儲存中…' : '儲存'}
+              {syncPhase === 'syncing_extension'
+                ? '套用 Extension…'
+                : syncPhase === 'syncing_backend'
+                  ? '同步後端…'
+                  : '儲存'}
             </GlowButton>
           </>
         }

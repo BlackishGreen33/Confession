@@ -1,12 +1,23 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useSetAtom } from 'jotai'
 import { useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useRef } from 'react'
 
 import { configAtom, scanStatusAtom, vulnerabilityDetailAtom } from '@/libs/atoms'
-import type { ExtToWebMsg, PluginConfig, WebToExtMsg } from '@/libs/types'
+import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from '@/libs/types'
+
+type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
+type RequestMessage = Extract<WebToExtMsg, { requestId: string }>
+
+interface PendingOperation {
+  resolve: (value: OperationResult) => void
+  reject: (reason?: unknown) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+const pendingOperations = new Map<string, PendingOperation>()
 
 /** 判斷是否在 VS Code Webview iframe 內 */
 function isInVscodeWebview(): boolean {
@@ -17,6 +28,31 @@ function isInVscodeWebview(): boolean {
   }
 }
 
+/** 產生請求 ID，供 request/ack 對應使用 */
+export function createRequestId(prefix = 'req'): string {
+  const rand = Math.random().toString(36).slice(2, 10)
+  return `${prefix}-${Date.now()}-${rand}`
+}
+
+function registerPendingOperation(requestId: string, timeoutMs: number): Promise<OperationResult> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingOperations.delete(requestId)
+      reject(new Error('等待 Extension 回執逾時'))
+    }, timeoutMs)
+
+    pendingOperations.set(requestId, { resolve, reject, timer })
+  })
+}
+
+function resolvePendingOperation(result: OperationResult): void {
+  const pending = pendingOperations.get(result.requestId)
+  if (!pending) return
+  clearTimeout(pending.timer)
+  pendingOperations.delete(result.requestId)
+  pending.resolve(result)
+}
+
 /** 向擴充套件發送訊息（透過 parent window 轉發） */
 export function postToExtension(msg: WebToExtMsg): void {
   if (isInVscodeWebview()) {
@@ -24,19 +60,56 @@ export function postToExtension(msg: WebToExtMsg): void {
   }
 }
 
+/**
+ * 發送需要回執的請求，並等待 operation_result。
+ * 若逾時或不在 VS Code Webview 環境，會拋出錯誤。
+ */
+export async function sendRequestToExtension(
+  msg: RequestMessage,
+  timeoutMs = 20_000,
+): Promise<OperationResult> {
+  if (!isInVscodeWebview()) {
+    throw new Error('目前不在 VS Code Webview 環境')
+  }
+  const pending = registerPendingOperation(msg.requestId, timeoutMs)
+  postToExtension(msg)
+  return pending
+}
+
 /** 向擴充套件發送開啟漏洞詳情請求 */
 export function sendOpenVulnerabilityDetail(vulnId: string): void {
   postToExtension({ type: 'open_vulnerability_detail', data: { vulnerabilityId: vulnId } })
 }
 
+function syncUpdatedVulnerabilityCache(
+  queryClient: QueryClient,
+  updated: Vulnerability,
+): void {
+  queryClient.setQueryData<Vulnerability>(['vulnerability', updated.id], updated)
+  queryClient.setQueriesData<{
+    items: Vulnerability[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+  }>({ queryKey: ['vulnerabilities'] }, (old) => {
+    if (!old) return old
+    return {
+      ...old,
+      items: old.items.map((item) => (item.id === updated.id ? updated : item)),
+    }
+  })
+}
+
 /**
  * 擴充套件橋接 hook：
- * - 監聽 config_updated 訊息，同步到 configAtom
+ * - 監聽 config_updated 訊息，同步到 configAtom 與 config query cache
  * - 監聽 navigate_to_view 訊息，呼叫 router.push 切換路由
  * - 監聽 vulnerability_detail_data 訊息，寫入 vulnerabilityDetailAtom
  * - 監聽 scan_progress 訊息，同步到 scanStatusAtom
  * - 監聽 vulnerabilities_updated 訊息，觸發漏洞相關查詢刷新
- * - 提供 sendConfigToExtension 將設定變更寫回 VS Code
+ * - 監聽 operation_result 訊息，完成 request/ack 配對並執行快取同步
+ * - 提供 sendConfigToExtension / sendConfigToExtensionAndWait
  * - 啟動時向擴充套件請求目前配置
  */
 export function useExtensionBridge() {
@@ -55,6 +128,7 @@ export function useExtensionBridge() {
       switch (msg.type) {
         case 'config_updated':
           setConfig(msg.data)
+          queryClient.setQueryData(['config'], msg.data)
           break
         case 'navigate_to_view':
           router.push(msg.data.route)
@@ -78,6 +152,37 @@ export function useExtensionBridge() {
           void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
           void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
           void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
+          void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
+          void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+          break
+        case 'operation_result':
+          resolvePendingOperation(msg.data)
+
+          if (!msg.data.success) break
+
+          if (msg.data.payload?.updatedVulnerability) {
+            syncUpdatedVulnerabilityCache(queryClient, msg.data.payload.updatedVulnerability)
+            void queryClient.invalidateQueries({
+              queryKey: ['vulnerability-events', msg.data.payload.updatedVulnerability.id],
+            })
+          }
+
+          if (msg.data.payload?.config) {
+            setConfig(msg.data.payload.config)
+            queryClient.setQueryData(['config'], msg.data.payload.config)
+          }
+
+          if (
+            msg.data.operation === 'apply_fix' ||
+            msg.data.operation === 'ignore_vulnerability' ||
+            msg.data.operation === 'refresh_vulnerabilities'
+          ) {
+            void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
+            void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
+            void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
+            void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
+            void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+          }
           break
       }
     }
@@ -94,10 +199,21 @@ export function useExtensionBridge() {
   }, [queryClient, router, setConfig, setScanStatus, setVulnDetail])
 
   const sendConfigToExtension = useCallback((config: PluginConfig) => {
-    postToExtension({ type: 'update_config', data: config })
+    const requestId = createRequestId('config')
+    postToExtension({ type: 'update_config', requestId, data: config })
+    return requestId
   }, [])
 
-  return { sendConfigToExtension, isInVscodeWebview: isInVscodeWebview() }
+  const sendConfigToExtensionAndWait = useCallback((config: PluginConfig) => {
+    const requestId = createRequestId('config')
+    return sendRequestToExtension({ type: 'update_config', requestId, data: config })
+  }, [])
+
+  return {
+    sendConfigToExtension,
+    sendConfigToExtensionAndWait,
+    isInVscodeWebview: isInVscodeWebview(),
+  }
 }
 
 /** 無 UI 初始化元件，掛載於 Providers 內以啟動橋接監聽 */

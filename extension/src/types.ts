@@ -62,13 +62,32 @@ export type ExtToWebMsg =
   | { type: 'config_updated'; data: PluginConfig }
   | { type: 'navigate_to_view'; data: { route: string } }
   | { type: 'vulnerability_detail_data'; data: Vulnerability }
+  | {
+      type: 'operation_result'
+      data: {
+        requestId: string
+        operation: 'apply_fix' | 'ignore_vulnerability' | 'refresh_vulnerabilities' | 'update_config'
+        success: boolean
+        message: string
+        payload?: {
+          vulnerabilityId?: string
+          updatedVulnerability?: Vulnerability
+          config?: PluginConfig
+        }
+      }
+    }
 
 // Webview → Extension 訊息
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
-  | { type: 'apply_fix'; data: { vulnerabilityId: string } }
-  | { type: 'ignore_vulnerability'; data: { vulnerabilityId: string; reason?: string } }
+  | { type: 'apply_fix'; requestId: string; data: { vulnerabilityId: string } }
+  | {
+      type: 'ignore_vulnerability'
+      requestId: string
+      data: { vulnerabilityId: string; reason?: string }
+    }
+  | { type: 'refresh_vulnerabilities'; requestId: string }
   | { type: 'navigate_to_code'; data: { filePath: string; line: number; column: number } }
-  | { type: 'update_config'; data: PluginConfig }
+  | { type: 'update_config'; requestId: string; data: PluginConfig }
   | { type: 'request_config' }
   | { type: 'open_vulnerability_detail'; data: { vulnerabilityId: string } }

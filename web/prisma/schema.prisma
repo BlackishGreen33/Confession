@@ -40,11 +40,30 @@ model Vulnerability {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  events VulnerabilityEvent[]
+
   @@unique([filePath, line, column, codeHash, type], name: "vuln_idempotent")
   @@index([status])
   @@index([severity])
   @@index([filePath])
   @@map("vulnerabilities")
+}
+
+model VulnerabilityEvent {
+  id              String   @id @default(cuid())
+  vulnerabilityId String
+  eventType       String
+  message         String
+  fromStatus      String?
+  toStatus        String?
+  fromHumanStatus String?
+  toHumanStatus   String?
+  createdAt       DateTime @default(now())
+
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@index([vulnerabilityId, createdAt(sort: Desc)])
+  @@map("vulnerability_events")
 }
 
 model ScanTask {
