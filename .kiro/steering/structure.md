@@ -6,6 +6,11 @@ inclusion: always
 
 ```
 confession/
+├── .github/
+│   └── workflows/
+│       └── ci.yml         # GitHub Actions：quality + commit-check
+├── .husky/
+│   └── commit-msg         # 本機 commit 訊息檢查 hook
 ├── extension/              # VSCode 擴充套件（esbuild → CommonJS）
 │   ├── src/extension.ts    # 入口：activate/deactivate、指令、providers
 │   ├── src/diagnostics.ts  # DiagnosticsProvider + HoverProvider + CodeActionProvider
@@ -37,6 +42,7 @@ confession/
 │   ├── go.mod              # Go module 定義
 │   └── Makefile            # GOOS=js GOARCH=wasm 編譯腳本
 ├── package.json            # 根 pnpm workspace
+├── commitlint.config.mjs   # commitlint 規則（emoji + conventional + 必填 scope）
 ├── pnpm-workspace.yaml     # workspaces: web, extension
 ├── turbo.json
 └── README.md               # 專案文件
