@@ -164,8 +164,10 @@ pnpm package            # 打包 .vsix
 
 ### LLM 語義分析（Gemini API）
 
-- 交互點深度分析 + CWE 知識注入
-- 宏觀掃描整個檔案
+- quick：僅高風險 AST 點位觸發（條件式 LLM）
+- standard：交互點檔案聚合分析（每檔案單次請求）
+- deep：完整檔案宏觀掃描（每檔案單次請求）
+- Prompt 指紋快取，避免重複請求
 - 結構化 JSON 輸出（漏洞類型、CWE 編號、修復建議）
 
 ## VS Code 擴充套件功能

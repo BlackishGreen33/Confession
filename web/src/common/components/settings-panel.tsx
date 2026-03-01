@@ -114,7 +114,7 @@ const LlmTab: React.FC<LlmTabProps> = ({ llm, onChange }) => {
           id="llm-model"
           value={llm.model ?? ''}
           onChange={(e) => onChange({ model: e.target.value || undefined })}
-          placeholder="gemini-2.5-flash"
+          placeholder="gemini-3-flash-preview"
         />
       </FormRow>
     </div>
@@ -156,7 +156,7 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ analysis, onChange }) => (
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="quick">快速（僅 AST）</SelectItem>
+          <SelectItem value="quick">快速（AST + 條件式 LLM）</SelectItem>
           <SelectItem value="standard">標準（AST + LLM）</SelectItem>
           <SelectItem value="deep">深度（AST + LLM 宏觀掃描）</SelectItem>
         </SelectContent>

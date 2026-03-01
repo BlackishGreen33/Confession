@@ -11,6 +11,8 @@ export interface ScanFileInput {
 export interface ScanOptions {
   depth: 'quick' | 'standard' | 'deep'
   includeLlmScan?: boolean
+  forceRescan?: boolean
+  scanScope?: 'file' | 'workspace'
 }
 
 /** 掃描任務狀態 */
@@ -72,6 +74,8 @@ async function doTriggerScan(
       files,
       depth: options.depth,
       includeLlmScan: options.includeLlmScan ?? false,
+      forceRescan: options.forceRescan ?? false,
+      scanScope: options.scanScope ?? 'file',
     }),
   })
 

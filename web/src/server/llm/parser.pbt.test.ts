@@ -107,4 +107,30 @@ describe('P5: LLM 響應解析健壯性', () => {
       { numRuns: 300 },
     )
   })
+
+  /** 相容百分制 confidence（0..100） */
+  it('confidence 百分制會自動正規化到 0..1', () => {
+    const raw = JSON.stringify([
+      {
+        type: 'sql_injection',
+        cweId: 'CWE-89',
+        severity: 'critical',
+        description: 'd',
+        riskDescription: null,
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 10,
+        fixOldCode: null,
+        fixNewCode: null,
+        fixExplanation: null,
+        confidence: 88,
+        reasoning: 'r',
+      },
+    ])
+
+    const result = parseLlmResponse(raw)
+    expect(result).not.toBeNull()
+    expect(result![0].confidence).toBeCloseTo(0.88, 6)
+  })
 })

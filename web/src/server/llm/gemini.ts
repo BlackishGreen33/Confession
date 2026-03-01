@@ -8,6 +8,11 @@ interface GeminiResponse {
     }
   }>
   error?: { message: string; code: number }
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+    totalTokenCount?: number
+  }
 }
 
 /** Gemini 客戶端設定 */
@@ -15,12 +20,25 @@ export interface GeminiClientConfig {
   apiKey: string
   /** 自訂端點（不含 model path），預設為 Google 官方 */
   endpoint?: string
-  /** 模型名稱，預設 gemini-2.5-flash */
+  /** 模型名稱，預設 gemini-3-flash-preview */
   model?: string
 }
 
+/** Gemini Token 用量 */
+export interface GeminiUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+/** Gemini 呼叫結果 */
+export interface GeminiCallResult {
+  text: string
+  usage: GeminiUsage
+}
+
 const DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemini-3-flash-preview'
 
 /**
  * 從 PluginConfig 建立 GeminiClientConfig。
@@ -48,7 +66,7 @@ export function configFromEnv(): GeminiClientConfig {
  * 呼叫 Gemini generateContent API，回傳原始文字。
  * 使用 JSON 回應模式 + 低溫度（0.1）以取得穩定的結構化輸出。
  */
-export async function callGemini(prompt: string, config: GeminiClientConfig): Promise<string> {
+export async function callGemini(prompt: string, config: GeminiClientConfig): Promise<GeminiCallResult> {
   const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_MODEL } = config
 
   if (!apiKey) {
@@ -72,7 +90,7 @@ export async function callGemini(prompt: string, config: GeminiClientConfig): Pr
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as GeminiResponse | null
     const msg = body?.error?.message ?? `HTTP ${res.status}`
-    throw new Error(`Gemini API 錯誤：${msg}`)
+    throw new Error(`Gemini API 錯誤 (HTTP ${res.status})：${msg}`)
   }
 
   const data = (await res.json()) as GeminiResponse
@@ -82,5 +100,12 @@ export async function callGemini(prompt: string, config: GeminiClientConfig): Pr
     throw new Error('Gemini API 回應中無有效文字')
   }
 
-  return text
+  return {
+    text,
+    usage: {
+      promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
+      completionTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+      totalTokens: data.usageMetadata?.totalTokenCount ?? 0,
+    },
+  }
 }

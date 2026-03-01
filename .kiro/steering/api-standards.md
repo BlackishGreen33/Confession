@@ -32,6 +32,14 @@ fileMatchPattern: "**/src/server/**/*"
 - 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]
 - Schema 定義：#[[file:web/prisma/schema.prisma]]
 - 掃描任務需支援請求去重（fingerprint）與背景執行，不阻塞回應
+- `POST /api/scan` 支援 `forceRescan?: boolean`：
+  - `true`：忽略未變更檔案快取，強制重掃
+  - `false/undefined`：啟用增量快取（未變更可跳過）
+- `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
+- 掃描執行時，LLM 設定（apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
+- 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed`，且附帶 `errorMessage`
+  - 若為 Gemini 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
+- LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 漏洞事件規範：
   - `scan_detected`：新漏洞建立時寫入
   - `review_saved`：`humanStatus/humanComment/owaspCategory` 任一變更時寫入
@@ -41,10 +49,16 @@ fileMatchPattern: "**/src/server/**/*"
 - `POST /api/export` 規範：
   - CSV 回應需帶 UTF-8 BOM（避免繁中在部分試算表開啟亂碼）
   - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
+- 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
 
 ## Agent 系統
 
 1. **Orchestrator** — 依語言分組 → 平行分派 → 合併 → LLM 分析 → 冪等寫入
 2. **JS/TS Agent** — TypeScript Compiler API AST，偵測：eval、innerHTML、直接查詢、原型鏈變異
 3. **Go Agent** — Go WASM 沙箱（`go/ast` + `go/parser`）
-4. **Analysis Agent** — Gemini LLM：第一階段逐點深度分析，第二階段巨觀檔案掃描
+4. **Analysis Agent** — Gemini LLM（檔案聚合策略）
+   - `quick`：僅高風險 AST 點位觸發（條件式 LLM）
+   - `standard`：每檔案一次聚合分析（交互點排序 + 上限 + 區塊上下文）
+   - `deep`：每檔案一次完整檔案掃描（保留宏觀能力）
+   - LLM 呼叫逾時為 45 秒；僅 `workspace` 掃描在逾時或 HTTP 503（UNAVAILABLE）時自動重試 1 次
+   - LLM 回應快取：以 prompt 指紋去重（TTL）

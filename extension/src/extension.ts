@@ -1,3 +1,4 @@
+import path from 'path'
 import * as vscode from 'vscode'
 
 import { registerDiagnostics, updateDiagnostics } from './diagnostics'
@@ -10,7 +11,7 @@ import {
   pollUntilDone,
   triggerScan,
 } from './scan-client'
-import { createStatusBar, setAnalyzing, setResult } from './status-bar'
+import { createStatusBar, setAnalyzing, setFailed, setResult } from './status-bar'
 import type { PluginConfig } from './types'
 import { openSettingsPanel, registerViewProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
 
@@ -127,14 +128,6 @@ export function deactivate() {
 
 // === 支援的語言 ID ===
 
-const SUPPORTED_LANGUAGE_IDS = new Set([
-  'go',
-  'javascript',
-  'typescript',
-  'typescriptreact',
-  'javascriptreact',
-])
-
 /** 語言 ID → API 語言名稱 */
 function toApiLanguage(languageId: string): string {
   switch (languageId) {
@@ -151,6 +144,48 @@ function toApiLanguage(languageId: string): string {
   }
 }
 
+/**
+ * 依語言 ID + 副檔名推導 API 語言，避免 VS Code 未正確辨識時漏掃描。
+ */
+function inferApiLanguage(
+  languageId: string,
+  filePath: string,
+): 'go' | 'javascript' | 'typescript' | null {
+  const fromId = toApiLanguage(languageId)
+  if (fromId === 'go' || fromId === 'javascript' || fromId === 'typescript') {
+    return fromId
+  }
+
+  const ext = path.extname(filePath).toLowerCase()
+  switch (ext) {
+    case '.go':
+      return 'go'
+    case '.js':
+    case '.jsx':
+    case '.mjs':
+    case '.cjs':
+      return 'javascript'
+    case '.ts':
+    case '.tsx':
+    case '.mts':
+    case '.cts':
+      return 'typescript'
+    default:
+      return null
+  }
+}
+
+function countNewVulnerabilities(
+  beforeIds: Set<string>,
+  after: Array<{ id: string }>,
+): number {
+  let count = 0
+  for (const vuln of after) {
+    if (!beforeIds.has(vuln.id)) count += 1
+  }
+  return count
+}
+
 /** 掃描當前檔案 */
 async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
   const editor = vscode.window.activeTextEditor
@@ -160,13 +195,16 @@ async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
   }
 
   const doc = editor.document
-  if (!SUPPORTED_LANGUAGE_IDS.has(doc.languageId)) {
+  const inferredLanguage = inferApiLanguage(doc.languageId, doc.fileName)
+  if (!inferredLanguage) {
     vscode.window.showWarningMessage('Confession: 不支援此檔案類型')
     return
   }
 
   const config = getConfig()
   const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
+  const beforeVulns = await fetchFileVulnerabilities(baseUrl, doc.fileName).catch(() => [])
+  const beforeIds = new Set(beforeVulns.map((v) => v.id))
 
   outputChannel.appendLine(`掃描檔案: ${doc.fileName}`)
   setAnalyzing()
@@ -174,24 +212,32 @@ async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
 
   try {
     const taskId = await triggerScan(baseUrl, [
-      { path: doc.fileName, content: doc.getText(), language: toApiLanguage(doc.languageId) },
-    ], { depth: config.analysis.depth, includeLlmScan: config.analysis.depth === 'deep' })
+      { path: doc.fileName, content: doc.getText(), language: inferredLanguage },
+    ], {
+      depth: config.analysis.depth,
+      includeLlmScan: config.analysis.depth === 'deep',
+      forceRescan: true,
+      scanScope: 'file',
+    })
 
     await pollUntilDone(baseUrl, taskId, (progress) => {
       sendScanProgress('running', progress)
     })
 
     const vulns = await fetchFileVulnerabilities(baseUrl, doc.fileName)
+    const newCount = countNewVulnerabilities(beforeIds, vulns)
     updateDiagnostics(doc.fileName, vulns)
     setResult(vulns.length)
     sendVulnerabilities(vulns)
     sendScanProgress('completed', 1)
 
-    outputChannel.appendLine(`掃描完成: ${doc.fileName}, 發現 ${vulns.length} 個漏洞`)
+    outputChannel.appendLine(
+      `掃描完成: ${doc.fileName}, 本次新增 ${newCount} 個漏洞，目前開放 ${vulns.length} 個`,
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     outputChannel.appendLine(`掃描失敗: ${msg}`)
-    setResult(0)
+    setFailed(msg)
     sendScanProgress('failed', 0)
     vscode.window.showErrorMessage(`Confession: 掃描失敗 — ${msg}`)
   }
@@ -217,7 +263,7 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     const uris = await vscode.workspace.findFiles(
       '**/*.{go,js,jsx,ts,tsx}',
       '**/node_modules/**',
-      500,
+      5000,
     )
 
     if (uris.length === 0) {
@@ -233,19 +279,46 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
         .filter((uri) => !config.ignore.paths.some((p) => uri.fsPath.includes(p)))
         .map(async (uri) => {
           const doc = await vscode.workspace.openTextDocument(uri)
+          const language = inferApiLanguage(doc.languageId, uri.fsPath)
+          if (!language) {
+            return null
+          }
           return {
             path: uri.fsPath,
             content: doc.getText(),
-            language: toApiLanguage(doc.languageId),
+            language,
           }
         }),
     )
 
-    outputChannel.appendLine(`找到 ${files.length} 個檔案，開始掃描…`)
+    const scanFiles = files.filter((file): file is NonNullable<typeof file> => file !== null)
+    if (scanFiles.length === 0) {
+      outputChannel.appendLine('工作區中沒有可分析的 Go/JS/TS 檔案')
+      setResult(0)
+      sendScanProgress('completed', 1)
+      return
+    }
 
-    const taskId = await triggerScan(baseUrl, files, {
+    const langCount = scanFiles.reduce(
+      (acc, file) => {
+        acc[file.language] = (acc[file.language] ?? 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    )
+
+    outputChannel.appendLine(
+      `找到 ${scanFiles.length} 個檔案，開始掃描…（go=${langCount.go ?? 0}, js=${langCount.javascript ?? 0}, ts=${langCount.typescript ?? 0}）`,
+    )
+
+    const beforeOpenVulns = await fetchAllOpenVulnerabilities(baseUrl).catch(() => [])
+    const beforeOpenIds = new Set(beforeOpenVulns.map((v) => v.id))
+
+    const taskId = await triggerScan(baseUrl, scanFiles, {
       depth: config.analysis.depth,
       includeLlmScan: config.analysis.depth === 'deep',
+      forceRescan: true,
+      scanScope: 'workspace',
     })
 
     await pollUntilDone(baseUrl, taskId, (progress) => {
@@ -269,12 +342,15 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     sendVulnerabilities(allVulns)
     sendScanProgress('completed', 1)
 
-    outputChannel.appendLine(`工作區掃描完成，共發現 ${allVulns.length} 個漏洞`)
-    vscode.window.showInformationMessage(`Confession: 掃描完成，發現 ${allVulns.length} 個漏洞`)
+    const newCount = countNewVulnerabilities(beforeOpenIds, allVulns)
+    outputChannel.appendLine(`工作區掃描完成，本次新增 ${newCount} 個漏洞，目前開放 ${allVulns.length} 個`)
+    vscode.window.showInformationMessage(
+      `Confession: 掃描完成，本次新增 ${newCount} 個漏洞（目前開放 ${allVulns.length} 個）`,
+    )
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     outputChannel.appendLine(`工作區掃描失敗: ${msg}`)
-    setResult(0)
+    setFailed(msg)
     sendScanProgress('failed', 0)
     vscode.window.showErrorMessage(`Confession: 工作區掃描失敗 — ${msg}`)
   }

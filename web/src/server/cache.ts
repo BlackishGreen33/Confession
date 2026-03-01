@@ -11,6 +11,16 @@ interface CacheEntry<T> {
   expiresAt: number
 }
 
+/** LLM 快取項目 */
+export interface LlmCacheValue {
+  text: string
+  usage: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
+}
+
 export class TtlCache<T> {
   private store = new Map<string, CacheEntry<T>>()
   private readonly defaultTtlMs: number
@@ -76,12 +86,30 @@ export function computeContentHash(content: string): string {
 export function computeScanFingerprint(
   files: Array<{ path: string; content: string }>,
   depth: string,
+  forceRescan = false,
 ): string {
   const parts = files
     .map((f) => `${f.path}:${computeContentHash(f.content)}`)
     .sort()
     .join('|')
-  return createHash('sha256').update(`${parts}::${depth}`).digest('hex')
+  return createHash('sha256')
+    .update(`${parts}::${depth}::force=${forceRescan ? 1 : 0}`)
+    .digest('hex')
+}
+
+/**
+ * 計算 LLM Prompt 指紋。
+ * 策略版本納入 key，避免 Prompt 結構調整後誤命中舊快取。
+ */
+export function computeLlmPromptFingerprint(
+  prompt: string,
+  modelName: string,
+  depth: string,
+  strategyVersion = 'v2',
+): string {
+  return createHash('sha256')
+    .update(`${strategyVersion}::${modelName}::${depth}::${prompt}`)
+    .digest('hex')
 }
 
 // === 全域快取實例 ===
@@ -91,3 +119,6 @@ export const fileAnalysisCache = new TtlCache<boolean>(5 * 60 * 1000)
 
 /** 進行中的掃描任務去重：key = scanFingerprint，value = taskId（10 分鐘 TTL） */
 export const inflightScans = new TtlCache<string>(10 * 60 * 1000)
+
+/** LLM 回應快取：key = llmPromptFingerprint，value = LLM 文字回應（30 分鐘 TTL） */
+export const llmResponseCache = new TtlCache<LlmCacheValue>(30 * 60 * 1000)
