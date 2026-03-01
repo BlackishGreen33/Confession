@@ -101,10 +101,19 @@
           "default": "local",
           "description": "API connection mode"
         },
+        "confession.llm.provider": {
+          "type": "string",
+          "enum": [
+            "nvidia",
+            "gemini"
+          ],
+          "default": "nvidia",
+          "description": "LLM provider for vulnerability analysis"
+        },
         "confession.llm.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Gemini API key for LLM analysis"
+          "description": "API key for the selected LLM provider"
         },
         "confession.analysis.triggerMode": {
           "type": "string",
@@ -133,12 +142,12 @@
         "confession.llm.endpoint": {
           "type": "string",
           "default": "",
-          "description": "Custom Gemini API endpoint (leave empty for default)"
+          "description": "Custom endpoint for the selected LLM provider (leave empty for default)"
         },
         "confession.llm.model": {
           "type": "string",
           "default": "",
-          "description": "Custom Gemini model name (leave empty for default)"
+          "description": "Custom model name for the selected LLM provider (leave empty for default)"
         },
         "confession.ignore.paths": {
           "type": "array",

@@ -1,19 +1,22 @@
 import { llmResponseCache } from '@server/cache'
-import type { GeminiCallResult } from '@server/llm/gemini'
+import type { LlmCallResult } from '@server/llm/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { InteractionPoint } from '@/libs/types'
 
 import { analyzeWithLlm, type FileContentMap } from './analysis-agent'
 
-const callGeminiMock = vi.fn<Promise<GeminiCallResult>, [string, { apiKey: string }]>()
+const callLlmMock = vi.fn<Promise<LlmCallResult>, [string, { provider: 'gemini' | 'nvidia'; apiKey: string }]>()
 
-vi.mock('@server/llm/gemini', () => ({
-  callGemini: (prompt: string, config: { apiKey: string }) => callGeminiMock(prompt, config),
-  configFromEnv: () => ({ apiKey: 'env-test-key' }),
+vi.mock('@server/llm/client', () => ({
+  callLlm: (prompt: string, config: { provider: 'gemini' | 'nvidia'; apiKey: string }) =>
+    callLlmMock(prompt, config),
+  configFromEnv: () => ({ provider: 'nvidia', apiKey: 'env-test-key' }),
+  resolveDefaultModel: (provider: 'gemini' | 'nvidia') =>
+    provider === 'gemini' ? 'gemini-3-flash-preview' : 'deepseek-ai/deepseek-r1',
 }))
 
-const emptyGeminiResult: GeminiCallResult = {
+const emptyLlmResult: LlmCallResult = {
   text: '[]',
   usage: {
     promptTokens: 10,
@@ -51,8 +54,8 @@ function buildFileMap(entries: Array<{ path: string; content: string; language: 
 
 describe('analysis-agent', () => {
   beforeEach(() => {
-    callGeminiMock.mockReset()
-    callGeminiMock.mockResolvedValue(emptyGeminiResult)
+    callLlmMock.mockReset()
+    callLlmMock.mockResolvedValue(emptyLlmResult)
     llmResponseCache.clear()
     pointIdSeq = 0
   })
@@ -72,10 +75,10 @@ describe('analysis-agent', () => {
       depth: 'standard',
       includeMacroScan: false,
       maxRetryAttempts: 1,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(1)
+    expect(callLlmMock).toHaveBeenCalledTimes(1)
     expect(result.stats.requestCount).toBe(1)
     expect(result.stats.processedFiles).toBe(1)
   })
@@ -97,10 +100,10 @@ describe('analysis-agent', () => {
     const result = await analyzeWithLlm(points, fileMap, {
       depth: 'quick',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(0)
+    expect(callLlmMock).toHaveBeenCalledTimes(0)
     expect(result.stats.requestCount).toBe(0)
     expect(result.stats.processedFiles).toBe(0)
     expect(result.stats.skippedByPolicy).toBe(1)
@@ -131,11 +134,11 @@ describe('analysis-agent', () => {
     await analyzeWithLlm(points, fileMap, {
       depth: 'quick',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(1)
-    const prompt = callGeminiMock.mock.calls[0][0]
+    expect(callLlmMock).toHaveBeenCalledTimes(1)
+    const prompt = callLlmMock.mock.calls[0][0]
     expect(prompt).toContain('dangerous_call')
     expect(prompt).not.toContain('keyword_tokens_token')
     expect(prompt).not.toContain('## 完整檔案內容')
@@ -158,12 +161,12 @@ describe('analysis-agent', () => {
     const result = await analyzeWithLlm(points, fileMap, {
       depth: 'deep',
       includeMacroScan: true,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(2)
-    expect(callGeminiMock.mock.calls[0][0]).toContain('## 完整檔案內容')
-    expect(callGeminiMock.mock.calls[1][0]).toContain('## 完整檔案內容')
+    expect(callLlmMock).toHaveBeenCalledTimes(2)
+    expect(callLlmMock.mock.calls[0][0]).toContain('## 完整檔案內容')
+    expect(callLlmMock.mock.calls[1][0]).toContain('## 完整檔案內容')
     expect(result.stats.requestCount).toBe(2)
   })
 
@@ -189,17 +192,17 @@ describe('analysis-agent', () => {
       depth: 'standard',
       includeMacroScan: false,
       maxRetryAttempts: 1,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(1)
-    const prompt = callGeminiMock.mock.calls[0][0]
+    expect(callLlmMock).toHaveBeenCalledTimes(1)
+    const prompt = callLlmMock.mock.calls[0][0]
     expect(prompt).toMatch(/\n14\./)
     expect(prompt).not.toMatch(/\n15\./)
     expect(result.stats.skippedByPolicy).toBe(16)
   })
 
-  it('相同 prompt 第二次掃描命中快取，不再呼叫 Gemini', async () => {
+  it('相同 prompt 第二次掃描命中快取，不再呼叫 LLM', async () => {
     const filePath = '/workspace/a.ts'
     const points = [
       buildPoint({
@@ -216,18 +219,18 @@ describe('analysis-agent', () => {
     const first = await analyzeWithLlm(points, fileMap, {
       depth: 'standard',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
     const second = await analyzeWithLlm(points, fileMap, {
       depth: 'standard',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
     expect(first.stats.requestCount).toBe(1)
     expect(second.stats.requestCount).toBe(0)
     expect(second.stats.cacheHits).toBe(1)
-    expect(callGeminiMock).toHaveBeenCalledTimes(1)
+    expect(callLlmMock).toHaveBeenCalledTimes(1)
   })
 
   it('503 或暫時性錯誤時會重試一次', async () => {
@@ -244,18 +247,18 @@ describe('analysis-agent', () => {
       { path: filePath, content: 'eval(code)', language: 'typescript' },
     ])
 
-    callGeminiMock
+    callLlmMock
       .mockRejectedValueOnce(new Error('Gemini API 錯誤 (HTTP 503)：UNAVAILABLE'))
-      .mockResolvedValueOnce(emptyGeminiResult)
+      .mockResolvedValueOnce(emptyLlmResult)
 
     const result = await analyzeWithLlm(points, fileMap, {
       depth: 'standard',
       includeMacroScan: false,
       maxRetryAttempts: 1,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
-    expect(callGeminiMock).toHaveBeenCalledTimes(2)
+    expect(callLlmMock).toHaveBeenCalledTimes(2)
     expect(result.stats.requestCount).toBe(1)
     expect(result.stats.requestFailures).toBe(0)
     expect(result.stats.parseFailures).toBe(0)
@@ -275,7 +278,7 @@ describe('analysis-agent', () => {
       { path: filePath, content: 'eval(code)', language: 'typescript' },
     ])
 
-    callGeminiMock.mockResolvedValue({
+    callLlmMock.mockResolvedValue({
       text: '[{"type":"invalid"}]',
       usage: { promptTokens: 11, completionTokens: 6, totalTokens: 17 },
     })
@@ -283,7 +286,7 @@ describe('analysis-agent', () => {
     const result = await analyzeWithLlm(points, fileMap, {
       depth: 'standard',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
     expect(result.vulnerabilities).toEqual([])
@@ -307,12 +310,12 @@ describe('analysis-agent', () => {
       { path: filePath, content: 'eval(code)', language: 'typescript' },
     ])
 
-    callGeminiMock.mockRejectedValue(new Error('quota exceeded'))
+    callLlmMock.mockRejectedValue(new Error('quota exceeded'))
 
     const result = await analyzeWithLlm(points, fileMap, {
       depth: 'standard',
       includeMacroScan: false,
-      geminiConfig: { apiKey: 'test-key' },
+      llmConfig: { provider: 'nvidia', apiKey: 'test-key' },
     })
 
     expect(result.vulnerabilities).toEqual([])
@@ -322,6 +325,6 @@ describe('analysis-agent', () => {
     expect(result.stats.failureKinds.quotaExceeded).toBe(1)
     expect(result.stats.failureKinds.other).toBe(0)
     expect(result.stats.successfulFiles).toBe(0)
-    expect(callGeminiMock).toHaveBeenCalledTimes(1)
+    expect(callLlmMock).toHaveBeenCalledTimes(1)
   })
 })

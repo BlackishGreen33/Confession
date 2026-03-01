@@ -91,7 +91,7 @@ const arbVulnerability: fc.Arbitrary<Vulnerability> = fc.record({
 /** 產生隨機 PluginConfig */
 const arbPluginConfig: fc.Arbitrary<PluginConfig> = fc.record({
   llm: fc.record({
-    provider: fc.constant('gemini' as const),
+    provider: fc.constantFrom('gemini' as const, 'nvidia' as const),
     apiKey: fc.string(),
     endpoint: fc.option(fc.string(), { nil: undefined }),
     model: fc.option(fc.string(), { nil: undefined }),

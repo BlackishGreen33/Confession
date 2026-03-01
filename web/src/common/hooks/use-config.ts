@@ -55,6 +55,13 @@ export function useApiMode() {
 
 const CONFIG_QUERY_KEY = ['config'] as const
 
+type PersistedPluginConfig = Omit<PluginConfig, 'llm'> & {
+  llm: Omit<PluginConfig['llm'], 'endpoint' | 'model'> & {
+    endpoint?: string | null
+    model?: string | null
+  }
+}
+
 function isInVscodeWebview(): boolean {
   try {
     return typeof window !== 'undefined' && window.parent !== window
@@ -93,7 +100,16 @@ export function useSaveConfig() {
 
   return useMutation({
     mutationFn: async (config: PluginConfig) => {
-      const res = await api.put<PluginConfig>('/api/config', config)
+      const payload: PersistedPluginConfig = {
+        ...config,
+        llm: {
+          ...config.llm,
+          // 明確傳 null，避免 undefined 在 JSON 序列化時被省略，導致後端沿用舊值
+          endpoint: config.llm.endpoint ?? null,
+          model: config.llm.model ?? null,
+        },
+      }
+      const res = await api.put<PluginConfig>('/api/config', payload)
       return res.data
     },
     onSuccess: (data) => {
