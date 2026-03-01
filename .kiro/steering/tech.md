@@ -16,7 +16,7 @@ inclusion: always
 | 驗證 | zod/v4 + @hono/zod-validator |
 | 資料庫 | Prisma + SQLite（PostgreSQL 相容 schema） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
-| LLM | Google Gemini API（可設定端點） |
+| LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
 | 測試 | Vitest + fast-check（PBT） |
 | CI/CD | GitHub Actions（`quality` + `commit-check`） |
 | Commit 檢查 | commitlint + husky（`commit-msg` hook） |

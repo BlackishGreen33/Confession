@@ -2,7 +2,7 @@ import { zValidator } from '@hono/zod-validator'
 import { orchestrate } from '@server/agents/orchestrator'
 import { computeScanFingerprint, inflightScans } from '@server/cache'
 import { prisma } from '@server/db'
-import { configFromPlugin, type GeminiClientConfig } from '@server/llm/gemini'
+import { configFromPlugin, type LlmClientConfig } from '@server/llm/client'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
@@ -103,7 +103,7 @@ async function runScan(
       data: { status: 'running', progress: 0.1 },
     })
 
-    const geminiConfig = await loadGeminiConfigFromDb()
+    const llmConfig = await loadLlmConfigFromDb()
     const result = await orchestrate(
       {
         files: body.files,
@@ -112,7 +112,7 @@ async function runScan(
         forceRescan: body.forceRescan ?? false,
         scanScope: body.scanScope,
       },
-      { geminiConfig },
+      { llmConfig },
     )
 
     process.stdout.write(
@@ -194,7 +194,7 @@ function buildLlmFailureMessage(stats: {
   }
 }): string {
   if (stats.failureKinds.quotaExceeded > 0) {
-    return 'LLM 分析失敗：Gemini 配額已用盡（429/RESOURCE_EXHAUSTED），請稍後重試或更換 API Key/方案'
+    return 'LLM 分析失敗：配額已用盡（429/RESOURCE_EXHAUSTED），請稍後重試或更換 API Key/方案'
   }
 
   const parts: string[] = []
@@ -210,7 +210,7 @@ function buildLlmFailureMessage(stats: {
 const persistedConfigSchema = z.object({
   llm: z
     .object({
-      provider: z.literal('gemini').optional(),
+      provider: z.enum(['gemini', 'nvidia']).optional(),
       apiKey: z.string().optional(),
       endpoint: z.string().optional(),
       model: z.string().optional(),
@@ -224,7 +224,13 @@ function normalizeOptional(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-async function loadGeminiConfigFromDb(): Promise<GeminiClientConfig | undefined> {
+function normalizeNvidiaModel(model: string | undefined): string | undefined {
+  if (model !== 'deepseek-ai/deepseek-r1') return model
+  // deepseek-r1 於 2026-01-26 下線，舊配置自動轉換到可用預設模型
+  return 'qwen/qwen2.5-coder-32b-instruct'
+}
+
+async function loadLlmConfigFromDb(): Promise<LlmClientConfig | undefined> {
   const row = await prisma.config.findUnique({ where: { id: 'default' } })
   if (!row) return undefined
 
@@ -232,11 +238,14 @@ async function loadGeminiConfigFromDb(): Promise<GeminiClientConfig | undefined>
     const parsed = persistedConfigSchema.safeParse(JSON.parse(row.data))
     if (!parsed.success || !parsed.data.llm) return undefined
 
+    const provider = parsed.data.llm.provider ?? 'nvidia'
+    const model = normalizeOptional(parsed.data.llm.model)
+
     return configFromPlugin({
-      provider: 'gemini',
+      provider,
       apiKey: normalizeOptional(parsed.data.llm.apiKey) ?? '',
       endpoint: normalizeOptional(parsed.data.llm.endpoint),
-      model: normalizeOptional(parsed.data.llm.model),
+      model: provider === 'nvidia' ? normalizeNvidiaModel(model) : model,
     })
   } catch {
     return undefined

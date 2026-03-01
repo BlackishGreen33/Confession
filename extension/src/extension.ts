@@ -25,7 +25,7 @@ function getPluginConfig(): PluginConfig {
   const config = vscode.workspace.getConfiguration('confession')
   return {
     llm: {
-      provider: 'gemini',
+      provider: config.get<'gemini' | 'nvidia'>('llm.provider', 'nvidia'),
       apiKey: config.get<string>('llm.apiKey', ''),
       endpoint: config.get<string>('llm.endpoint'),
       model: config.get<string>('llm.model'),

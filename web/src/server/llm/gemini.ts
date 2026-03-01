@@ -38,7 +38,7 @@ export interface GeminiCallResult {
 }
 
 const DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
-const DEFAULT_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 
 /**
  * 從 PluginConfig 建立 GeminiClientConfig。
@@ -67,7 +67,7 @@ export function configFromEnv(): GeminiClientConfig {
  * 使用 JSON 回應模式 + 低溫度（0.1）以取得穩定的結構化輸出。
  */
 export async function callGemini(prompt: string, config: GeminiClientConfig): Promise<GeminiCallResult> {
-  const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_MODEL } = config
+  const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_GEMINI_MODEL } = config
 
   if (!apiKey) {
     throw new Error('Gemini API key 未設定')

@@ -322,6 +322,7 @@ async function writeConfigToSettings(
 ): Promise<{ success: boolean; message: string }> {
   const cfg = vscode.workspace.getConfiguration('confession')
   try {
+    await cfg.update('llm.provider', config.llm.provider, vscode.ConfigurationTarget.Global)
     await cfg.update('llm.apiKey', config.llm.apiKey, vscode.ConfigurationTarget.Global)
     await cfg.update('llm.endpoint', config.llm.endpoint || '', vscode.ConfigurationTarget.Global)
     await cfg.update('llm.model', config.llm.model || '', vscode.ConfigurationTarget.Global)

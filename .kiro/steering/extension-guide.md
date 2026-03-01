@@ -15,6 +15,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - Webview：嵌入 Next.js 應用，雙向 postMessage
 - 狀態列：分析狀態（分析中 / 完成 / 發現風險 / 分析失敗）
 - AI 呼叫策略：僅被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
+- LLM provider：支援 `gemini` / `nvidia`，預設 `nvidia`
 - 分析深度語義：
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）

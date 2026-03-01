@@ -36,9 +36,11 @@ fileMatchPattern: "**/src/server/**/*"
   - `true`：忽略未變更檔案快取，強制重掃
   - `false/undefined`：啟用增量快取（未變更可跳過）
 - `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
-- 掃描執行時，LLM 設定（apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
+- 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
+  - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
+  - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
 - 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed`，且附帶 `errorMessage`
-  - 若為 Gemini 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
+  - 若為 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 漏洞事件規範：
   - `scan_detected`：新漏洞建立時寫入
@@ -56,7 +58,7 @@ fileMatchPattern: "**/src/server/**/*"
 1. **Orchestrator** — 依語言分組 → 平行分派 → 合併 → LLM 分析 → 冪等寫入
 2. **JS/TS Agent** — TypeScript Compiler API AST，偵測：eval、innerHTML、直接查詢、原型鏈變異
 3. **Go Agent** — Go WASM 沙箱（`go/ast` + `go/parser`）
-4. **Analysis Agent** — Gemini LLM（檔案聚合策略）
+4. **Analysis Agent** — LLM（Gemini / NVIDIA，檔案聚合策略）
    - `quick`：僅高風險 AST 點位觸發（條件式 LLM）
    - `standard`：每檔案一次聚合分析（交互點排序 + 上限 + 區塊上下文）
    - `deep`：每檔案一次完整檔案掃描（保留宏觀能力）
