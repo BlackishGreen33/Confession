@@ -17,7 +17,16 @@ const llmVulnerabilitySchema = z.object({
   fixOldCode: z.string().nullable().optional(),
   fixNewCode: z.string().nullable().optional(),
   fixExplanation: z.string().nullable().optional(),
-  confidence: z.number().min(0).max(1),
+  // 相容兩種輸出格式：
+  // - 0..1（標準）
+  // - 0..100（部分模型以百分制輸出）
+  confidence: z
+    .number()
+    .transform((value) => {
+      if (value > 1 && value <= 100) return value / 100
+      return value
+    })
+    .pipe(z.number().min(0).max(1)),
   reasoning: z.string(),
 })
 

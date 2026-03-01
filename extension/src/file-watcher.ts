@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 
 import { updateDiagnostics } from './diagnostics'
 import { fetchFileVulnerabilities, pollUntilDone, triggerScan } from './scan-client'
-import { setAnalyzing, setResult } from './status-bar'
+import { setAnalyzing, setFailed, setResult } from './status-bar'
 import type { PluginConfig } from './types'
 import { sendScanProgress, sendVulnerabilities } from './webview'
 
@@ -67,6 +67,8 @@ async function triggerIncrementalScan(document: vscode.TextDocument, config: Plu
     ], {
       depth: config.analysis.depth,
       includeLlmScan: config.analysis.depth === 'deep',
+      forceRescan: false,
+      scanScope: 'file',
     })
 
     await pollUntilDone(baseUrl, taskId, (progress) => {
@@ -83,7 +85,7 @@ async function triggerIncrementalScan(document: vscode.TextDocument, config: Plu
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     log?.appendLine(`增量掃描失敗: ${msg}`)
-    setResult(0)
+    setFailed(msg)
     sendScanProgress('failed', 0)
   }
 }
