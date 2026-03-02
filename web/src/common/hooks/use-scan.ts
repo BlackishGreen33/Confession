@@ -1,11 +1,12 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AxiosError } from 'axios'
 import { useSetAtom } from 'jotai'
 
 import { api } from '@/libs/api-client'
 import { scanStatusAtom } from '@/libs/atoms'
-import type { ScanRequest } from '@/libs/types'
+import type { RecentScanSummary, ScanRequest } from '@/libs/types'
 
 // 從 atoms.ts 重新匯出，保持同檔共置慣例
 export { scanStatusAtom } from '@/libs/atoms'
@@ -65,5 +66,26 @@ export function useScanStatus(taskId: string | null) {
       if (status === 'completed' || status === 'failed') return false
       return 1000
     },
+  })
+}
+
+/** 查詢最近一次掃描摘要（GET /api/scan/recent） */
+export function useRecentScanSummary() {
+  return useQuery<RecentScanSummary | null>({
+    queryKey: ['scan-recent'],
+    queryFn: async () => {
+      try {
+        const res = await api.get<RecentScanSummary>('/api/scan/recent')
+        return res.data
+      } catch (err) {
+        if (err instanceof AxiosError && err.response?.status === 404) {
+          return null
+        }
+        throw err
+      }
+    },
+    retry: false,
+    staleTime: 1_500,
+    refetchInterval: 3_000,
   })
 }

@@ -1,17 +1,23 @@
 'use client'
 
-import { ChevronDown, FileText, FolderOpen, Zap } from 'lucide-react'
-import React, { useCallback, useState } from 'react'
+import { ChevronDown, Download, FileText, FolderOpen, X, Zap } from 'lucide-react'
+import Link from 'next/link'
+import React, { useCallback, useMemo, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { toast } from 'sonner'
 
 import { CyberDropdownMenu } from '@/components/elements/cyber-dropdown-menu'
+import { CyberSelect } from '@/components/elements/cyber-select'
 import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { postToExtension } from '@/hooks/use-extension-bridge'
+import { Input } from '@/components/ui/input'
+import { createRequestId, postToExtension } from '@/hooks/use-extension-bridge'
 import { useHealth } from '@/hooks/use-health'
+import { useRecentScanSummary } from '@/hooks/use-scan'
 import { useVulnStats } from '@/hooks/use-vulnerabilities'
 import { api } from '@/libs/api-client'
+import type { ExportFilters, ExportFormat } from '@/libs/types'
 
 import { TrendChart } from './trend-chart'
 
@@ -31,6 +37,178 @@ const SEVERITY_LABELS: Record<string, string> = {
   medium: '中',
   low: '低',
   info: '資訊',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  all: '全部',
+  open: '待處理',
+  fixed: '已修復',
+  ignored: '已忽略',
+}
+
+const HUMAN_STATUS_LABELS: Record<string, string> = {
+  all: '全部',
+  pending: '待審核',
+  confirmed: '已確認',
+  rejected: '已駁回',
+  false_positive: '誤報',
+}
+
+const EXPORT_FORMAT_OPTIONS: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'pdf', label: 'PDF（列印）' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'json', label: 'JSON' },
+  { value: 'csv', label: 'CSV' },
+]
+
+const EXPORT_EXT: Record<ExportFormat, string> = {
+  json: 'json',
+  csv: 'csv',
+  markdown: 'md',
+  pdf: 'pdf',
+}
+
+interface ExportDialogState {
+  status: 'all' | 'open' | 'fixed' | 'ignored'
+  severity: 'all' | 'critical' | 'high' | 'medium' | 'low' | 'info'
+  humanStatus: 'all' | 'pending' | 'confirmed' | 'rejected' | 'false_positive'
+  filePath: string
+  search: string
+}
+
+const DEFAULT_EXPORT_DIALOG_STATE: ExportDialogState = {
+  status: 'all',
+  severity: 'all',
+  humanStatus: 'all',
+  filePath: '',
+  search: '',
+}
+
+function buildFallbackFilename(format: ExportFormat): string {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `confession-vulnerabilities-${yyyy}${mm}${dd}-${hh}${min}${ss}.${EXPORT_EXT[format]}`
+}
+
+function filenameFromDisposition(
+  disposition: string | undefined,
+  format: ExportFormat,
+): string {
+  const matched = disposition?.match(/filename="([^"]+)"/i)
+  return matched?.[1] ?? buildFallbackFilename(format)
+}
+
+function isInVscodeWebview(): boolean {
+  try {
+    return window.parent !== window
+  } catch {
+    return false
+  }
+}
+
+function toExportFilters(state: ExportDialogState): ExportFilters {
+  const filters: ExportFilters = {}
+  if (state.status !== 'all') filters.status = state.status
+  if (state.severity !== 'all') filters.severity = state.severity
+  if (state.humanStatus !== 'all') filters.humanStatus = state.humanStatus
+
+  const filePath = state.filePath.trim()
+  if (filePath) filters.filePath = filePath
+
+  const search = state.search.trim()
+  if (search) filters.search = search
+
+  return filters
+}
+
+function downloadBlob(data: unknown, filename: string): void {
+  const blob = data instanceof window.Blob ? data : new window.Blob([String(data ?? '')])
+  const url = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+async function printHtmlReport(html: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = 'none'
+    document.body.appendChild(iframe)
+
+    let settled = false
+    const cleanup = () => {
+      setTimeout(() => {
+        iframe.remove()
+      }, 1_000)
+    }
+
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    }
+
+    const tryPrint = () => {
+      try {
+        if (!iframe.contentWindow || typeof iframe.contentWindow.print !== 'function') {
+          finish(new Error('目前環境不支援列印視窗'))
+          return
+        }
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        finish()
+      } catch (err) {
+        finish(err)
+      }
+    }
+
+    iframe.onload = () => {
+      setTimeout(() => {
+        tryPrint()
+      }, 200)
+    }
+
+    iframe.onerror = () => {
+      finish(new Error('建立列印視窗失敗'))
+    }
+
+    const frameDoc = iframe.contentWindow?.document
+    if (!frameDoc) {
+      finish(new Error('無法寫入列印內容'))
+      return
+    }
+
+    frameDoc.open()
+    frameDoc.write(html)
+    frameDoc.close()
+
+    setTimeout(() => {
+      if (!settled) tryPrint()
+    }, 500)
+
+    setTimeout(() => {
+      if (!settled) finish(new Error('PDF 匯出初始化逾時'))
+    }, 5_000)
+  })
 }
 
 // === Cyber 統計卡片 ===
@@ -199,13 +377,54 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
   )
 }
 
+interface ScanStatusViewModel {
+  label: string
+  className: string
+}
+
+function toScanStatusView(status: string | undefined): ScanStatusViewModel {
+  switch (status) {
+    case 'running':
+      return {
+        label: '掃描進行中',
+        className: 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary',
+      }
+    case 'completed':
+      return {
+        label: '最近掃描完成',
+        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+      }
+    case 'failed':
+      return {
+        label: '最近掃描失敗',
+        className: 'border-red-500/30 bg-red-500/10 text-red-400',
+      }
+    case 'pending':
+      return {
+        label: '掃描等待中',
+        className: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
+      }
+    default:
+      return {
+        label: '尚無掃描記錄',
+        className: 'border-cyber-border bg-cyber-surface2/30 text-cyber-textmuted',
+      }
+  }
+}
+
+function formatRecentTime(iso: string | undefined): string {
+  if (!iso) return '尚無資料'
+  return new Date(iso).toLocaleString('zh-TW', { hour12: false })
+}
+
 // === 儀表盤標題區塊 ===
 
-const DashboardHeader: React.FC = () => {
+interface DashboardHeaderProps {
+  onOpenExport: () => void
+}
+
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onOpenExport }) => {
   const [isScanMenuOpen, setIsScanMenuOpen] = useState(false)
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
   const { isHealthy, isLoading, isError } = useHealth()
 
   // 根據健康狀態決定顯示樣式
@@ -226,41 +445,6 @@ const DashboardHeader: React.FC = () => {
     setIsScanMenuOpen(false)
   }, [])
 
-  const handleExport = useCallback(async (format: 'json' | 'csv') => {
-    setIsExporting(true)
-    setExportError(null)
-
-    try {
-      const response = await api.post('/api/export', { format }, { responseType: 'blob' })
-      const disposition = response.headers['content-disposition'] as string | undefined
-      const matched = disposition?.match(/filename="([^"]+)"/)
-      const now = new Date()
-      const yyyy = now.getFullYear()
-      const mm = String(now.getMonth() + 1).padStart(2, '0')
-      const dd = String(now.getDate()).padStart(2, '0')
-      const hh = String(now.getHours()).padStart(2, '0')
-      const min = String(now.getMinutes()).padStart(2, '0')
-      const ss = String(now.getSeconds()).padStart(2, '0')
-      const fallbackName = `confession-vulnerabilities-${yyyy}${mm}${dd}-${hh}${min}${ss}.${format}`
-      const filename = matched?.[1] ?? fallbackName
-
-      const url = window.URL.createObjectURL(response.data)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = filename
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      window.URL.revokeObjectURL(url)
-
-      setIsExportMenuOpen(false)
-    } catch {
-      setExportError('匯出失敗，請稍後再試')
-    } finally {
-      setIsExporting(false)
-    }
-  }, [])
-
   return (
     <header className="relative z-20 flex flex-col sm:flex-row sm:items-end justify-between gap-4 animate-fade-in animate-on-load">
       <div className="space-y-2">
@@ -279,53 +463,15 @@ const DashboardHeader: React.FC = () => {
         </h1>
       </div>
       <div className="flex gap-3 items-center">
-        <div className="relative">
-          <CyberDropdownMenu
-            open={isExportMenuOpen}
-            onOpenChange={(open) => {
-              if (!isExporting) setIsExportMenuOpen(open)
-            }}
-            trigger={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isExporting}
-                className="text-[10px] font-black uppercase tracking-widest glass-panel"
-                onClick={() => setExportError(null)}
-              >
-                {isExporting ? '匯出中…' : '匯出報告'}
-                <ChevronDown className="ml-2 size-3" />
-              </Button>
-            }
-            items={[
-              {
-                key: 'json',
-                label: '匯出 JSON',
-                disabled: isExporting,
-                onSelect: () => {
-                  setIsExportMenuOpen(false)
-                  void handleExport('json')
-                },
-              },
-              {
-                key: 'csv',
-                label: '匯出 CSV',
-                disabled: isExporting,
-                onSelect: () => {
-                  setIsExportMenuOpen(false)
-                  void handleExport('csv')
-                },
-              },
-            ]}
-            contentClassName="w-44"
-          />
-          {exportError && (
-            <p className="absolute right-0 mt-2 text-[10px] font-bold text-red-400 whitespace-nowrap">
-              {exportError}
-            </p>
-          )}
-        </div>
-
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenExport}
+          className="gap-2 border-cyber-border bg-cyber-surface text-cyber-text hover:border-cyber-primary/60 hover:text-white"
+        >
+          <Download className="size-4" />
+          匯出報告
+        </Button>
         <CyberDropdownMenu
           open={isScanMenuOpen}
           onOpenChange={setIsScanMenuOpen}
@@ -391,10 +537,327 @@ const CyberCard: React.FC<CyberCardProps> = ({ title, subtitle, children, classN
   )
 }
 
+const RecentScanCard: React.FC = () => {
+  const { data, isLoading, isError } = useRecentScanSummary()
+  const status = toScanStatusView(data?.status)
+
+  return (
+    <CyberCard
+      title="最近掃描摘要"
+      subtitle="Latest Scan Snapshot"
+      className="lg:col-span-4"
+      delay="delay-500"
+    >
+      <div className="space-y-4">
+        <Badge
+          variant="outline"
+          className={`gap-2 text-[10px] font-black uppercase tracking-[0.2em] ${status.className}`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {status.label}
+        </Badge>
+
+        {isLoading && <p className="text-xs text-cyber-textmuted">讀取最近掃描資訊中…</p>}
+        {isError && !isLoading && (
+          <p className="text-xs text-cyber-textmuted">目前無法讀取最近掃描資訊</p>
+        )}
+
+        {data && (
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
+              <span className="text-cyber-textmuted">最近更新</span>
+              <span className="font-mono text-white">{formatRecentTime(data.updatedAt)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
+              <span className="text-cyber-textmuted">掃描進度</span>
+              <span className="font-mono text-white">
+                {data.scannedFiles}/{data.totalFiles}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
+              <span className="text-cyber-textmuted">任務狀態</span>
+              <span className="font-mono text-white">{data.status}</span>
+            </div>
+            {data.status === 'failed' && data.errorMessage && (
+              <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+                {data.errorMessage}
+              </div>
+            )}
+          </div>
+        )}
+
+        <Link
+          href="/vulnerabilities"
+          className="inline-flex items-center rounded border border-cyber-primary/50 bg-cyber-primary/10 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-cyber-primary transition-colors hover:border-cyber-primary hover:bg-cyber-primary/20"
+        >
+          前往漏洞列表
+        </Link>
+      </div>
+    </CyberCard>
+  )
+}
+
+interface ExportDialogProps {
+  open: boolean
+  isExporting: boolean
+  format: ExportFormat
+  filters: ExportDialogState
+  onClose: () => void
+  onConfirm: () => void
+  onFormatChange: (format: ExportFormat) => void
+  onFiltersChange: (patch: Partial<ExportDialogState>) => void
+}
+
+const ExportDialog: React.FC<ExportDialogProps> = ({
+  open,
+  isExporting,
+  format,
+  filters,
+  onClose,
+  onConfirm,
+  onFormatChange,
+  onFiltersChange,
+}) => {
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="匯出報告設定"
+    >
+      <div className="w-full max-w-2xl rounded-2xl border border-cyber-border bg-cyber-surface p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-black tracking-tight text-white">匯出報告</h2>
+            <p className="mt-1 text-xs text-cyber-textmuted">
+              先設定篩選條件，再選擇匯出格式。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isExporting}
+            className="rounded border border-cyber-border p-1 text-cyber-textmuted transition-colors hover:border-cyber-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="關閉匯出設定"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              匯出格式
+            </label>
+            <CyberSelect
+              value={format}
+              onValueChange={(value) => onFormatChange(value as ExportFormat)}
+              options={EXPORT_FORMAT_OPTIONS}
+              triggerClassName="text-xs text-cyber-text"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              漏洞狀態
+            </label>
+            <CyberSelect
+              value={filters.status}
+              onValueChange={(value) =>
+                onFiltersChange({
+                  status: value as ExportDialogState['status'],
+                })
+              }
+              options={Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+              triggerClassName="text-xs text-cyber-text"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              嚴重性
+            </label>
+            <CyberSelect
+              value={filters.severity}
+              onValueChange={(value) =>
+                onFiltersChange({
+                  severity: value as ExportDialogState['severity'],
+                })
+              }
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'critical', label: '嚴重' },
+                { value: 'high', label: '高' },
+                { value: 'medium', label: '中' },
+                { value: 'low', label: '低' },
+                { value: 'info', label: '資訊' },
+              ]}
+              triggerClassName="text-xs text-cyber-text"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              人工審核狀態
+            </label>
+            <CyberSelect
+              value={filters.humanStatus}
+              onValueChange={(value) =>
+                onFiltersChange({
+                  humanStatus: value as ExportDialogState['humanStatus'],
+                })
+              }
+              options={Object.entries(HUMAN_STATUS_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+              triggerClassName="text-xs text-cyber-text"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              檔案路徑包含
+            </label>
+            <Input
+              value={filters.filePath}
+              onChange={(e) => onFiltersChange({ filePath: e.target.value })}
+              placeholder="例如: src/server/routes"
+              className="border-cyber-border bg-cyber-bg text-sm text-cyber-text placeholder:text-cyber-textmuted"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-cyber-textmuted">
+              關鍵字搜尋
+            </label>
+            <Input
+              value={filters.search}
+              onChange={(e) => onFiltersChange({ search: e.target.value })}
+              placeholder="描述 / 類型 / CWE / 路徑"
+              className="border-cyber-border bg-cyber-bg text-sm text-cyber-text placeholder:text-cyber-textmuted"
+            />
+          </div>
+        </div>
+
+        <div className="mt-6 flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={isExporting}
+            className="border-cyber-border bg-cyber-bg text-cyber-text hover:border-cyber-primary/60 hover:text-white"
+          >
+            取消
+          </Button>
+          <GlowButton type="button" onClick={onConfirm} disabled={isExporting} className="gap-2">
+            <Download className="h-4 w-4" />
+            {isExporting ? '匯出中…' : '開始匯出'}
+          </GlowButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // === 儀表盤主元件 ===
 
 export const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError } = useVulnStats()
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
+  const [exportDialogState, setExportDialogState] = useState<ExportDialogState>(
+    DEFAULT_EXPORT_DIALOG_STATE,
+  )
+  const exportFilters = useMemo(
+    () => toExportFilters(exportDialogState),
+    [exportDialogState],
+  )
+
+  const handleOpenExportDialog = useCallback(() => {
+    setIsExportDialogOpen(true)
+  }, [])
+
+  const handleCloseExportDialog = useCallback(() => {
+    if (isExporting) return
+    setIsExportDialogOpen(false)
+  }, [isExporting])
+
+  const handleExportFiltersChange = useCallback((patch: Partial<ExportDialogState>) => {
+    setExportDialogState((prev) => ({ ...prev, ...patch }))
+  }, [])
+
+  const handleExportReport = useCallback(async () => {
+    setIsExporting(true)
+    const loadingToastId =
+      exportFormat === 'pdf'
+        ? toast.loading('正在準備 PDF 匯出，請稍候…')
+        : undefined
+
+    try {
+      if (exportFormat === 'pdf') {
+        if (isInVscodeWebview()) {
+          // Webview 內固定由 Extension 開啟外部瀏覽器列印，不下載 HTML。
+          const requestId = createRequestId('export-pdf')
+          postToExtension({
+            type: 'export_pdf',
+            requestId,
+            data: { filters: exportFilters, filename: buildFallbackFilename('pdf') },
+          })
+          if (loadingToastId !== undefined) {
+            toast.success('已通知擴充套件開啟外部列印，請稍候…', { id: loadingToastId })
+          } else {
+            toast.success('已通知擴充套件開啟外部列印，請稍候…')
+          }
+          setIsExportDialogOpen(false)
+          return
+        }
+
+        const response = await api.post(
+          '/api/export',
+          { format: 'pdf', filters: exportFilters },
+          { responseType: 'text', timeout: 120_000 },
+        )
+        const html = String(response.data ?? '')
+        await printHtmlReport(html)
+        if (loadingToastId !== undefined) {
+          toast.success('PDF 匯出流程已啟動', { id: loadingToastId })
+        } else {
+          toast.success('PDF 匯出流程已啟動')
+        }
+
+        setIsExportDialogOpen(false)
+        return
+      }
+
+      const response = await api.post(
+        '/api/export',
+        { format: exportFormat, filters: exportFilters },
+        { responseType: 'blob', timeout: 120_000 },
+      )
+      const disposition = response.headers['content-disposition'] as string | undefined
+      const filename = filenameFromDisposition(disposition, exportFormat)
+      downloadBlob(response.data, filename)
+      toast.success(`已下載 ${filename}`)
+      setIsExportDialogOpen(false)
+    } catch (err) {
+      const fallback =
+        exportFormat === 'pdf'
+          ? 'PDF 匯出失敗：請確認本機可呼叫列印視窗或改匯出 Markdown/JSON'
+          : '匯出失敗，請稍後再試'
+      const message = err instanceof Error && err.message ? err.message : fallback
+      if (loadingToastId !== undefined) {
+        toast.error(message, { id: loadingToastId })
+      } else {
+        toast.error(message)
+      }
+    } finally {
+      setIsExporting(false)
+    }
+  }, [exportFilters, exportFormat])
 
   if (isLoading) {
     return (
@@ -475,7 +938,7 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* 標題區塊 */}
-      <DashboardHeader />
+      <DashboardHeader onOpenExport={handleOpenExportDialog} />
 
       {/* 統計卡片 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -500,7 +963,20 @@ export const Dashboard: React.FC = () => {
         <div className="lg:col-span-8">
           <TrendChart />
         </div>
+
+        <RecentScanCard />
       </div>
+
+      <ExportDialog
+        open={isExportDialogOpen}
+        isExporting={isExporting}
+        format={exportFormat}
+        filters={exportDialogState}
+        onClose={handleCloseExportDialog}
+        onConfirm={() => void handleExportReport()}
+        onFormatChange={setExportFormat}
+        onFiltersChange={handleExportFiltersChange}
+      />
     </div>
   )
 }

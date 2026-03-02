@@ -138,10 +138,11 @@ pnpm package            # 打包 .vsix
 |------|------|------|
 | `/api/scan` | POST | 觸發掃描 |
 | `/api/scan/status/:id` | GET | 掃描進度 |
+| `/api/scan/recent` | GET | 最近一次掃描摘要 |
 | `/api/vulnerabilities` | GET | 漏洞列表（篩選/排序/分頁） |
 | `/api/vulnerabilities/stats` | GET | 統計數據 |
 | `/api/vulnerabilities/:id` | PATCH | 更新狀態/歸因 |
-| `/api/export` | POST | 導出報告（JSON/CSV） |
+| `/api/export` | POST | 導出報告（JSON/CSV/Markdown/PDF） |
 
 ## 偵測能力
 
@@ -169,6 +170,12 @@ pnpm package            # 打包 .vsix
 - deep：完整檔案宏觀掃描（每檔案單次請求）
 - Prompt 指紋快取，避免重複請求
 - 結構化 JSON 輸出（漏洞類型、CWE 編號、修復建議）
+
+### 匯出報告
+
+- 支援格式：`JSON`、`CSV`（含 UTF-8 BOM）、`Markdown`、`PDF`
+- PDF 流程為「列印版 HTML」，由前端開啟列印對話框後另存為 PDF
+- 匯出檔名格式：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 
 ## VS Code 擴充套件功能
 

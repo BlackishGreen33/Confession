@@ -70,6 +70,43 @@ export interface ScanRequest {
   scanScope?: 'file' | 'workspace'
 }
 
+export type ExportFormat = 'json' | 'csv' | 'markdown' | 'pdf'
+
+export interface ExportFilters {
+  status?: Vulnerability['status']
+  severity?: Vulnerability['severity']
+  humanStatus?: Vulnerability['humanStatus']
+  filePath?: string
+  search?: string
+}
+
+export interface ExportReportV2 {
+  schemaVersion: string
+  reportName: string
+  generatedBy: string
+  exportedAt: string
+  filters: ExportFilters
+  summary: {
+    total: number
+    bySeverity: Record<string, number>
+    byStatus: Record<string, number>
+    byHumanStatus: Record<string, number>
+    byType: Record<string, number>
+  }
+  items: Vulnerability[]
+}
+
+export interface RecentScanSummary {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  totalFiles: number
+  scannedFiles: number
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 
 // === 通信協議（Extension ↔ Webview） ===
 
@@ -83,7 +120,12 @@ export type ExtToWebMsg =
       type: 'operation_result'
       data: {
         requestId: string
-        operation: 'apply_fix' | 'ignore_vulnerability' | 'refresh_vulnerabilities' | 'update_config'
+        operation:
+          | 'apply_fix'
+          | 'ignore_vulnerability'
+          | 'refresh_vulnerabilities'
+          | 'update_config'
+          | 'export_pdf'
         success: boolean
         message: string
         payload?: {
@@ -105,6 +147,11 @@ export type WebToExtMsg =
   | { type: 'refresh_vulnerabilities'; requestId: string }
   | { type: 'navigate_to_code'; data: { filePath: string; line: number; column: number } }
   | { type: 'update_config'; requestId: string; data: PluginConfig }
+  | {
+      type: 'export_pdf'
+      requestId: string
+      data: { filters?: ExportFilters; filename?: string }
+    }
   | { type: 'request_config' }
   | { type: 'open_vulnerability_detail'; data: { vulnerabilityId: string } }
 
