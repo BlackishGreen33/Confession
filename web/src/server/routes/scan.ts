@@ -89,6 +89,30 @@ scanRoutes.get('/status/:id', async (c) => {
 })
 
 /**
+ * GET /api/scan/recent — 取得最近一次掃描摘要
+ */
+scanRoutes.get('/recent', async (c) => {
+  const task = await prisma.scanTask.findFirst({
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  if (!task) {
+    return c.json({ error: '尚無掃描記錄' }, 404)
+  }
+
+  return c.json({
+    id: task.id,
+    status: task.status,
+    progress: task.progress,
+    totalFiles: task.totalFiles,
+    scannedFiles: task.scannedFiles,
+    errorMessage: task.errorMessage,
+    createdAt: task.createdAt.toISOString(),
+    updatedAt: task.updatedAt.toISOString(),
+  })
+})
+
+/**
  * 背景掃描邏輯：呼叫 orchestrator 並更新 ScanTask 狀態。
  * 完成後清除去重快取。
  */
