@@ -2,7 +2,7 @@
 
 > Before the Light Fades, the Code Speaks.
 
-基於 LLM 的 VS Code 靜態程式碼漏洞分析插件。透過 AST 解析與 Gemini API 語義分析，偵測 Go、JavaScript、TypeScript 中的安全漏洞，並提供修復建議。
+基於 LLM 的 VS Code 靜態程式碼漏洞分析插件。透過 AST 解析與 Gemini / NVIDIA Integrate 語義分析，偵測 Go、JavaScript、TypeScript 中的安全漏洞，並提供修復建議。
 
 ## 設計哲學
 
@@ -30,15 +30,15 @@ confession/
 |------|------|
 | 套件管理 | pnpm 9.x + Turborepo |
 | 語言 | TypeScript strict mode |
-| 前端 | Next.js App Router + Tailwind CSS + shadcn/ui |
+| 前端 | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes |
 | 狀態管理 | Jotai + Bunshi |
 | 資料取得 | React Query + Axios |
 | 圖表 | Recharts |
 | 後端 | Hono（Next.js catch-all `/api/[...route]`） |
-| 驗證 | Zod + @hono/zod-validator |
+| 驗證 | zod/v4 + @hono/zod-validator |
 | 資料庫 | Prisma + SQLite（PostgreSQL 相容） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
-| LLM | Google Gemini API |
+| LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容） |
 | 測試 | Vitest + fast-check（PBT） |
 
 ## 前置需求
@@ -63,11 +63,12 @@ pnpm dev
 
 ## 環境變數
 
-在 `web/.env.local` 中設定：
+在 `web/.env.local` 中設定（至少提供其中一個 LLM 金鑰）：
 
 ```env
 DATABASE_URL="file:./dev.db"
 GEMINI_API_KEY="your-gemini-api-key"
+NVIDIA_API_KEY="your-nvidia-api-key"
 ```
 
 ## 常用指令
@@ -91,11 +92,22 @@ pnpm test
 # CI 檢查（lint + build + test）
 pnpm check:ci
 
+# Prisma
+pnpm --filter web db:migrate
+pnpm --filter web db:generate
+pnpm --filter web db:studio
+
 # Commit 訊息檢查（最近一筆）
 pnpm commitlint --from HEAD~1 --to HEAD
 
+# Commit 訊息檢查（指定範圍）
+pnpm commitlint:range --from <from> --to <to>
+
 # 格式化
 pnpm format
+
+# 格式檢查
+pnpm format:check
 ```
 
 ## CI 與 Commit 規範
@@ -136,13 +148,19 @@ pnpm package            # 打包 .vsix
 
 | 路由 | 方法 | 說明 |
 |------|------|------|
+| `/api/health` | GET | 健康檢查 |
+| `/api/config` | GET | 取得目前設定 |
+| `/api/config` | PUT | 更新設定（局部合併） |
 | `/api/scan` | POST | 觸發掃描 |
 | `/api/scan/status/:id` | GET | 掃描進度 |
-| `/api/scan/recent` | GET | 最近一次掃描摘要 |
 | `/api/vulnerabilities` | GET | 漏洞列表（篩選/排序/分頁） |
+| `/api/vulnerabilities/trend` | GET | 漏洞趨勢 |
 | `/api/vulnerabilities/stats` | GET | 統計數據 |
+| `/api/vulnerabilities/:id` | GET | 單筆漏洞詳情 |
+| `/api/vulnerabilities/:id/events` | GET | 單筆漏洞事件流 |
 | `/api/vulnerabilities/:id` | PATCH | 更新狀態/歸因 |
 | `/api/export` | POST | 導出報告（JSON/CSV/Markdown/PDF） |
+| `/api/monitoring/generate` | POST | 產生監測代碼 |
 
 ## 偵測能力
 
@@ -163,7 +181,7 @@ pnpm package            # 打包 .vsix
 - `http.ListenAndServe`（無 TLS）
 - HTTP 回應未處理錯誤
 
-### LLM 語義分析（Gemini API）
+### LLM 語義分析（Gemini / NVIDIA）
 
 - quick：僅高風險 AST 點位觸發（條件式 LLM）
 - standard：交互點檔案聚合分析（每檔案單次請求）
@@ -191,6 +209,9 @@ pnpm package            # 打包 .vsix
 - `Confession: Scan Current File` — 掃描當前檔案
 - `Confession: Scan Workspace` — 掃描工作區
 - `Confession: Open Security Dashboard` — 開啟安全儀表盤
+- `Confession: 儀表盤` — 聚焦儀表盤視圖
+- `Confession: 漏洞列表` — 聚焦漏洞列表視圖
+- `Confession: 設定` — 開啟設定面板
 
 ### 擴充套件設定（`confession.*`）
 
