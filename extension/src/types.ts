@@ -57,6 +57,14 @@ export interface PluginConfig {
   }
 }
 
+export interface ExportFilters {
+  status?: Vulnerability['status']
+  severity?: Vulnerability['severity']
+  humanStatus?: Vulnerability['humanStatus']
+  filePath?: string
+  search?: string
+}
+
 // Extension → Webview 訊息
 export type ExtToWebMsg =
   | { type: 'vulnerabilities_updated'; data: Vulnerability[] }
@@ -68,7 +76,12 @@ export type ExtToWebMsg =
       type: 'operation_result'
       data: {
         requestId: string
-        operation: 'apply_fix' | 'ignore_vulnerability' | 'refresh_vulnerabilities' | 'update_config'
+        operation:
+          | 'apply_fix'
+          | 'ignore_vulnerability'
+          | 'refresh_vulnerabilities'
+          | 'update_config'
+          | 'export_pdf'
         success: boolean
         message: string
         payload?: {
@@ -91,5 +104,10 @@ export type WebToExtMsg =
   | { type: 'refresh_vulnerabilities'; requestId: string }
   | { type: 'navigate_to_code'; data: { filePath: string; line: number; column: number } }
   | { type: 'update_config'; requestId: string; data: PluginConfig }
+  | {
+      type: 'export_pdf'
+      requestId: string
+      data: { filters?: ExportFilters; filename?: string }
+    }
   | { type: 'request_config' }
   | { type: 'open_vulnerability_detail'; data: { vulnerabilityId: string } }

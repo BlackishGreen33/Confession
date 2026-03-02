@@ -13,7 +13,14 @@ import {
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setFailed, setResult } from './status-bar'
 import type { PluginConfig } from './types'
-import { openSettingsPanel, registerViewProvider, sendConfigUpdate, sendScanProgress, sendVulnerabilities } from './webview'
+import {
+  openSettingsPanel,
+  registerViewProvider,
+  sendConfigUpdate,
+  sendScanProgress,
+  sendVulnerabilities,
+  setWebviewLogger,
+} from './webview'
 
 /** 輸出頻道，用於記錄插件日誌 */
 let outputChannel: vscode.OutputChannel
@@ -48,6 +55,7 @@ function getPluginConfig(): PluginConfig {
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Confession')
+  setWebviewLogger((message) => outputChannel.appendLine(message))
   outputChannel.appendLine('Confession 插件啟動中…')
 
   const pluginConfig = getPluginConfig()
