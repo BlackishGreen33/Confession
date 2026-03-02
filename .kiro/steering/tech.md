@@ -24,12 +24,17 @@ inclusion: always
 ## 核心指令
 
 - 安裝依賴：`pnpm install`
+- 本地開發（全專案）：`pnpm dev`
 - 型別檢查與 lint：`pnpm lint`
 - 建置：`pnpm build`
 - 全部測試：`pnpm test`
 - 測試（web）：`pnpm --filter web test`
 - 測試（extension）：`pnpm --filter confession-extension test`
+- 程式碼格式化：`pnpm format`
+- 格式檢查：`pnpm format:check`
 - CI 檢查彙總：`pnpm check:ci`
 - Commit 訊息檢查（最近一筆）：`pnpm commitlint --from HEAD~1 --to HEAD`
 - 資料庫遷移：`pnpm --filter web exec prisma migrate dev`
 - 產生 Prisma Client：`pnpm --filter web exec prisma generate`
+- 開啟 Prisma Studio：`pnpm --filter web db:studio`
+- Extension 打包 VSIX：`pnpm --filter confession-extension package`

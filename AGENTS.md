@@ -129,6 +129,18 @@ confession/
 - CI/CD：GitHub Actions（`quality` + `commit-check`）
 - Commit 檢查：commitlint + husky（`commit-msg` hook）
 
+## 5.1 工作流程與常用指令
+
+- 全專案本地開發：`pnpm dev`
+- 品質檢查彙總（lint + build + test）：`pnpm check:ci`
+- 程式碼格式化：`pnpm format`
+- 格式檢查：`pnpm format:check`
+- Prisma migrate：`pnpm --filter web db:migrate`
+- Prisma generate：`pnpm --filter web db:generate`
+- Prisma Studio：`pnpm --filter web db:studio`
+- Extension 打包 VSIX：`pnpm --filter confession-extension package`
+- Commit range 檢查：`pnpm commitlint:range --from <from> --to <to>`
+
 ## 6. API 規範
 
 Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
