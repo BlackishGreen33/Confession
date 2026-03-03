@@ -1,8 +1,15 @@
 import * as vscode from 'vscode'
 
 import { generateMonitoringCode } from './monitoring'
-import { fetchVulnerabilityById } from './scan-client'
+import {
+  fetchAllOpenVulnerabilities,
+  fetchVulnerabilityById,
+  updateVulnerabilityStatus,
+} from './scan-client'
 import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
+
+type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
+type OperationName = OperationResult['operation']
 
 /** 模組層級 Provider 參考（多視圖共用），供匯出函數使用 */
 const providerInstances: ConfessionViewProvider[] = []
@@ -90,10 +97,14 @@ export function postMessageToWebview(message: ExtToWebMsg): void {
   for (const provider of providerInstances) {
     provider.postMessage(message)
   }
+  // Editor Panel 與 Settings Panel 不在 providerInstances，需額外廣播
+  detailPanel?.webview.postMessage(message)
+  settingsPanel?.webview.postMessage(message)
 }
 
 /**
- * 推送漏洞更新到 Webview
+ * 推送漏洞更新到 Webview。
+ * 語義：變更通知 + 可選資料（前端不得假設 payload 永遠完整）。
  */
 export function sendVulnerabilities(vulns: Vulnerability[]): void {
   postMessageToWebview({ type: 'vulnerabilities_updated', data: vulns })
@@ -115,6 +126,12 @@ export function sendConfigUpdate(config: PluginConfig): void {
 
 // === 內部：處理 Webview 傳來的訊息 ===
 
+function postOperationResult(result: OperationResult): void {
+  // 回執採跨視圖廣播，各視圖以 requestId 判斷是否自身請求，
+  // 其餘視圖仍可利用同一回執做快取收斂。
+  postMessageToWebview({ type: 'operation_result', data: result })
+}
+
 function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): void {
   switch (msg.type) {
     case 'request_scan':
@@ -126,11 +143,15 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       break
 
     case 'apply_fix':
-      void applyVulnerabilityFix(msg.data.vulnerabilityId)
+      void handleApplyFixRequest(msg.requestId, msg.data.vulnerabilityId)
       break
 
     case 'ignore_vulnerability':
-      vscode.commands.executeCommand('codeVuln.ignoreVulnerability', msg.data.vulnerabilityId)
+      void handleIgnoreRequest(msg.requestId, msg.data.vulnerabilityId)
+      break
+
+    case 'refresh_vulnerabilities':
+      void handleRefreshRequest(msg.requestId, getConfig)
       break
 
     case 'navigate_to_code': {
@@ -145,7 +166,7 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
     }
 
     case 'update_config':
-      void writeConfigToSettings(msg.data)
+      void handleUpdateConfigRequest(msg.requestId, msg.data)
       break
 
     case 'request_config':
@@ -179,9 +200,126 @@ async function handleOpenVulnerabilityDetail(
   }
 }
 
+/** 重新拉取開放漏洞並廣播給所有 Webview */
+async function refreshVulnerabilities(getConfig: () => PluginConfig): Promise<Vulnerability[]> {
+  const baseUrl = getConfig().api.baseUrl.replace(/\/+$/, '')
+  const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl)
+  sendVulnerabilities(allOpenVulns)
+  return allOpenVulns
+}
+
+function buildOperationResult(
+  requestId: string,
+  operation: OperationName,
+  success: boolean,
+  message: string,
+  payload?: OperationResult['payload'],
+): OperationResult {
+  return { requestId, operation, success, message, payload }
+}
+
+async function handleApplyFixRequest(
+  requestId: string,
+  vulnerabilityId: string,
+): Promise<void> {
+  const result = await applyVulnerabilityFix(vulnerabilityId)
+  postOperationResult(
+    buildOperationResult(requestId, 'apply_fix', result.success, result.message, result.payload),
+  )
+}
+
+async function handleIgnoreRequest(
+  requestId: string,
+  vulnerabilityId: string,
+): Promise<void> {
+  try {
+    const ok = await vscode.commands.executeCommand<boolean>(
+      'codeVuln.ignoreVulnerability',
+      vulnerabilityId,
+    )
+    if (!ok) {
+      postOperationResult(
+        buildOperationResult(
+          requestId,
+          'ignore_vulnerability',
+          false,
+          '忽略漏洞失敗，請查看 VS Code 通知',
+          { vulnerabilityId },
+        ),
+      )
+      return
+    }
+
+    const baseUrl = vscode.workspace
+      .getConfiguration('confession')
+      .get<string>('api.baseUrl', 'http://localhost:3000')!
+      .replace(/\/+$/, '')
+    const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnerabilityId)
+
+    postOperationResult(
+      buildOperationResult(requestId, 'ignore_vulnerability', true, '忽略漏洞成功', {
+        vulnerabilityId,
+        updatedVulnerability: updatedVulnerability ?? undefined,
+      }),
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    postOperationResult(
+      buildOperationResult(requestId, 'ignore_vulnerability', false, `忽略漏洞失敗：${msg}`, {
+        vulnerabilityId,
+      }),
+    )
+  }
+}
+
+async function handleRefreshRequest(
+  requestId: string,
+  getConfig: () => PluginConfig,
+): Promise<void> {
+  try {
+    const vulns = await refreshVulnerabilities(getConfig)
+    postOperationResult(
+      buildOperationResult(
+        requestId,
+        'refresh_vulnerabilities',
+        true,
+        `同步完成（${vulns.length} 筆開放漏洞）`,
+      ),
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    postOperationResult(
+      buildOperationResult(
+        requestId,
+        'refresh_vulnerabilities',
+        false,
+        `同步漏洞資料失敗：${msg}`,
+      ),
+    )
+  }
+}
+
+async function handleUpdateConfigRequest(
+  requestId: string,
+  config: PluginConfig,
+): Promise<void> {
+  const result = await writeConfigToSettings(config)
+  postOperationResult(
+    buildOperationResult(
+      requestId,
+      'update_config',
+      result.success,
+      result.message,
+      result.success ? { config } : undefined,
+    ),
+  )
+}
+
 // === 內部：將 Webview 配置寫入 VS Code settings.json ===
 
-async function writeConfigToSettings(config: PluginConfig): Promise<void> {
+async function writeConfigToSettings(
+  config: PluginConfig,
+): Promise<{ success: boolean; message: string }> {
   const cfg = vscode.workspace.getConfiguration('confession')
   try {
     await cfg.update('llm.apiKey', config.llm.apiKey, vscode.ConfigurationTarget.Global)
@@ -194,15 +332,22 @@ async function writeConfigToSettings(config: PluginConfig): Promise<void> {
     await cfg.update('ignore.types', config.ignore.types, vscode.ConfigurationTarget.Global)
     await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
     await cfg.update('api.mode', config.api.mode, vscode.ConfigurationTarget.Global)
+    sendConfigUpdate(config)
+    return { success: true, message: 'Extension 設定已套用' }
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     vscode.window.showErrorMessage(`Confession: 儲存設定失敗 — ${msg}`)
+    return { success: false, message: `Extension 設定寫入失敗：${msg}` }
   }
 }
 
 // === 內部：套用漏洞修復 ===
 
-async function applyVulnerabilityFix(vulnId: string): Promise<void> {
+async function applyVulnerabilityFix(vulnId: string): Promise<{
+  success: boolean
+  message: string
+  payload?: OperationResult['payload']
+}> {
   const baseUrl = vscode.workspace
     .getConfiguration('confession')
     .get<string>('api.baseUrl', 'http://localhost:3000')!
@@ -212,12 +357,16 @@ async function applyVulnerabilityFix(vulnId: string): Promise<void> {
     const vuln = await fetchVulnerabilityById(baseUrl, vulnId)
     if (!vuln) {
       vscode.window.showErrorMessage('Confession: 找不到漏洞記錄')
-      return
+      return { success: false, message: '找不到漏洞記錄', payload: { vulnerabilityId: vulnId } }
     }
 
     if (!vuln.fixOldCode || !vuln.fixNewCode) {
       vscode.window.showWarningMessage('Confession: 此漏洞沒有可用的修復建議')
-      return
+      return {
+        success: false,
+        message: '此漏洞沒有可用的修復建議',
+        payload: { vulnerabilityId: vulnId },
+      }
     }
 
     const uri = vscode.Uri.file(vuln.filePath)
@@ -239,15 +388,49 @@ async function applyVulnerabilityFix(vulnId: string): Promise<void> {
 
     const applied = await vscode.workspace.applyEdit(edit)
 
-    if (applied) {
-      await doc.save()
-      vscode.window.showInformationMessage(`Confession: 已套用修復 (${vuln.type})`)
-    } else {
+    if (!applied) {
       vscode.window.showErrorMessage('Confession: 套用修復失敗')
+      return { success: false, message: '套用修復失敗', payload: { vulnerabilityId: vulnId } }
+    }
+
+    await doc.save()
+    const updated = await updateVulnerabilityStatus(baseUrl, vulnId, 'fixed')
+    if (!updated) {
+      const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnId)
+      vscode.window.showWarningMessage('Confession: 代碼修復成功，但更新漏洞狀態為 fixed 失敗')
+      return {
+        success: false,
+        message: '代碼修復成功，但更新漏洞狀態為 fixed 失敗',
+        payload: {
+          vulnerabilityId: vulnId,
+          updatedVulnerability: updatedVulnerability ?? undefined,
+        },
+      }
+    }
+
+    try {
+      const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl)
+      sendVulnerabilities(allOpenVulns)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '未知錯誤'
+      vscode.window.showWarningMessage(`Confession: 修復已完成，但同步漏洞列表失敗 — ${msg}`)
+    }
+
+    const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnId)
+    vscode.window.showInformationMessage(`Confession: 已套用修復 (${vuln.type})`)
+
+    return {
+      success: true,
+      message: `已套用修復 (${vuln.type})`,
+      payload: {
+        vulnerabilityId: vulnId,
+        updatedVulnerability: updatedVulnerability ?? undefined,
+      },
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     vscode.window.showErrorMessage(`Confession: 套用修復失敗 — ${msg}`)
+    return { success: false, message: `套用修復失敗：${msg}`, payload: { vulnerabilityId: vulnId } }
   }
 }
 
@@ -481,4 +664,3 @@ export function buildHtml(baseUrl: string, route: string): string {
 </body>
 </html>`
 }
-

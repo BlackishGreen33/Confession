@@ -153,11 +153,22 @@ export async function ignoreVulnerability(
   baseUrl: string,
   vulnId: string,
 ): Promise<boolean> {
+  return updateVulnerabilityStatus(baseUrl, vulnId, 'ignored')
+}
+
+/**
+ * 更新指定漏洞狀態（open / fixed / ignored）
+ */
+export async function updateVulnerabilityStatus(
+  baseUrl: string,
+  vulnId: string,
+  status: Vulnerability['status'],
+): Promise<boolean> {
   const base = baseUrl.replace(/\/+$/, '')
   const res = await fetch(`${base}/api/vulnerabilities/${vulnId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'ignored' }),
+    body: JSON.stringify({ status }),
   })
   return res.ok
 }
@@ -170,13 +181,11 @@ export async function fetchVulnerabilityById(
   vulnId: string,
 ): Promise<Vulnerability | null> {
   const base = baseUrl.replace(/\/+$/, '')
-  // 用 search 篩選取得單一漏洞（API 不提供 GET /:id，用列表 API 替代）
-  const params = new URLSearchParams({ pageSize: '100' })
-  const res = await fetch(`${base}/api/vulnerabilities?${params.toString()}`)
+  const res = await fetch(`${base}/api/vulnerabilities/${vulnId}`)
   if (!res.ok) return null
 
-  const data = (await res.json()) as { items: Vulnerability[] }
-  return data.items.find((v) => v.id === vulnId) ?? null
+  const data = (await res.json()) as Vulnerability
+  return data
 }
 
 function sleep(ms: number): Promise<void> {

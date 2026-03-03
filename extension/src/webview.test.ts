@@ -52,6 +52,13 @@ const arbSeverity = fc.constantFrom('critical', 'high', 'medium', 'low', 'info')
   'critical' | 'high' | 'medium' | 'low' | 'info'
 >
 
+const arbIsoDateString = fc
+  .integer({
+    min: Date.UTC(2000, 0, 1, 0, 0, 0, 0),
+    max: Date.UTC(2100, 11, 31, 23, 59, 59, 999),
+  })
+  .map((ts) => new Date(ts).toISOString())
+
 /** 產生隨機 Vulnerability */
 const arbVulnerability: fc.Arbitrary<Vulnerability> = fc.record({
   id: fc.uuid(),
@@ -77,8 +84,8 @@ const arbVulnerability: fc.Arbitrary<Vulnerability> = fc.record({
   humanComment: fc.option(fc.string(), { nil: null }),
   owaspCategory: fc.option(fc.string(), { nil: null }),
   status: fc.constantFrom('open', 'fixed', 'ignored'),
-  createdAt: fc.date().map((d) => d.toISOString()),
-  updatedAt: fc.date().map((d) => d.toISOString()),
+  createdAt: arbIsoDateString,
+  updatedAt: arbIsoDateString,
 })
 
 /** 產生隨機 PluginConfig */
@@ -120,6 +127,28 @@ const arbExtToWebMsg: fc.Arbitrary<ExtToWebMsg> = fc.oneof(
   fc.record({
     type: fc.constant('config_updated' as const),
     data: arbPluginConfig,
+  }),
+  fc.record({
+    type: fc.constant('operation_result' as const),
+    data: fc.record({
+      requestId: fc.string({ minLength: 1, maxLength: 64 }),
+      operation: fc.constantFrom(
+        'apply_fix' as const,
+        'ignore_vulnerability' as const,
+        'refresh_vulnerabilities' as const,
+        'update_config' as const,
+      ),
+      success: fc.boolean(),
+      message: fc.string({ minLength: 1, maxLength: 100 }),
+      payload: fc.option(
+        fc.record({
+          vulnerabilityId: fc.option(fc.uuid(), { nil: undefined }),
+          updatedVulnerability: fc.option(arbVulnerability, { nil: undefined }),
+          config: fc.option(arbPluginConfig, { nil: undefined }),
+        }),
+        { nil: undefined },
+      ),
+    }),
   }),
 )
 
@@ -209,6 +238,8 @@ describe('Feature: sidebar-security-panel, Property 2: Extension → Webview 訊
 // mock scan-client，讓 applyVulnerabilityFix 內的 fetchVulnerabilityById 不發真實請求
 vi.mock('./scan-client', () => ({
   fetchVulnerabilityById: vi.fn().mockResolvedValue(null),
+  fetchAllOpenVulnerabilities: vi.fn().mockResolvedValue([]),
+  updateVulnerabilityStatus: vi.fn().mockResolvedValue(true),
 }))
 
 // mock monitoring，避免 applyVulnerabilityFix 內部引用出錯
@@ -218,7 +249,7 @@ vi.mock('./monitoring', () => ({
 
 // === Property 3 的 Arbitrary 定義 ===
 
-/** 產生隨機 WebToExtMsg（涵蓋所有 6 種訊息類型） */
+/** 產生隨機 WebToExtMsg（涵蓋所有 8 種訊息類型） */
 const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
   fc.record({
     type: fc.constant('request_scan' as const),
@@ -228,10 +259,12 @@ const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
   }),
   fc.record({
     type: fc.constant('apply_fix' as const),
+    requestId: fc.string({ minLength: 1, maxLength: 64 }),
     data: fc.record({ vulnerabilityId: fc.uuid() }),
   }),
   fc.record({
     type: fc.constant('ignore_vulnerability' as const),
+    requestId: fc.string({ minLength: 1, maxLength: 64 }),
     data: fc.record({
       vulnerabilityId: fc.uuid(),
       reason: fc.option(fc.string(), { nil: undefined }),
@@ -246,7 +279,12 @@ const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
     }),
   }),
   fc.record({
+    type: fc.constant('refresh_vulnerabilities' as const),
+    requestId: fc.string({ minLength: 1, maxLength: 64 }),
+  }),
+  fc.record({
     type: fc.constant('update_config' as const),
+    requestId: fc.string({ minLength: 1, maxLength: 64 }),
     data: arbPluginConfig,
   }),
   fc.constant({ type: 'request_config' } as WebToExtMsg),
@@ -369,6 +407,11 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
               'codeVuln.ignoreVulnerability',
               msg.data.vulnerabilityId,
             )
+            break
+
+          case 'refresh_vulnerabilities':
+            // refresh 完成後會回傳 operation_result（跨視圖廣播）
+            expect(postMessageSpy).toHaveBeenCalled()
             break
 
           case 'navigate_to_code': {
@@ -651,4 +694,3 @@ describe('向後相容：viewType 與 openDashboard 指令', () => {
     expect(executeCommandSpy).toHaveBeenCalledWith('confession.dashboard.focus')
   })
 })
-
