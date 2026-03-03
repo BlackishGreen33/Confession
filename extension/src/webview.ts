@@ -1,3 +1,6 @@
+import * as fs from 'fs/promises'
+import os from 'os'
+import path from 'path'
 import * as vscode from 'vscode'
 
 import { generateMonitoringCode } from './monitoring'
@@ -10,9 +13,20 @@ import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './ty
 
 type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
 type OperationName = OperationResult['operation']
+type ExportPdfRequestData = Extract<WebToExtMsg, { type: 'export_pdf' }>['data']
+type WebviewLogger = (message: string) => void
 
 /** 模組層級 Provider 參考（多視圖共用），供匯出函數使用 */
 const providerInstances: ConfessionViewProvider[] = []
+let webviewLogger: WebviewLogger | undefined
+
+function logWebview(message: string): void {
+  webviewLogger?.(message)
+}
+
+export function setWebviewLogger(logger: WebviewLogger): void {
+  webviewLogger = logger
+}
 
 /** 側邊欄 Webview 視圖 Provider（通用，每個視圖實例持有自己的 route） */
 export class ConfessionViewProvider implements vscode.WebviewViewProvider {
@@ -169,6 +183,11 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       void handleUpdateConfigRequest(msg.requestId, msg.data)
       break
 
+    case 'export_pdf':
+      logWebview(`[PDF 匯出] 收到請求 requestId=${msg.requestId}`)
+      void handleExportPdfRequest(msg.requestId, msg.data, getConfig)
+      break
+
     case 'request_config':
       sendConfigUpdate(getConfig())
       break
@@ -313,6 +332,126 @@ async function handleUpdateConfigRequest(
       result.success ? { config } : undefined,
     ),
   )
+}
+
+function injectAutoPrintScript(html: string): string {
+  const script =
+    '<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),200));</script>'
+
+  if (html.includes('window.print()')) return html
+  if (html.includes('</body>')) {
+    return html.replace('</body>', `${script}</body>`)
+  }
+  return `${html}\n${script}`
+}
+
+function buildTempHtmlPath(filename: string): string {
+  const baseName = filename.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const safeName = baseName.length > 0 ? baseName : 'confession-export'
+  return path.join(os.tmpdir(), `${safeName}-${Date.now()}.html`)
+}
+
+function filenameFromContentDisposition(
+  disposition: string | null,
+  fallback = 'confession-vulnerabilities.pdf',
+): string {
+  if (!disposition) return fallback
+  const matched = disposition.match(/filename="([^"]+)"/i)
+  return matched?.[1] ?? fallback
+}
+
+async function fetchPdfReportHtml(
+  baseUrl: string,
+  data: ExportPdfRequestData,
+): Promise<{ html: string; filename: string }> {
+  const startedAt = Date.now()
+  const AbortControllerCtor = globalThis.AbortController
+  if (!AbortControllerCtor) {
+    throw new Error('目前環境不支援 AbortController')
+  }
+  const controller = new AbortControllerCtor()
+  const timeout = setTimeout(() => controller.abort(), 120_000)
+  const exportUrl = `${baseUrl.replace(/\/+$/, '')}/api/export`
+  logWebview(`[PDF 匯出] 呼叫匯出 API: ${exportUrl}`)
+
+  try {
+    const res = await fetch(exportUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: 'pdf',
+        filters: data.filters ?? {},
+      }),
+      signal: controller.signal,
+    })
+    logWebview(`[PDF 匯出] 匯出 API 回應 status=${res.status}`)
+
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try {
+        const payload = (await res.json()) as { error?: string }
+        if (payload.error) detail = payload.error
+      } catch {
+        // ignore json parse errors, keep fallback detail
+      }
+      throw new Error(`匯出 API 錯誤：${detail}`)
+    }
+
+    const html = await res.text()
+    if (!html.trim()) {
+      throw new Error('匯出 API 回傳空內容')
+    }
+
+    const fallbackName = data.filename?.trim() || 'confession-vulnerabilities.pdf'
+    const filename = filenameFromContentDisposition(
+      res.headers.get('content-disposition'),
+      fallbackName,
+    )
+    logWebview(
+      `[PDF 匯出] 匯出內容已取得（${html.length} chars），耗時 ${Date.now() - startedAt}ms`,
+    )
+    return { html, filename }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function handleExportPdfRequest(
+  requestId: string,
+  data: ExportPdfRequestData,
+  getConfig: () => PluginConfig,
+): Promise<void> {
+  try {
+    const baseUrl = getConfig().api.baseUrl.replace(/\/+$/, '')
+    logWebview(`[PDF 匯出] 開始處理 requestId=${requestId}`)
+    const { html, filename } = await fetchPdfReportHtml(baseUrl, data)
+    const tempHtmlPath = buildTempHtmlPath(filename)
+    await fs.writeFile(tempHtmlPath, injectAutoPrintScript(html), 'utf8')
+    logWebview(`[PDF 匯出] 已寫入暫存 HTML: ${tempHtmlPath}`)
+
+    const opened = await vscode.env.openExternal(vscode.Uri.file(tempHtmlPath))
+    if (!opened) {
+      logWebview(`[PDF 匯出] 開啟外部瀏覽器失敗 requestId=${requestId}`)
+      postOperationResult(
+        buildOperationResult(requestId, 'export_pdf', false, '無法開啟外部瀏覽器列印預覽'),
+      )
+      return
+    }
+    logWebview(`[PDF 匯出] 已開啟外部瀏覽器 requestId=${requestId}`)
+
+    vscode.window.showInformationMessage(
+      'Confession: 已開啟外部列印預覽，請在瀏覽器使用「另存為 PDF」。',
+    )
+    postOperationResult(
+      buildOperationResult(requestId, 'export_pdf', true, '已開啟外部列印預覽'),
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    logWebview(`[PDF 匯出] 失敗 requestId=${requestId} error=${msg}`)
+    postOperationResult(
+      buildOperationResult(requestId, 'export_pdf', false, `PDF 匯出失敗：${msg}`),
+    )
+  }
 }
 
 // === 內部：將 Webview 配置寫入 VS Code settings.json ===
