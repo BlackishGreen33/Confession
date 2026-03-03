@@ -68,11 +68,22 @@ export function useVulnStats() {
 export function useUpdateVuln() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      api.patch(`/api/vulnerabilities/${id}`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['vulnerabilities'] })
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+      const res = await api.patch<Vulnerability>(`/api/vulnerabilities/${id}`, data)
+      return res.data
+    },
+    onSuccess: (updated) => {
+      // 同步單筆快取，避免詳情頁 Select 顯示舊值造成「看起來無法修改」
+      qc.setQueryData<Vulnerability>(['vulnerability', updated.id], updated)
+      qc.setQueriesData<VulnListResponse>({ queryKey: ['vulnerabilities'] }, (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          items: old.items.map((item) => (item.id === updated.id ? updated : item)),
+        }
+      })
       qc.invalidateQueries({ queryKey: ['vuln-stats'] })
+      qc.invalidateQueries({ queryKey: ['vuln-trend'] })
     },
   })
 }
