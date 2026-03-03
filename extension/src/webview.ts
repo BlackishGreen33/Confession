@@ -191,10 +191,23 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
     case 'request_config':
       sendConfigUpdate(getConfig())
       break
+    case 'paste_clipboard':
+      void handlePasteClipboardRequest()
+      break
 
     case 'open_vulnerability_detail':
       void handleOpenVulnerabilityDetail(msg.data.vulnerabilityId, getConfig)
       break
+  }
+}
+
+async function handlePasteClipboardRequest(): Promise<void> {
+  try {
+    const text = await vscode.env.clipboard.readText()
+    postMessageToWebview({ type: 'clipboard_paste', data: { text } })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    logWebview(`[Clipboard] 讀取失敗: ${msg}`)
   }
 }
 
@@ -468,6 +481,11 @@ async function writeConfigToSettings(
     await cfg.update('analysis.triggerMode', config.analysis.triggerMode, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.depth', config.analysis.depth, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.debounceMs', config.analysis.debounceMs, vscode.ConfigurationTarget.Global)
+    await cfg.update(
+      'analysis.betaAgenticEnabled',
+      config.analysis.betaAgenticEnabled,
+      vscode.ConfigurationTarget.Global,
+    )
     await cfg.update('ignore.paths', config.ignore.paths, vscode.ConfigurationTarget.Global)
     await cfg.update('ignore.types', config.ignore.types, vscode.ConfigurationTarget.Global)
     await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
@@ -707,6 +725,7 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
           vscode.postMessage(event.data);
         }
       });
+
     })();
   </script>
 </body>
@@ -799,6 +818,7 @@ export function buildHtml(baseUrl: string, route: string): string {
           vscode.postMessage(event.data);
         }
       });
+
     })();
   </script>
 </body>

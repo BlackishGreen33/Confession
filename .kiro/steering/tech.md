@@ -17,9 +17,19 @@ inclusion: always
 | 資料庫 | Prisma + SQLite（PostgreSQL 相容 schema） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
+| Beta Agentic | Planner/Skill/Analyst/Critic/Judge 多代理管線（可切換） |
+| MCP | 內建 broker + policy（白名單 server、僅允許安全能力） |
 | 測試 | Vitest + fast-check（PBT） |
 | CI/CD | GitHub Actions（`quality` + `commit-check`） |
 | Commit 檢查 | commitlint + husky（`commit-msg` hook） |
+
+## 部署備註（Vercel）
+
+- API 入口 `web/src/app/api/[...route]/route.ts` 需固定：
+  - `runtime = "nodejs"`（SSE 走 Node Functions）
+  - `dynamic = "force-dynamic"`（避免快取造成串流失效）
+  - `maxDuration = 300`（實際可用上限仍受方案限制）
+- SSE 端點（例如 `/api/scan/stream/:id`）適合即時進度推送；若未來同時連線數很高，需評估成本與連線上限（可考慮拆分專用 realtime 通道）。
 
 ## 核心指令
 

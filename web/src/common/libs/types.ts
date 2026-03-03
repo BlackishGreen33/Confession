@@ -58,6 +58,9 @@ export interface VulnerabilityEvent {
   createdAt: string
 }
 
+export type ScanEngineMode = 'baseline' | 'agentic_beta'
+export type ScanErrorCode = 'BETA_ENGINE_FAILED' | 'LLM_ANALYSIS_FAILED' | 'UNKNOWN'
+
 // === 掃描請求（Scan Request） ===
 
 export interface ScanRequest {
@@ -68,6 +71,8 @@ export interface ScanRequest {
   forceRescan?: boolean
   /** 掃描範圍，用於策略差異（例如重試策略） */
   scanScope?: 'file' | 'workspace'
+  /** 掃描引擎模式：baseline（現行）或 agentic_beta（Beta 多代理） */
+  engineMode?: ScanEngineMode
 }
 
 export type ExportFormat = 'json' | 'csv' | 'markdown' | 'pdf'
@@ -102,7 +107,9 @@ export interface RecentScanSummary {
   progress: number
   totalFiles: number
   scannedFiles: number
+  engineMode: ScanEngineMode
   errorMessage: string | null
+  errorCode: ScanErrorCode | null
   createdAt: string
   updatedAt: string
 }
@@ -114,6 +121,7 @@ export type ExtToWebMsg =
   | { type: 'vulnerabilities_updated'; data: Vulnerability[] }
   | { type: 'scan_progress'; data: { status: string; progress: number } }
   | { type: 'config_updated'; data: PluginConfig }
+  | { type: 'clipboard_paste'; data: { text: string } }
   | { type: 'navigate_to_view'; data: { route: string } }
   | { type: 'vulnerability_detail_data'; data: Vulnerability }
   | {
@@ -153,6 +161,7 @@ export type WebToExtMsg =
       data: { filters?: ExportFilters; filename?: string }
     }
   | { type: 'request_config' }
+  | { type: 'paste_clipboard' }
   | { type: 'open_vulnerability_detail'; data: { vulnerabilityId: string } }
 
 // === 配置（Plugin Config） ===
@@ -170,6 +179,7 @@ export interface PluginConfig {
     triggerMode: 'onSave' | 'manual'
     depth: 'quick' | 'standard' | 'deep'
     debounceMs: number
+    betaAgenticEnabled: boolean
   }
   ignore: {
     paths: string[]

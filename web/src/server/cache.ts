@@ -87,13 +87,14 @@ export function computeScanFingerprint(
   files: Array<{ path: string; content: string }>,
   depth: string,
   forceRescan = false,
+  engineMode = 'baseline',
 ): string {
   const parts = files
     .map((f) => `${f.path}:${computeContentHash(f.content)}`)
     .sort()
     .join('|')
   return createHash('sha256')
-    .update(`${parts}::${depth}::force=${forceRescan ? 1 : 0}`)
+    .update(`${parts}::${depth}::force=${forceRescan ? 1 : 0}::engine=${engineMode}`)
     .digest('hex')
 }
 
@@ -105,10 +106,21 @@ export function computeLlmPromptFingerprint(
   prompt: string,
   modelName: string,
   depth: string,
-  strategyVersion = 'v2',
+  options: {
+    strategyVersion?: string
+    engineMode?: 'baseline' | 'agentic_beta'
+    agentRole?: string
+    contextDigest?: string
+  } = {},
 ): string {
+  const {
+    strategyVersion = 'v2',
+    engineMode = 'baseline',
+    agentRole = 'analysis',
+    contextDigest = '',
+  } = options
   return createHash('sha256')
-    .update(`${strategyVersion}::${modelName}::${depth}::${prompt}`)
+    .update(`${strategyVersion}::${engineMode}::${agentRole}::${contextDigest}::${modelName}::${depth}::${prompt}`)
     .digest('hex')
 }
 

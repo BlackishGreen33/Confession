@@ -73,6 +73,9 @@ describe('P4: Agent 消息序列化往返', () => {
     ),
     depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<ScanRequest['depth']>,
     includeLlmScan: fc.option(fc.boolean(), { nil: undefined }),
+    forceRescan: fc.option(fc.boolean(), { nil: undefined }),
+    scanScope: fc.option(fc.constantFrom('file', 'workspace'), { nil: undefined }),
+    engineMode: fc.option(fc.constantFrom('baseline', 'agentic_beta'), { nil: undefined }),
   })
 
   const pluginConfigArb: fc.Arbitrary<PluginConfig> = fc.record({
@@ -86,6 +89,7 @@ describe('P4: Agent 消息序列化往返', () => {
       triggerMode: fc.constantFrom('onSave', 'manual') as fc.Arbitrary<PluginConfig['analysis']['triggerMode']>,
       depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<PluginConfig['analysis']['depth']>,
       debounceMs: fc.nat({ max: 5000 }),
+      betaAgenticEnabled: fc.boolean(),
     }),
     ignore: fc.record({
       paths: fc.array(fc.string({ minLength: 1, maxLength: 30 }), { maxLength: 5 }),

@@ -100,6 +100,7 @@ const arbPluginConfig: fc.Arbitrary<PluginConfig> = fc.record({
     triggerMode: fc.constantFrom('onSave' as const, 'manual' as const),
     depth: fc.constantFrom('quick' as const, 'standard' as const, 'deep' as const),
     debounceMs: fc.nat({ max: 10000 }),
+    betaAgenticEnabled: fc.boolean(),
   }),
   ignore: fc.record({
     paths: fc.array(fc.string(), { maxLength: 5 }),
@@ -127,6 +128,12 @@ const arbExtToWebMsg: fc.Arbitrary<ExtToWebMsg> = fc.oneof(
   fc.record({
     type: fc.constant('config_updated' as const),
     data: arbPluginConfig,
+  }),
+  fc.record({
+    type: fc.constant('clipboard_paste' as const),
+    data: fc.record({
+      text: fc.string(),
+    }),
   }),
   fc.record({
     type: fc.constant('operation_result' as const),
@@ -195,7 +202,7 @@ describe('Feature: sidebar-security-panel, Property 2: Extension → Webview 訊
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -249,7 +256,7 @@ vi.mock('./monitoring', () => ({
 
 // === Property 3 的 Arbitrary 定義 ===
 
-/** 產生隨機 WebToExtMsg（涵蓋所有 8 種訊息類型） */
+/** 產生隨機 WebToExtMsg（涵蓋所有通訊訊息類型） */
 const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
   fc.record({
     type: fc.constant('request_scan' as const),
@@ -288,6 +295,7 @@ const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
     data: arbPluginConfig,
   }),
   fc.constant({ type: 'request_config' } as WebToExtMsg),
+  fc.constant({ type: 'paste_clipboard' } as WebToExtMsg),
 )
 
 // === Property 3 測試 ===
@@ -306,7 +314,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
   /** 測試用的 PluginConfig */
   const mockConfig: PluginConfig = {
     llm: { provider: 'gemini', apiKey: 'test-key' },
-    analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
+    analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
     ignore: { paths: [], types: [] },
     api: { baseUrl: 'http://localhost:3000', mode: 'local' },
   }
@@ -440,6 +448,10 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
               data: mockConfig,
             })
             break
+          case 'paste_clipboard':
+            // 應觸發回傳 clipboard_paste（跨視圖廣播）
+            expect(postMessageSpy).toHaveBeenCalled()
+            break
         }
       }),
       { numRuns: 100 },
@@ -488,7 +500,7 @@ describe('Feature: sidebar-security-panel, Property 4: 配置變更觸發通知'
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -575,7 +587,7 @@ describe('Feature: sidebar-security-panel, Property 5: 可見性變更觸發配�
     // 初始配置（會在 fc.property 迭代中被替換）
     currentConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -667,7 +679,7 @@ describe('向後相容：viewType 與 openDashboard 指令', () => {
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }

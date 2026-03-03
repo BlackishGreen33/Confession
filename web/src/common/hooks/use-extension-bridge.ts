@@ -18,6 +18,16 @@ interface PendingOperation {
 }
 
 const pendingOperations = new Map<string, PendingOperation>()
+type EditableInputTarget = {
+  tagName?: string
+  value: string
+  selectionStart?: number | null
+  selectionEnd?: number | null
+  setSelectionRange: (start: number, end: number) => void
+  dispatchEvent: (event: Event) => boolean
+}
+
+let lastRequestedPasteTarget: EditableInputTarget | null = null
 
 /** 判斷是否在 VS Code Webview iframe 內 */
 function isInVscodeWebview(): boolean {
@@ -58,6 +68,90 @@ export function postToExtension(msg: WebToExtMsg): void {
   if (isInVscodeWebview()) {
     window.parent.postMessage(msg, '*')
   }
+}
+
+function toEditableInputTarget(value: unknown): EditableInputTarget | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const candidate = value as {
+    tagName?: string
+    value?: string
+    selectionStart?: number | null
+    selectionEnd?: number | null
+    setSelectionRange?: (start: number, end: number) => void
+    dispatchEvent?: (event: Event) => boolean
+  }
+
+  if (typeof candidate.tagName !== 'string') {
+    return null
+  }
+
+  const tag = candidate.tagName.toLowerCase()
+  if (tag !== 'input' && tag !== 'textarea') {
+    return null
+  }
+
+  if (
+    typeof candidate.value !== 'string' ||
+    typeof candidate.setSelectionRange !== 'function' ||
+    typeof candidate.dispatchEvent !== 'function'
+  ) {
+    return null
+  }
+
+  return candidate as {
+    value: string
+    selectionStart?: number | null
+    selectionEnd?: number | null
+    setSelectionRange: (start: number, end: number) => void
+    dispatchEvent: (event: Event) => boolean
+  }
+}
+
+function insertClipboardTextToFocusedInput(text: string): boolean {
+  const activeTarget = toEditableInputTarget(document.activeElement)
+  const target = activeTarget ?? lastRequestedPasteTarget
+  if (!target) {
+    return false
+  }
+
+  const start = target.selectionStart ?? target.value.length
+  const end = target.selectionEnd ?? target.value.length
+  const next = `${target.value.slice(0, start)}${text}${target.value.slice(end)}`
+
+  const tag = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : ''
+  const valueSetter =
+    tag === 'textarea'
+      ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+      : Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+
+  if (typeof valueSetter === 'function') {
+    valueSetter.call(target, next)
+  } else {
+    target.value = next
+  }
+
+  target.setSelectionRange(start + text.length, start + text.length)
+  target.dispatchEvent(new window.Event('input', { bubbles: true }))
+  target.dispatchEvent(new window.Event('change', { bubbles: true }))
+  lastRequestedPasteTarget = target
+  return true
+}
+
+function isEditablePasteTarget(target: unknown): boolean {
+  if (toEditableInputTarget(target)) return true
+  if (!target || typeof target !== 'object') return false
+
+  const candidate = target as { isContentEditable?: boolean; getAttribute?: (name: string) => string | null }
+
+  if (candidate.isContentEditable) {
+    return true
+  }
+
+  const role = typeof candidate.getAttribute === 'function' ? candidate.getAttribute('role') : null
+  return role === 'textbox'
 }
 
 /**
@@ -112,7 +206,12 @@ function syncUpdatedVulnerabilityCache(
  * - 提供 sendConfigToExtension / sendConfigToExtensionAndWait
  * - 啟動時向擴充套件請求目前配置
  */
-export function useExtensionBridge() {
+interface UseExtensionBridgeOptions {
+  passive?: boolean
+}
+
+export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
+  const passive = options?.passive ?? false
   const setConfig = useSetAtom(configAtom)
   const setScanStatus = useSetAtom(scanStatusAtom)
   const setVulnDetail = useSetAtom(vulnerabilityDetailAtom)
@@ -121,6 +220,10 @@ export function useExtensionBridge() {
   const initializedRef = useRef(false)
 
   useEffect(() => {
+    if (passive) {
+      return
+    }
+
     const handler = (event: MessageEvent<ExtToWebMsg>) => {
       const msg = event.data
       if (!msg?.type) return
@@ -129,6 +232,9 @@ export function useExtensionBridge() {
         case 'config_updated':
           setConfig(msg.data)
           queryClient.setQueryData(['config'], msg.data)
+          break
+        case 'clipboard_paste':
+          insertClipboardTextToFocusedInput(msg.data.text)
           break
         case 'navigate_to_view':
           router.push(msg.data.route)
@@ -147,6 +253,7 @@ export function useExtensionBridge() {
                   ? '掃描失敗'
                   : '掃描進行中…',
           })
+          void queryClient.invalidateQueries({ queryKey: ['scan-recent'] })
           break
         case 'vulnerabilities_updated':
           void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
@@ -196,7 +303,37 @@ export function useExtensionBridge() {
     }
 
     return () => window.removeEventListener('message', handler)
-  }, [queryClient, router, setConfig, setScanStatus, setVulnDetail])
+  }, [passive, queryClient, router, setConfig, setScanStatus, setVulnDetail])
+
+  useEffect(() => {
+    if (passive || !isInVscodeWebview()) {
+      return
+    }
+
+    const onKeydown = (event: {
+      metaKey?: boolean
+      ctrlKey?: boolean
+      key?: string
+      target?: unknown
+      preventDefault?: () => void
+    }) => {
+      const isPaste =
+        (event.metaKey || event.ctrlKey) &&
+        typeof event.key === 'string' &&
+        event.key.toLowerCase() === 'v'
+      if (!isPaste) return
+      if (!isEditablePasteTarget(event.target)) return
+      lastRequestedPasteTarget = toEditableInputTarget(event.target)
+
+      // VS Code Webview + iframe 環境下，快捷鍵貼上可能被 Host 吞掉；
+      // 這裡改由 Extension 主動讀取剪貼簿後回填。
+      event.preventDefault?.()
+      postToExtension({ type: 'paste_clipboard' })
+    }
+
+    window.addEventListener('keydown', onKeydown, true)
+    return () => window.removeEventListener('keydown', onKeydown, true)
+  }, [passive])
 
   const sendConfigToExtension = useCallback((config: PluginConfig) => {
     const requestId = createRequestId('config')
