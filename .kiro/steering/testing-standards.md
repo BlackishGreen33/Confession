@@ -17,3 +17,6 @@ fileMatchPattern: "**/*.test.*"
 - 屬性測試命名為 `<name>.pbt.test.ts`
 - 修 bug 時先寫失敗測試，再修復
 - 不要 mock 不必要的東西，優先使用真實實作
+- Beta 能力需補齊：
+  - Agentic Planner/Skill/MCP policy 單元測試
+  - `engineMode` 與 `errorCode` API 回傳測試
