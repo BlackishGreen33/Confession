@@ -110,9 +110,11 @@ export type WebToExtMsg =
 
 // === 配置（Plugin Config） ===
 
+export type LlmProvider = 'gemini' | 'nvidia'
+
 export interface PluginConfig {
   llm: {
-    provider: 'gemini'
+    provider: LlmProvider
     apiKey: string
     endpoint?: string
     model?: string

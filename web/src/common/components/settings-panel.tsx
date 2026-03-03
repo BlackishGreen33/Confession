@@ -65,28 +65,44 @@ interface LlmTabProps {
 
 const LlmTab: React.FC<LlmTabProps> = ({ llm, onChange }) => {
   const [showKey, setShowKey] = useState(false)
+  const providerLabel = llm.provider === 'nvidia' ? 'NVIDIA Integrate' : 'Google Gemini'
+  const apiKeyPlaceholder = llm.provider === 'nvidia' ? '輸入 NVIDIA API Key…' : '輸入 Gemini API Key…'
+  const endpointPlaceholder =
+    llm.provider === 'nvidia'
+      ? 'https://integrate.api.nvidia.com/v1'
+      : 'https://generativelanguage.googleapis.com/v1beta/models'
+  const modelPlaceholder =
+    llm.provider === 'nvidia' ? 'qwen/qwen2.5-coder-32b-instruct' : 'gemini-3-flash-preview'
 
   return (
     <div className="flex flex-col">
       <FormRow label="提供商" description="選擇 LLM 服務提供商" htmlFor="llm-provider">
-        <Select value={llm.provider} onValueChange={(v) => onChange({ provider: v as 'gemini' })}>
+        <Select
+          value={llm.provider}
+          onValueChange={(v) => onChange({ provider: v as PluginConfig['llm']['provider'] })}
+        >
           <SelectTrigger id="llm-provider" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="nvidia">NVIDIA Integrate</SelectItem>
             <SelectItem value="gemini">Google Gemini</SelectItem>
           </SelectContent>
         </Select>
       </FormRow>
 
-      <FormRow label="API Key" description="用於驗證 LLM API 請求的金鑰" htmlFor="llm-api-key">
+      <FormRow
+        label="API Key"
+        description={`用於驗證 ${providerLabel} API 請求的金鑰`}
+        htmlFor="llm-api-key"
+      >
         <div className="flex gap-2">
           <Input
             id="llm-api-key"
             type={showKey ? 'text' : 'password'}
             value={llm.apiKey}
             onChange={(e) => onChange({ apiKey: e.target.value })}
-            placeholder="輸入 API Key…"
+            placeholder={apiKeyPlaceholder}
           />
           <Button
             type="button"
@@ -100,12 +116,16 @@ const LlmTab: React.FC<LlmTabProps> = ({ llm, onChange }) => {
         </div>
       </FormRow>
 
-      <FormRow label="端點" description="自訂 API 端點 URL（選填）" htmlFor="llm-endpoint">
+      <FormRow
+        label="端點"
+        description={`自訂 ${providerLabel} API 端點（選填）`}
+        htmlFor="llm-endpoint"
+      >
         <Input
           id="llm-endpoint"
           value={llm.endpoint ?? ''}
           onChange={(e) => onChange({ endpoint: e.target.value || undefined })}
-          placeholder="https://generativelanguage.googleapis.com/v1beta"
+          placeholder={endpointPlaceholder}
         />
       </FormRow>
 
@@ -114,7 +134,7 @@ const LlmTab: React.FC<LlmTabProps> = ({ llm, onChange }) => {
           id="llm-model"
           value={llm.model ?? ''}
           onChange={(e) => onChange({ model: e.target.value || undefined })}
-          placeholder="gemini-3-flash-preview"
+          placeholder={modelPlaceholder}
         />
       </FormRow>
     </div>
@@ -414,7 +434,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase }) => {
 
 /** 預設配置，用於重置 */
 const DEFAULT_CONFIG: PluginConfig = {
-  llm: { provider: 'gemini', apiKey: '' },
+  llm: { provider: 'nvidia', apiKey: '' },
   analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },

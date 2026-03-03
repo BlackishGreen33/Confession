@@ -77,7 +77,7 @@ describe('P4: Agent 消息序列化往返', () => {
 
   const pluginConfigArb: fc.Arbitrary<PluginConfig> = fc.record({
     llm: fc.record({
-      provider: fc.constant('gemini') as fc.Arbitrary<'gemini'>,
+      provider: fc.constantFrom('gemini', 'nvidia') as fc.Arbitrary<PluginConfig['llm']['provider']>,
       apiKey: fc.string({ minLength: 1, maxLength: 50 }),
       endpoint: fc.option(fc.stringMatching(/^https?:\/\/[a-z0-9.]+$/), { nil: undefined }),
       model: fc.option(fc.string({ minLength: 1, maxLength: 30 }), { nil: undefined }),

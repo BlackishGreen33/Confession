@@ -33,9 +33,11 @@ export interface Vulnerability {
 }
 
 // 插件配置
+export type LlmProvider = 'gemini' | 'nvidia'
+
 export interface PluginConfig {
   llm: {
-    provider: 'gemini'
+    provider: LlmProvider
     apiKey: string
     endpoint?: string
     model?: string

@@ -34,7 +34,7 @@ export const scanStatusAtom = atom<{
 /** 插件配置（預設值） */
 export const configAtom = atom<PluginConfig>({
   llm: {
-    provider: 'gemini',
+    provider: 'nvidia',
     apiKey: '',
   },
   analysis: {

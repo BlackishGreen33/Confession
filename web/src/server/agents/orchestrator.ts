@@ -1,7 +1,7 @@
 import { computeContentHash, fileAnalysisCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
-import type { GeminiClientConfig } from '@server/llm/gemini'
+import type { LlmClientConfig } from '@server/llm/client'
 
 import type { ScanRequest } from '@/libs/types'
 
@@ -27,7 +27,7 @@ export interface OrchestrateResult {
 }
 
 export interface OrchestrateOptions {
-  geminiConfig?: GeminiClientConfig
+  llmConfig?: LlmClientConfig
 }
 
 /**
@@ -99,7 +99,7 @@ export async function orchestrate(
     depth: request.depth,
     includeMacroScan: request.includeLlmScan ?? false,
     maxRetryAttempts: retryAttempts,
-    geminiConfig: options.geminiConfig,
+    llmConfig: options.llmConfig,
   })
   const vulns = analysisResult.vulnerabilities
 

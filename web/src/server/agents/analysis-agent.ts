@@ -1,7 +1,7 @@
 import { computeLlmPromptFingerprint, llmResponseCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
-import type { GeminiCallResult, GeminiClientConfig } from '@server/llm/gemini'
-import { callGemini, configFromEnv } from '@server/llm/gemini'
+import type { LlmCallResult, LlmClientConfig } from '@server/llm/client'
+import { callLlm, configFromEnv, resolveDefaultModel } from '@server/llm/client'
 import type { LlmVulnerability } from '@server/llm/parser'
 import { parseLlmResponse } from '@server/llm/parser'
 import {
@@ -18,8 +18,8 @@ export type FileContentMap = Map<string, { content: string; language: string }>
 
 /** Analysis Agent 設定 */
 export interface AnalysisAgentOptions {
-  /** Gemini 客戶端設定，未提供時從環境變數取得 */
-  geminiConfig?: GeminiClientConfig
+  /** LLM 客戶端設定，未提供時從環境變數取得 */
+  llmConfig?: LlmClientConfig
   /** 分析深度 */
   depth: ScanRequest['depth']
   /** 是否啟用 deep 宏觀掃描 */
@@ -54,7 +54,6 @@ export interface AnalyzeWithLlmResult {
   stats: LlmUsageStats
 }
 
-const DEFAULT_MODEL = 'gemini-3-flash-preview'
 const LLM_TIMEOUT_MS = 45_000
 const LLM_RETRY_BASE_DELAY_MS = 1_000
 
@@ -93,8 +92,8 @@ export async function analyzeWithLlm(
   fileContents: FileContentMap,
   options: AnalysisAgentOptions,
 ): Promise<AnalyzeWithLlmResult> {
-  const config = options.geminiConfig ?? configFromEnv()
-  const modelName = config.model ?? DEFAULT_MODEL
+  const config = options.llmConfig ?? configFromEnv()
+  const modelName = config.model ?? resolveDefaultModel(config.provider)
   const maxRetryAttempts = Math.max(0, options.maxRetryAttempts ?? 0)
   const stats = createEmptyStats()
   const results: VulnerabilityInput[] = []
@@ -129,7 +128,7 @@ export async function analyzeWithLlm(
     stats.processedFiles += 1
 
     try {
-      const raw = await callGeminiWithCache(
+      const raw = await callLlmWithCache(
         prompt,
         config,
         modelName,
@@ -256,9 +255,9 @@ function buildContextBlocks(
   })
 }
 
-async function callGeminiWithCache(
+async function callLlmWithCache(
   prompt: string,
-  config: GeminiClientConfig,
+  config: LlmClientConfig,
   modelName: string,
   depth: ScanRequest['depth'],
   maxRetryAttempts: number,
@@ -271,7 +270,7 @@ async function callGeminiWithCache(
     return cached.text
   }
 
-  const result = await callGeminiWithRetry(prompt, config, maxRetryAttempts)
+  const result = await callLlmWithRetry(prompt, config, maxRetryAttempts)
   stats.requestCount += 1
   stats.promptTokens += result.usage.promptTokens
   stats.completionTokens += result.usage.completionTokens
@@ -285,19 +284,19 @@ async function callGeminiWithCache(
   return result.text
 }
 
-async function callGeminiWithRetry(
+async function callLlmWithRetry(
   prompt: string,
-  config: GeminiClientConfig,
+  config: LlmClientConfig,
   maxRetryAttempts: number,
-): Promise<GeminiCallResult> {
+): Promise<LlmCallResult> {
   let lastError: unknown
 
   for (let attempt = 0; attempt <= maxRetryAttempts; attempt += 1) {
     try {
-      return await callGeminiWithTimeout(prompt, config)
+      return await callLlmWithTimeout(prompt, config)
     } catch (err) {
       lastError = err
-      if (attempt >= maxRetryAttempts || !isRetryableGeminiError(err)) {
+      if (attempt >= maxRetryAttempts || !isRetryableLlmError(err)) {
         throw err
       }
 
@@ -305,19 +304,19 @@ async function callGeminiWithRetry(
     }
   }
 
-  throw (lastError instanceof Error ? lastError : new Error('Gemini 呼叫失敗'))
+  throw (lastError instanceof Error ? lastError : new Error('LLM 呼叫失敗'))
 }
 
-async function callGeminiWithTimeout(
+async function callLlmWithTimeout(
   prompt: string,
-  config: GeminiClientConfig,
-): Promise<GeminiCallResult> {
+  config: LlmClientConfig,
+): Promise<LlmCallResult> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      callGemini(prompt, config),
-      new Promise<GeminiCallResult>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Gemini 呼叫逾時')), LLM_TIMEOUT_MS)
+      callLlm(prompt, config),
+      new Promise<LlmCallResult>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('LLM 呼叫逾時')), LLM_TIMEOUT_MS)
       }),
     ])
   } finally {
@@ -325,9 +324,9 @@ async function callGeminiWithTimeout(
   }
 }
 
-function isRetryableGeminiError(err: unknown): boolean {
+function isRetryableLlmError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err)
-  if (msg.includes('Gemini 呼叫逾時')) return true
+  if (msg.includes('LLM 呼叫逾時')) return true
   if (/\b503\b/.test(msg)) return true
   if (msg.includes('UNAVAILABLE')) return true
   if (/high demand/i.test(msg)) return true
@@ -335,16 +334,16 @@ function isRetryableGeminiError(err: unknown): boolean {
 }
 
 function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
-  const kind = classifyGeminiError(err)
+  const kind = classifyLlmError(err)
   stats.failureKinds[kind] += 1
 }
 
-function classifyGeminiError(err: unknown): 'quotaExceeded' | 'unavailable' | 'timeout' | 'other' {
+function classifyLlmError(err: unknown): 'quotaExceeded' | 'unavailable' | 'timeout' | 'other' {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
   if (msg.includes('resource_exhausted') || msg.includes('quota exceeded') || /\b429\b/.test(msg)) {
     return 'quotaExceeded'
   }
-  if (msg.includes('gemini 呼叫逾時') || msg.includes('timeout')) {
+  if (msg.includes('llm 呼叫逾時') || msg.includes('timeout')) {
     return 'timeout'
   }
   if (msg.includes('unavailable') || /\b503\b/.test(msg) || msg.includes('high demand')) {
