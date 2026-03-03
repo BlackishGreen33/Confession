@@ -11,6 +11,13 @@ inclusion: always
 - 不要引入新的 runtime 依賴而不說明理由
 - 避免 `@ts-ignore`，用正確的型別解決問題
 
+## Commit 訊息
+
+- 格式必須為：`<emoji> <type>(<scope>): <description>`
+- `scope` 必填，不可省略
+- `type` 僅允許：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`
+- 本機由 `.husky/commit-msg` 執行 commitlint；CI 同步執行 commit range 檢查
+
 ## React 組件
 
 必須使用箭頭函數 + `React.FC<Props>` 定義，禁止 `function` 聲明組件：
