@@ -40,14 +40,19 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `vulnerability_detail_data`（推送單筆漏洞詳情）
   - `scan_progress`（推送掃描進度）
   - `vulnerabilities_updated`（通知漏洞資料已更新）
+  - `operation_result`（回覆需 requestId 的操作成功/失敗與訊息，採跨視圖廣播）
 - **WebToExtMsg**：Webview → 擴充套件
   - `request_scan`（請求掃描 file/workspace）
-  - `apply_fix`（套用修復）
-  - `ignore_vulnerability`（忽略漏洞）
+  - `apply_fix`（套用修復，需 `requestId`）
+  - `ignore_vulnerability`（忽略漏洞，需 `requestId`）
+  - `refresh_vulnerabilities`（請求全視圖漏洞資料刷新，需 `requestId`）
   - `navigate_to_code`（跳轉代碼位置）
   - `open_vulnerability_detail`（開啟 Editor Panel 詳情）
-  - `update_config`（寫回 settings.json）
+  - `update_config`（寫回 settings.json，需 `requestId`）
   - `request_config`（請求目前配置）
+
+補充語義：
+- `vulnerabilities_updated` 為「變更通知 + 可選資料」，Web 端需以 invalidate / refetch 為主，不依賴 payload 完整性。
 
 ### 配置雙向同步
 

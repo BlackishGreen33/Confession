@@ -26,7 +26,7 @@ confession/
 │   ├── src/common/         # @/ 別名目標
 │   │   ├── components/     # UI 元件
 │   │   │   ├── elements/   # 通用原子元件（cyber-select.tsx、cyber-dropdown-menu.tsx）
-│   │   │   └── ui/         # shadcn 元件（含 dropdown-menu.tsx、select.tsx）
+│   │   │   └── ui/         # shadcn 元件（含 dropdown-menu.tsx、select.tsx、sonner.tsx）
 │   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
 │   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts
 │   │   └── utils/          # cn() 等工具函數
