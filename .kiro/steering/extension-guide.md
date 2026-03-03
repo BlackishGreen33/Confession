@@ -13,6 +13,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - 檔案儲存監聽：`onDidSaveTextDocument` + 500ms 防抖，僅 Go/JS/TS 檔案
 - Webview：嵌入 Next.js 應用，雙向 postMessage
 - 狀態列：分析狀態（分析中 / 完成 / 發現風險）
+- AI 呼叫策略：僅被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
 
 ## 指令與設定前綴
 
