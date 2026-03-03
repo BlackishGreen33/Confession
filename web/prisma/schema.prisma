@@ -69,13 +69,16 @@ model VulnerabilityEvent {
 model ScanTask {
   id           String   @id @default(cuid())
   status       String   @default("pending")
+  engineMode   String   @default("baseline")
   progress     Float    @default(0)
   totalFiles   Int      @default(0)
   scannedFiles Int      @default(0)
   errorMessage String?
+  errorCode    String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  @@index([engineMode, updatedAt(sort: Desc)])
   @@map("scan_tasks")
 }
 

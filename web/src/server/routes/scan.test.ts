@@ -29,9 +29,11 @@ describe('GET /api/scan/recent', () => {
       id: 'task-1',
       status: 'completed',
       progress: 1,
+      engineMode: 'baseline',
       totalFiles: 12,
       scannedFiles: 12,
       errorMessage: null,
+      errorCode: null,
       createdAt: new Date('2026-03-01T00:00:00.000Z'),
       updatedAt: new Date('2026-03-01T00:05:00.000Z'),
     })
@@ -48,11 +50,15 @@ describe('GET /api/scan/recent', () => {
       updatedAt: string
       scannedFiles: number
       totalFiles: number
+      engineMode: string
+      errorCode: string | null
     }
 
     expect(body.id).toBe('task-1')
     expect(body.scannedFiles).toBe(12)
     expect(body.totalFiles).toBe(12)
+    expect(body.engineMode).toBe('baseline')
+    expect(body.errorCode).toBeNull()
     expect(body.createdAt).toBe('2026-03-01T00:00:00.000Z')
     expect(body.updatedAt).toBe('2026-03-01T00:05:00.000Z')
   })

@@ -41,6 +41,7 @@ export const configAtom = atom<PluginConfig>({
     triggerMode: 'onSave',
     depth: 'standard',
     debounceMs: 500,
+    betaAgenticEnabled: false,
   },
   ignore: {
     paths: [],

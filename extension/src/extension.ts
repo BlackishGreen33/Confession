@@ -9,10 +9,11 @@ import {
   fetchVulnerabilityById,
   ignoreVulnerability,
   pollUntilDone,
+  ScanTaskFailedError,
   triggerScan,
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setFailed, setResult } from './status-bar'
-import type { PluginConfig } from './types'
+import type { PluginConfig, ScanEngineMode } from './types'
 import {
   openSettingsPanel,
   registerViewProvider,
@@ -41,6 +42,7 @@ function getPluginConfig(): PluginConfig {
       triggerMode: config.get<'onSave' | 'manual'>('analysis.triggerMode', 'onSave'),
       depth: config.get<'quick' | 'standard' | 'deep'>('analysis.depth', 'standard'),
       debounceMs: config.get<number>('analysis.debounceMs', 500),
+      betaAgenticEnabled: config.get<boolean>('analysis.betaAgenticEnabled', false),
     },
     ignore: {
       paths: config.get<string[]>('ignore.paths', []),
@@ -60,7 +62,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const pluginConfig = getPluginConfig()
   outputChannel.appendLine(`API 模式: ${pluginConfig.api.mode} (${pluginConfig.api.baseUrl})`)
-  outputChannel.appendLine(`分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}`)
+  outputChannel.appendLine(
+    `分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}, Beta: ${pluginConfig.analysis.betaAgenticEnabled ? 'ON' : 'OFF'}`,
+  )
 
   // --- 註冊兩個側邊欄 Webview View Provider ---
   const viewRoutes = [
@@ -194,6 +198,10 @@ function countNewVulnerabilities(
   return count
 }
 
+function resolveEngineMode(config: PluginConfig): ScanEngineMode {
+  return config.analysis.betaAgenticEnabled ? 'agentic_beta' : 'baseline'
+}
+
 /** 掃描當前檔案 */
 async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
   const editor = vscode.window.activeTextEditor
@@ -219,18 +227,49 @@ async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
   sendScanProgress('running', 0)
 
   try {
-    const taskId = await triggerScan(baseUrl, [
-      { path: doc.fileName, content: doc.getText(), language: inferredLanguage },
-    ], {
-      depth: config.analysis.depth,
-      includeLlmScan: config.analysis.depth === 'deep',
-      forceRescan: true,
-      scanScope: 'file',
-    })
+    let engineMode = resolveEngineMode(config)
+    let retriedWithBaseline = false
 
-    await pollUntilDone(baseUrl, taskId, (progress) => {
-      sendScanProgress('running', progress)
-    })
+    while (true) {
+      try {
+        const taskId = await triggerScan(
+          baseUrl,
+          [{ path: doc.fileName, content: doc.getText(), language: inferredLanguage }],
+          {
+            depth: config.analysis.depth,
+            includeLlmScan: config.analysis.depth === 'deep',
+            forceRescan: true,
+            scanScope: 'file',
+            engineMode,
+          },
+        )
+
+        await pollUntilDone(baseUrl, taskId, (progress) => {
+          sendScanProgress('running', progress)
+        })
+
+        break
+      } catch (err) {
+        const isBetaFailure =
+          err instanceof ScanTaskFailedError &&
+          err.errorCode === 'BETA_ENGINE_FAILED' &&
+          err.engineMode === 'agentic_beta'
+
+        if (!isBetaFailure || retriedWithBaseline) throw err
+
+        const action = await vscode.window.showWarningMessage(
+          'Confession: Agentic Beta 掃描失敗，是否改用基礎模式重試？',
+          '改用基礎模式重試',
+          '取消',
+        )
+
+        if (action !== '改用基礎模式重試') throw err
+
+        retriedWithBaseline = true
+        engineMode = 'baseline'
+        outputChannel.appendLine('使用者選擇改用基礎模式重試目前檔案掃描')
+      }
+    }
 
     const vulns = await fetchFileVulnerabilities(baseUrl, doc.fileName)
     const newCount = countNewVulnerabilities(beforeIds, vulns)
@@ -322,16 +361,45 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     const beforeOpenVulns = await fetchAllOpenVulnerabilities(baseUrl).catch(() => [])
     const beforeOpenIds = new Set(beforeOpenVulns.map((v) => v.id))
 
-    const taskId = await triggerScan(baseUrl, scanFiles, {
-      depth: config.analysis.depth,
-      includeLlmScan: config.analysis.depth === 'deep',
-      forceRescan: true,
-      scanScope: 'workspace',
-    })
+    let engineMode = resolveEngineMode(config)
+    let retriedWithBaseline = false
 
-    await pollUntilDone(baseUrl, taskId, (progress) => {
-      sendScanProgress('running', progress)
-    })
+    while (true) {
+      try {
+        const taskId = await triggerScan(baseUrl, scanFiles, {
+          depth: config.analysis.depth,
+          includeLlmScan: config.analysis.depth === 'deep',
+          forceRescan: true,
+          scanScope: 'workspace',
+          engineMode,
+        })
+
+        await pollUntilDone(baseUrl, taskId, (progress) => {
+          sendScanProgress('running', progress)
+        })
+
+        break
+      } catch (err) {
+        const isBetaFailure =
+          err instanceof ScanTaskFailedError &&
+          err.errorCode === 'BETA_ENGINE_FAILED' &&
+          err.engineMode === 'agentic_beta'
+
+        if (!isBetaFailure || retriedWithBaseline) throw err
+
+        const action = await vscode.window.showWarningMessage(
+          'Confession: Agentic Beta 工作區掃描失敗，是否改用基礎模式重試？',
+          '改用基礎模式重試',
+          '取消',
+        )
+
+        if (action !== '改用基礎模式重試') throw err
+
+        retriedWithBaseline = true
+        engineMode = 'baseline'
+        outputChannel.appendLine('使用者選擇改用基礎模式重試工作區掃描')
+      }
+    }
 
     // 取得所有開放漏洞並按檔案更新 diagnostics
     const allVulns = await fetchAllOpenVulnerabilities(baseUrl)

@@ -578,6 +578,12 @@ const RecentScanCard: React.FC = () => {
               <span className="text-cyber-textmuted">任務狀態</span>
               <span className="font-mono text-white">{data.status}</span>
             </div>
+            <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
+              <span className="text-cyber-textmuted">掃描引擎</span>
+              <span className="font-mono text-white">
+                {data.engineMode === 'agentic_beta' ? 'agentic_beta' : 'baseline'}
+              </span>
+            </div>
             {data.status === 'failed' && data.errorMessage && (
               <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
                 {data.errorMessage}
@@ -941,7 +947,7 @@ export const Dashboard: React.FC = () => {
       <DashboardHeader onOpenExport={handleOpenExportDialog} />
 
       {/* 統計卡片 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {statCards.map((card) => (
           <CyberStatCard key={card.label} {...card} />
         ))}
