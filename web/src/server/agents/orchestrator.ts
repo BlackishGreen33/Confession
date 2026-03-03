@@ -1,10 +1,12 @@
 import { computeContentHash, fileAnalysisCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
+import type { GeminiClientConfig } from '@server/llm/gemini'
 
 import type { ScanRequest } from '@/libs/types'
 
 import type { FileContentMap } from './analysis-agent'
+import type { LlmUsageStats } from './analysis-agent'
 import { analyzeWithLlm } from './analysis-agent'
 import { analyzeGoFiles } from './go-agent'
 import { analyzeJsTsFiles } from './jsts-agent'
@@ -21,6 +23,11 @@ export interface ScanSummary {
 export interface OrchestrateResult {
   vulnerabilities: VulnerabilityInput[]
   summary: ScanSummary
+  llmStats: LlmUsageStats
+}
+
+export interface OrchestrateOptions {
+  geminiConfig?: GeminiClientConfig
 }
 
 /**
@@ -29,14 +36,37 @@ export interface OrchestrateResult {
  *
  * 增量分析：透過檔案內容雜湊快取，跳過未變更的檔案。
  */
-export async function orchestrate(request: ScanRequest): Promise<OrchestrateResult> {
+export async function orchestrate(
+  request: ScanRequest,
+  options: OrchestrateOptions = {},
+): Promise<OrchestrateResult> {
+  const retryAttempts = resolveRetryAttempts(request)
+
   // 增量分析：過濾掉內容未變更的檔案
-  const changedFiles = filterChangedFiles(request.files)
+  const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
 
   if (changedFiles.length === 0) {
     return {
       vulnerabilities: [],
       summary: buildSummary([], request.files),
+      llmStats: {
+        requestCount: 0,
+        cacheHits: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        skippedByPolicy: 0,
+        processedFiles: 0,
+        successfulFiles: 0,
+        requestFailures: 0,
+        parseFailures: 0,
+        failureKinds: {
+          quotaExceeded: 0,
+          unavailable: 0,
+          timeout: 0,
+          other: 0,
+        },
+      },
     }
   }
 
@@ -65,10 +95,13 @@ export async function orchestrate(request: ScanRequest): Promise<OrchestrateResu
   }
 
   // LLM 深度分析
-  const vulns = await analyzeWithLlm(allPoints, fileContents, {
+  const analysisResult = await analyzeWithLlm(allPoints, fileContents, {
     depth: request.depth,
     includeMacroScan: request.includeLlmScan ?? false,
+    maxRetryAttempts: retryAttempts,
+    geminiConfig: options.geminiConfig,
   })
+  const vulns = analysisResult.vulnerabilities
 
   // 冪等存儲
   await upsertVulnerabilities(vulns)
@@ -79,7 +112,17 @@ export async function orchestrate(request: ScanRequest): Promise<OrchestrateResu
     fileAnalysisCache.set(`${file.path}:${hash}`, true)
   }
 
-  return { vulnerabilities: vulns, summary: buildSummary(vulns, request.files) }
+  return {
+    vulnerabilities: vulns,
+    summary: buildSummary(vulns, request.files),
+    llmStats: analysisResult.stats,
+  }
+}
+
+function resolveRetryAttempts(request: ScanRequest): number {
+  const scope =
+    request.scanScope ?? (request.files.length > 1 ? 'workspace' : 'file')
+  return scope === 'workspace' ? 1 : 0
 }
 
 /**

@@ -1,13 +1,19 @@
+import { computeLlmPromptFingerprint, llmResponseCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
-import type { GeminiClientConfig } from '@server/llm/gemini'
+import type { GeminiCallResult, GeminiClientConfig } from '@server/llm/gemini'
 import { callGemini, configFromEnv } from '@server/llm/gemini'
 import type { LlmVulnerability } from '@server/llm/parser'
 import { parseLlmResponse } from '@server/llm/parser'
-import { buildAnalysisPrompt, buildMacroScanPrompt } from '@server/llm/prompts'
+import {
+  buildBatchAnalysisPrompt,
+  buildDeepFileScanPrompt,
+  type PromptContextBlock,
+  type PromptInteractionPoint,
+} from '@server/llm/prompts'
 
 import type { InteractionPoint, ScanRequest } from '@/libs/types'
 
-/** 檔案內容對照表，用於建構 Prompt 時取得完整檔案 */
+/** 檔案內容對照表，用於建構 Prompt 時取得檔案內容 */
 export type FileContentMap = Map<string, { content: string; language: string }>
 
 /** Analysis Agent 設定 */
@@ -16,112 +22,375 @@ export interface AnalysisAgentOptions {
   geminiConfig?: GeminiClientConfig
   /** 分析深度 */
   depth: ScanRequest['depth']
-  /** 是否執行 Phase 2 宏觀掃描 */
+  /** 是否啟用 deep 宏觀掃描 */
   includeMacroScan: boolean
+  /** 暫時性失敗的重試次數（不含首次請求） */
+  maxRetryAttempts?: number
 }
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+/** LLM 用量統計 */
+export interface LlmUsageStats {
+  requestCount: number
+  cacheHits: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  skippedByPolicy: number
+  processedFiles: number
+  successfulFiles: number
+  requestFailures: number
+  parseFailures: number
+  failureKinds: {
+    quotaExceeded: number
+    unavailable: number
+    timeout: number
+    other: number
+  }
+}
+
+/** Analysis Agent 回傳值 */
+export interface AnalyzeWithLlmResult {
+  vulnerabilities: VulnerabilityInput[]
+  stats: LlmUsageStats
+}
+
+const DEFAULT_MODEL = 'gemini-3-flash-preview'
+const LLM_TIMEOUT_MS = 45_000
+const LLM_RETRY_BASE_DELAY_MS = 1_000
+
+const MAX_POINTS_BY_DEPTH: Record<ScanRequest['depth'], number> = {
+  quick: 8,
+  standard: 14,
+  deep: 24,
+}
+
+const CONTEXT_WINDOW_LINES: Record<ScanRequest['depth'], number> = {
+  quick: 6,
+  standard: 12,
+  deep: 16,
+}
+
+const HIGH_RISK_AST_TYPES = new Set<InteractionPoint['type']>([
+  'dangerous_call',
+  'unsafe_pattern',
+  'prototype_mutation',
+])
+
+const CONFIDENCE_WEIGHT: Record<InteractionPoint['confidence'], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+}
 
 /**
- * Analysis Agent：對交互點進行 LLM 深度分析，並可選地對整個檔案進行宏觀掃描。
- *
- * - Phase 1：逐一分析每個交互點，判斷是否為真實漏洞
- * - Phase 2（可選）：對每個檔案進行全面安全掃描，發現靜態規則未覆蓋的風險
+ * Analysis Agent：依檔案聚合交互點後呼叫 LLM。
+ * - quick：僅高風險 AST 點（條件式）
+ * - standard：每檔案一次聚合分析（上下文區塊）
+ * - deep：每檔案一次完整掃描（保留全檔）
  */
 export async function analyzeWithLlm(
   points: InteractionPoint[],
   fileContents: FileContentMap,
   options: AnalysisAgentOptions,
-): Promise<VulnerabilityInput[]> {
+): Promise<AnalyzeWithLlmResult> {
   const config = options.geminiConfig ?? configFromEnv()
   const modelName = config.model ?? DEFAULT_MODEL
+  const maxRetryAttempts = Math.max(0, options.maxRetryAttempts ?? 0)
+  const stats = createEmptyStats()
   const results: VulnerabilityInput[] = []
+  const grouped = groupPointsByFile(points)
 
-  // Phase 1：交互點深度分析
-  const phase1 = await analyzeInteractionPoints(points, fileContents, config, options.depth, modelName)
-  results.push(...phase1)
+  for (const [filePath, file] of fileContents) {
+    const filePoints = grouped.get(filePath) ?? []
+    const selected = selectPointsForDepth(filePoints, options.depth)
+    stats.skippedByPolicy += filePoints.length - selected.length
 
-  // Phase 2：宏觀掃描（僅在啟用時執行）
-  if (options.includeMacroScan) {
-    const phase2 = await macroScanFiles(fileContents, config, options.depth, modelName)
-    // 去重：Phase 2 結果中與 Phase 1 同位置同類型的漏洞不重複加入
-    const phase1Keys = new Set(phase1.map((v) => `${v.filePath}:${v.line}:${v.column}:${v.type}`))
-    for (const vuln of phase2) {
-      const key = `${vuln.filePath}:${vuln.line}:${vuln.column}:${vuln.type}`
-      if (!phase1Keys.has(key)) {
-        results.push(vuln)
+    const shouldRunDeepFullScan = options.depth === 'deep' && options.includeMacroScan
+    const shouldRunBatch = selected.length > 0
+
+    if (!shouldRunDeepFullScan && !shouldRunBatch) continue
+
+    const prompt = shouldRunDeepFullScan
+      ? buildDeepFileScanPrompt(
+          filePath,
+          file.content,
+          file.language,
+          options.depth,
+          toPromptPoints(selected),
+        )
+      : buildBatchAnalysisPrompt(
+          filePath,
+          file.language,
+          options.depth,
+          toPromptPoints(selected),
+          buildContextBlocks(file.content, selected, CONTEXT_WINDOW_LINES[options.depth]),
+        )
+
+    stats.processedFiles += 1
+
+    try {
+      const raw = await callGeminiWithCache(
+        prompt,
+        config,
+        modelName,
+        options.depth,
+        maxRetryAttempts,
+        stats,
+      )
+      const parsed = parseLlmResponse(raw)
+      if (!parsed) {
+        stats.parseFailures += 1
+        continue
       }
+
+      stats.successfulFiles += 1
+
+      for (const vuln of deduplicateLlmVulns(parsed)) {
+        results.push(llmVulnToInput(vuln, filePath, modelName))
+      }
+    } catch (err) {
+      // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
+      stats.requestFailures += 1
+      accumulateFailureKind(stats, err)
+      continue
     }
   }
 
-  return results
+  return { vulnerabilities: results, stats }
 }
 
-
-/**
- * Phase 1：逐一對交互點呼叫 LLM 深度分析。
- * 每個交互點獨立呼叫，避免單一 Prompt 過長導致品質下降。
- */
-async function analyzeInteractionPoints(
-  points: InteractionPoint[],
-  fileContents: FileContentMap,
-  config: GeminiClientConfig,
-  depth: ScanRequest['depth'],
-  modelName: string,
-): Promise<VulnerabilityInput[]> {
-  const results: VulnerabilityInput[] = []
-
+function groupPointsByFile(points: InteractionPoint[]): Map<string, InteractionPoint[]> {
+  const grouped = new Map<string, InteractionPoint[]>()
   for (const point of points) {
-    const fileInfo = fileContents.get(point.filePath)
-    if (!fileInfo) continue
-
-    const prompt = buildAnalysisPrompt(point, fileInfo.content, depth)
-
-    try {
-      const raw = await callGemini(prompt, config)
-      const parsed = parseLlmResponse(raw)
-      if (!parsed) continue
-
-      const vulns = parsed.map((v) => llmVulnToInput(v, point.filePath, modelName))
-      results.push(...vulns)
-    } catch {
-      // LLM 呼叫失敗時跳過該交互點，不中斷整體流程
-      continue
-    }
+    const existing = grouped.get(point.filePath) ?? []
+    existing.push(point)
+    grouped.set(point.filePath, existing)
   }
-
-  return results
+  return grouped
 }
 
-/**
- * Phase 2：對每個檔案進行宏觀掃描。
- * 發現 AST 靜態規則未覆蓋的潛在風險。
- */
-async function macroScanFiles(
-  fileContents: FileContentMap,
-  config: GeminiClientConfig,
+function selectPointsForDepth(
+  points: InteractionPoint[],
   depth: ScanRequest['depth'],
-  modelName: string,
-): Promise<VulnerabilityInput[]> {
-  const results: VulnerabilityInput[] = []
+): InteractionPoint[] {
+  if (points.length === 0) return []
 
-  for (const [filePath, { content, language }] of fileContents) {
-    const prompt = buildMacroScanPrompt(filePath, content, language, depth)
+  if (depth === 'quick') {
+    return points
+      .filter(isHighRiskAstPoint)
+      .sort((a, b) => scorePoint(b) - scorePoint(a))
+      .slice(0, MAX_POINTS_BY_DEPTH.quick)
+  }
 
-    try {
-      const raw = await callGemini(prompt, config)
-      const parsed = parseLlmResponse(raw)
-      if (!parsed) continue
+  return points
+    .slice()
+    .sort((a, b) => scorePoint(b) - scorePoint(a))
+    .slice(0, MAX_POINTS_BY_DEPTH[depth])
+}
 
-      const vulns = parsed.map((v) => llmVulnToInput(v, filePath, modelName))
-      results.push(...vulns)
-    } catch {
-      // LLM 呼叫失敗時跳過該檔案，不中斷整體流程
+function isHighRiskAstPoint(point: InteractionPoint): boolean {
+  return (
+    HIGH_RISK_AST_TYPES.has(point.type) &&
+    point.confidence === 'high' &&
+    !point.patternName.startsWith('keyword_')
+  )
+}
+
+function scorePoint(point: InteractionPoint): number {
+  const confidence = CONFIDENCE_WEIGHT[point.confidence]
+  if (isHighRiskAstPoint(point)) return 1000 + confidence
+  if (!point.patternName.startsWith('keyword_')) return 600 + confidence
+  return 100 + confidence
+}
+
+function toPromptPoints(points: InteractionPoint[]): PromptInteractionPoint[] {
+  return points.map((point) => ({
+    type: point.type,
+    patternName: point.patternName,
+    confidence: point.confidence,
+    line: point.line,
+    column: point.column,
+    codeSnippet: normalizeSnippet(point.codeSnippet),
+  }))
+}
+
+function buildContextBlocks(
+  fileContent: string,
+  points: InteractionPoint[],
+  windowLines: number,
+): PromptContextBlock[] {
+  const lines = fileContent.split('\n')
+  if (lines.length === 0 || points.length === 0) return []
+
+  const ranges = points
+    .map((point) => ({
+      start: Math.max(1, point.line - windowLines),
+      end: Math.min(lines.length, point.endLine + windowLines),
+    }))
+    .sort((a, b) => a.start - b.start)
+
+  const merged: Array<{ start: number; end: number }> = []
+  for (const range of ranges) {
+    const last = merged[merged.length - 1]
+    if (!last || range.start > last.end + 1) {
+      merged.push({ ...range })
       continue
+    }
+    last.end = Math.max(last.end, range.end)
+  }
+
+  return merged.map((range) => {
+    const content = lines
+      .slice(range.start - 1, range.end)
+      .map((line, index) => {
+        const lineNo = range.start + index
+        return `${lineNo}|${line}`
+      })
+      .join('\n')
+
+    return {
+      startLine: range.start,
+      endLine: range.end,
+      content,
+    }
+  })
+}
+
+async function callGeminiWithCache(
+  prompt: string,
+  config: GeminiClientConfig,
+  modelName: string,
+  depth: ScanRequest['depth'],
+  maxRetryAttempts: number,
+  stats: LlmUsageStats,
+): Promise<string> {
+  const key = computeLlmPromptFingerprint(prompt, modelName, depth)
+  const cached = llmResponseCache.get(key)
+  if (cached) {
+    stats.cacheHits += 1
+    return cached.text
+  }
+
+  const result = await callGeminiWithRetry(prompt, config, maxRetryAttempts)
+  stats.requestCount += 1
+  stats.promptTokens += result.usage.promptTokens
+  stats.completionTokens += result.usage.completionTokens
+  stats.totalTokens += result.usage.totalTokens
+
+  llmResponseCache.set(key, {
+    text: result.text,
+    usage: result.usage,
+  })
+
+  return result.text
+}
+
+async function callGeminiWithRetry(
+  prompt: string,
+  config: GeminiClientConfig,
+  maxRetryAttempts: number,
+): Promise<GeminiCallResult> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= maxRetryAttempts; attempt += 1) {
+    try {
+      return await callGeminiWithTimeout(prompt, config)
+    } catch (err) {
+      lastError = err
+      if (attempt >= maxRetryAttempts || !isRetryableGeminiError(err)) {
+        throw err
+      }
+
+      await sleep(LLM_RETRY_BASE_DELAY_MS * (attempt + 1))
     }
   }
 
-  return results
+  throw (lastError instanceof Error ? lastError : new Error('Gemini 呼叫失敗'))
+}
+
+async function callGeminiWithTimeout(
+  prompt: string,
+  config: GeminiClientConfig,
+): Promise<GeminiCallResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      callGemini(prompt, config),
+      new Promise<GeminiCallResult>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Gemini 呼叫逾時')), LLM_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function isRetryableGeminiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.includes('Gemini 呼叫逾時')) return true
+  if (/\b503\b/.test(msg)) return true
+  if (msg.includes('UNAVAILABLE')) return true
+  if (/high demand/i.test(msg)) return true
+  return false
+}
+
+function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
+  const kind = classifyGeminiError(err)
+  stats.failureKinds[kind] += 1
+}
+
+function classifyGeminiError(err: unknown): 'quotaExceeded' | 'unavailable' | 'timeout' | 'other' {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  if (msg.includes('resource_exhausted') || msg.includes('quota exceeded') || /\b429\b/.test(msg)) {
+    return 'quotaExceeded'
+  }
+  if (msg.includes('gemini 呼叫逾時') || msg.includes('timeout')) {
+    return 'timeout'
+  }
+  if (msg.includes('unavailable') || /\b503\b/.test(msg) || msg.includes('high demand')) {
+    return 'unavailable'
+  }
+  return 'other'
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function normalizeSnippet(code: string): string {
+  const squashed = code.replace(/\s+/g, ' ').trim()
+  if (squashed.length <= 140) return squashed
+  return `${squashed.slice(0, 137)}...`
+}
+
+function deduplicateLlmVulns(vulns: LlmVulnerability[]): LlmVulnerability[] {
+  const map = new Map<string, LlmVulnerability>()
+  for (const vuln of vulns) {
+    const key = `${vuln.line}:${vuln.column}:${vuln.endLine}:${vuln.endColumn}:${vuln.type}`
+    map.set(key, vuln)
+  }
+  return Array.from(map.values())
+}
+
+function createEmptyStats(): LlmUsageStats {
+  return {
+    requestCount: 0,
+    cacheHits: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    skippedByPolicy: 0,
+    processedFiles: 0,
+    successfulFiles: 0,
+    requestFailures: 0,
+    parseFailures: 0,
+    failureKinds: {
+      quotaExceeded: 0,
+      unavailable: 0,
+      timeout: 0,
+      other: 0,
+    },
+  }
 }
 
 /**

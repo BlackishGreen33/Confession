@@ -2,6 +2,7 @@ import { zValidator } from '@hono/zod-validator'
 import { orchestrate } from '@server/agents/orchestrator'
 import { computeScanFingerprint, inflightScans } from '@server/cache'
 import { prisma } from '@server/db'
+import { configFromPlugin, type GeminiClientConfig } from '@server/llm/gemini'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
@@ -16,6 +17,8 @@ const scanBodySchema = z.object({
   ),
   depth: z.enum(['quick', 'standard', 'deep']).default('standard'),
   includeLlmScan: z.boolean().optional(),
+  forceRescan: z.boolean().optional(),
+  scanScope: z.enum(['file', 'workspace']).optional(),
 })
 
 export const scanRoutes = new Hono()
@@ -30,7 +33,7 @@ scanRoutes.post('/', zValidator('json', scanBodySchema), async (c) => {
   const body = c.req.valid('json')
 
   // 請求去重：相同檔案內容 + depth 的掃描直接回傳既有 taskId
-  const fingerprint = computeScanFingerprint(body.files, body.depth)
+  const fingerprint = computeScanFingerprint(body.files, body.depth, body.forceRescan ?? false)
   const existingTaskId = inflightScans.get(fingerprint)
   if (existingTaskId) {
     const task = await prisma.scanTask.findUnique({ where: { id: existingTaskId } })
@@ -100,11 +103,49 @@ async function runScan(
       data: { status: 'running', progress: 0.1 },
     })
 
-    const result = await orchestrate({
-      files: body.files,
-      depth: body.depth,
-      includeLlmScan: body.includeLlmScan,
-    })
+    const geminiConfig = await loadGeminiConfigFromDb()
+    const result = await orchestrate(
+      {
+        files: body.files,
+        depth: body.depth,
+        includeLlmScan: body.includeLlmScan,
+        forceRescan: body.forceRescan ?? false,
+        scanScope: body.scanScope,
+      },
+      { geminiConfig },
+    )
+
+    process.stdout.write(
+      `[Confession][LLMUsage] ${JSON.stringify({
+        taskId,
+        depth: body.depth,
+        requestCount: result.llmStats.requestCount,
+        cacheHits: result.llmStats.cacheHits,
+        promptTokens: result.llmStats.promptTokens,
+        completionTokens: result.llmStats.completionTokens,
+        totalTokens: result.llmStats.totalTokens,
+        skippedByPolicy: result.llmStats.skippedByPolicy,
+        processedFiles: result.llmStats.processedFiles,
+        successfulFiles: result.llmStats.successfulFiles,
+        requestFailures: result.llmStats.requestFailures,
+        parseFailures: result.llmStats.parseFailures,
+        failureKinds: result.llmStats.failureKinds,
+      })}\n`,
+    )
+
+    if (isLlmAnalysisFailed(result.llmStats)) {
+      await prisma.scanTask.update({
+        where: { id: taskId },
+        data: {
+          status: 'failed',
+          progress: 1,
+          scannedFiles: body.files.length,
+          errorMessage: buildLlmFailureMessage(result.llmStats),
+        },
+      })
+      inflightScans.delete(fingerprint)
+      return result
+    }
 
     await prisma.scanTask.update({
       where: { id: taskId },
@@ -128,5 +169,76 @@ async function runScan(
 
     // 失敗也清除去重快取，允許重試
     inflightScans.delete(fingerprint)
+  }
+}
+
+function isLlmAnalysisFailed(stats: {
+  processedFiles: number
+  successfulFiles: number
+  requestFailures: number
+  parseFailures: number
+}): boolean {
+  if (stats.processedFiles === 0) return false
+  if (stats.successfulFiles > 0) return false
+  return stats.requestFailures > 0 || stats.parseFailures > 0
+}
+
+function buildLlmFailureMessage(stats: {
+  requestFailures: number
+  parseFailures: number
+  failureKinds: {
+    quotaExceeded: number
+    unavailable: number
+    timeout: number
+    other: number
+  }
+}): string {
+  if (stats.failureKinds.quotaExceeded > 0) {
+    return 'LLM 分析失敗：Gemini 配額已用盡（429/RESOURCE_EXHAUSTED），請稍後重試或更換 API Key/方案'
+  }
+
+  const parts: string[] = []
+  if (stats.failureKinds.unavailable > 0) parts.push(`服務暫時不可用 ${stats.failureKinds.unavailable} 次`)
+  if (stats.failureKinds.timeout > 0) parts.push(`請求逾時 ${stats.failureKinds.timeout} 次`)
+  if (stats.failureKinds.other > 0) parts.push(`其他錯誤 ${stats.failureKinds.other} 次`)
+  if (stats.requestFailures > 0) parts.push(`LLM 呼叫失敗 ${stats.requestFailures} 次`)
+  if (stats.parseFailures > 0) parts.push(`LLM 回應解析失敗 ${stats.parseFailures} 次`)
+  if (parts.length === 0) return 'LLM 分析失敗'
+  return `LLM 分析失敗：${parts.join('，')}`
+}
+
+const persistedConfigSchema = z.object({
+  llm: z
+    .object({
+      provider: z.literal('gemini').optional(),
+      apiKey: z.string().optional(),
+      endpoint: z.string().optional(),
+      model: z.string().optional(),
+    })
+    .optional(),
+})
+
+function normalizeOptional(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+async function loadGeminiConfigFromDb(): Promise<GeminiClientConfig | undefined> {
+  const row = await prisma.config.findUnique({ where: { id: 'default' } })
+  if (!row) return undefined
+
+  try {
+    const parsed = persistedConfigSchema.safeParse(JSON.parse(row.data))
+    if (!parsed.success || !parsed.data.llm) return undefined
+
+    return configFromPlugin({
+      provider: 'gemini',
+      apiKey: normalizeOptional(parsed.data.llm.apiKey) ?? '',
+      endpoint: normalizeOptional(parsed.data.llm.endpoint),
+      model: normalizeOptional(parsed.data.llm.model),
+    })
+  } catch {
+    return undefined
   }
 }

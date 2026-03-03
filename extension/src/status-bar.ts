@@ -4,7 +4,7 @@ import * as vscode from 'vscode'
 let statusBarItem: vscode.StatusBarItem
 
 /** 目前狀態 */
-type StatusBarState = 'idle' | 'analyzing' | 'safe' | 'risks'
+type StatusBarState = 'idle' | 'analyzing' | 'safe' | 'risks' | 'failed'
 
 /**
  * 建立並註冊狀態列項目
@@ -48,9 +48,17 @@ export function setResult(riskCount: number): void {
   }
 }
 
+/**
+ * 設定為掃描失敗狀態
+ */
+export function setFailed(errorMessage?: string): void {
+  if (!statusBarItem) return
+  updateStatusBar('failed', 0, errorMessage)
+}
+
 // === 內部：更新狀態列顯示 ===
 
-function updateStatusBar(state: StatusBarState, riskCount: number): void {
+function updateStatusBar(state: StatusBarState, riskCount: number, errorMessage?: string): void {
   switch (state) {
     case 'idle':
       statusBarItem.text = '$(shield) Confession'
@@ -74,6 +82,12 @@ function updateStatusBar(state: StatusBarState, riskCount: number): void {
       statusBarItem.text = `$(warning) Confession: ${riskCount} 個風險`
       statusBarItem.tooltip = `Confession — 發現 ${riskCount} 個安全風險，點擊查看詳情`
       statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground')
+      break
+
+    case 'failed':
+      statusBarItem.text = '$(error) Confession: 分析失敗'
+      statusBarItem.tooltip = `Confession — ${errorMessage ?? '請查看輸出日誌與設定'}`
+      statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground')
       break
   }
 }

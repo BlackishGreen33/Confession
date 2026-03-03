@@ -64,6 +64,10 @@ export interface ScanRequest {
   files: Array<{ path: string; content: string; language: string }>
   depth: 'quick' | 'standard' | 'deep'
   includeLlmScan?: boolean
+  /** 手動掃描時可設為 true，強制重掃不走未變更快取 */
+  forceRescan?: boolean
+  /** 掃描範圍，用於策略差異（例如重試策略） */
+  scanScope?: 'file' | 'workspace'
 }
 
 
