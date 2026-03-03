@@ -1,10 +1,11 @@
 'use client'
 
+import { useQueryClient } from '@tanstack/react-query'
 import { useSetAtom } from 'jotai'
 import { useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useRef } from 'react'
 
-import { configAtom, vulnerabilityDetailAtom } from '@/libs/atoms'
+import { configAtom, scanStatusAtom, vulnerabilityDetailAtom } from '@/libs/atoms'
 import type { ExtToWebMsg, PluginConfig, WebToExtMsg } from '@/libs/types'
 
 /** 判斷是否在 VS Code Webview iframe 內 */
@@ -33,12 +34,16 @@ export function sendOpenVulnerabilityDetail(vulnId: string): void {
  * - 監聽 config_updated 訊息，同步到 configAtom
  * - 監聽 navigate_to_view 訊息，呼叫 router.push 切換路由
  * - 監聽 vulnerability_detail_data 訊息，寫入 vulnerabilityDetailAtom
+ * - 監聽 scan_progress 訊息，同步到 scanStatusAtom
+ * - 監聽 vulnerabilities_updated 訊息，觸發漏洞相關查詢刷新
  * - 提供 sendConfigToExtension 將設定變更寫回 VS Code
  * - 啟動時向擴充套件請求目前配置
  */
 export function useExtensionBridge() {
   const setConfig = useSetAtom(configAtom)
+  const setScanStatus = useSetAtom(scanStatusAtom)
   const setVulnDetail = useSetAtom(vulnerabilityDetailAtom)
+  const queryClient = useQueryClient()
   const router = useRouter()
   const initializedRef = useRef(false)
 
@@ -57,6 +62,23 @@ export function useExtensionBridge() {
         case 'vulnerability_detail_data':
           setVulnDetail(msg.data)
           break
+        case 'scan_progress':
+          setScanStatus({
+            isScanning: msg.data.status === 'running',
+            progress: msg.data.progress,
+            message:
+              msg.data.status === 'completed'
+                ? '掃描完成'
+                : msg.data.status === 'failed'
+                  ? '掃描失敗'
+                  : '掃描進行中…',
+          })
+          break
+        case 'vulnerabilities_updated':
+          void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
+          void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
+          void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
+          break
       }
     }
 
@@ -69,7 +91,7 @@ export function useExtensionBridge() {
     }
 
     return () => window.removeEventListener('message', handler)
-  }, [setConfig, setVulnDetail, router])
+  }, [queryClient, router, setConfig, setScanStatus, setVulnDetail])
 
   const sendConfigToExtension = useCallback((config: PluginConfig) => {
     postToExtension({ type: 'update_config', data: config })
