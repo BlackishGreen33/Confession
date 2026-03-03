@@ -35,6 +35,10 @@
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
+- 專家審核流程：
+  - 審核狀態變更需按「儲存審核」成功後才生效
+  - 僅 `humanStatus = confirmed` 時可顯示/執行修復或忽略操作
+  - 分析引擎狀態文案需依 `/api/health` 動態顯示，不可寫死
 
 ## 3. 專案結構（最新）
 
@@ -59,6 +63,8 @@ confession/
 │   │   └── api/[...route]/route.ts
 │   ├── src/common/
 │   │   ├── components/
+│   │   │   ├── elements/          # 通用原子元件（cyber-select、cyber-dropdown-menu）
+│   │   │   └── ui/                # shadcn 元件封裝（select、dropdown-menu 等）
 │   │   ├── hooks/
 │   │   ├── libs/
 │   │   └── utils/
@@ -79,7 +85,8 @@ confession/
 ```
 
 補充（近期新增）：
-- `web/src/common/components/cyber-dropdown-menu.tsx`：共用 cyber 風格下拉封裝
+- `web/src/common/components/elements/cyber-select.tsx`：共用 cyber 風格 Select（基於 shadcn Select 樣式覆蓋）
+- `web/src/common/components/elements/cyber-dropdown-menu.tsx`：共用 cyber 風格 DropdownMenu（基於 shadcn DropdownMenu 樣式覆蓋）
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
 
 邊界規則：
