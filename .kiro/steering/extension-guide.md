@@ -58,6 +58,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `navigate_to_code`（跳轉代碼位置）
   - `open_vulnerability_detail`（開啟 Editor Panel 詳情）
   - `update_config`（寫回 settings.json，需 `requestId`）
+  - `export_pdf`（由 Extension 開啟外部列印預覽，需 `requestId`）
   - `request_config`（請求目前配置）
 
 補充語義：

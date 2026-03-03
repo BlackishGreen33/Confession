@@ -139,6 +139,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `PUT /api/config`（局部更新後合併）
 - `POST /api/scan`
 - `GET /api/scan/status/:id`
+- `GET /api/scan/recent`
 - `GET /api/vulnerabilities`
 - `GET /api/vulnerabilities/trend`
 - `GET /api/vulnerabilities/stats`
@@ -158,6 +159,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `true`：忽略未變更檔案快取，強制重掃
   - `false/undefined`：啟用增量快取（未變更可跳過）
 - `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
+- `GET /api/scan/recent` 回傳最近一次掃描摘要；若尚無掃描記錄回 `404 { error: "尚無掃描記錄" }`
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
   - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
   - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
@@ -172,7 +174,11 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 漏洞狀態更新與事件寫入必須同 transaction
   - 相容舊 DB：`vulnerability_events` 尚未存在時，`/trend` 回退舊聚合，`/:id/events` 回空陣列
 - `POST /api/export`：
+  - request body：`format = json|csv|markdown|pdf`，`filters` 支援 `status/severity/humanStatus/filePath/search`
+  - `json`：回傳 `ExportReportV2`（schemaVersion、filters、summary、items）
   - CSV 回應需附加 UTF-8 BOM，避免繁中開啟亂碼
+  - `markdown`：回應 `text/markdown; charset=utf-8`
+  - `pdf`：回應 `text/html; charset=utf-8`（列印版 HTML，由前端觸發列印另存 PDF）
   - 下載檔名格式統一為 `confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 
 ## 7. Extension 規範
@@ -206,7 +212,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
 - Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
-- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`request_config`
+- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`
 - `vulnerabilities_updated` 為變更通知事件，前端不可依賴 payload 完整性，需以 query invalidate/refetch 收斂。
 
 ## 8. 程式碼規範
