@@ -1,9 +1,14 @@
 import * as vscode from 'vscode'
 
 import { updateDiagnostics } from './diagnostics'
-import { fetchFileVulnerabilities, pollUntilDone, triggerScan } from './scan-client'
+import {
+  fetchFileVulnerabilities,
+  pollUntilDone,
+  ScanTaskFailedError,
+  triggerScan,
+} from './scan-client'
 import { setAnalyzing, setFailed, setResult } from './status-bar'
-import type { PluginConfig } from './types'
+import type { PluginConfig, ScanEngineMode } from './types'
 import { sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 支援的語言 ID */
@@ -61,19 +66,46 @@ async function triggerIncrementalScan(document: vscode.TextDocument, config: Plu
 
   try {
     const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
+    let engineMode: ScanEngineMode = config.analysis.betaAgenticEnabled ? 'agentic_beta' : 'baseline'
+    let retriedWithBaseline = false
 
-    const taskId = await triggerScan(baseUrl, [
-      { path: filePath, content, language },
-    ], {
-      depth: config.analysis.depth,
-      includeLlmScan: config.analysis.depth === 'deep',
-      forceRescan: false,
-      scanScope: 'file',
-    })
+    while (true) {
+      try {
+        const taskId = await triggerScan(
+          baseUrl,
+          [{ path: filePath, content, language }],
+          {
+            depth: config.analysis.depth,
+            includeLlmScan: config.analysis.depth === 'deep',
+            forceRescan: false,
+            scanScope: 'file',
+            engineMode,
+          },
+        )
 
-    await pollUntilDone(baseUrl, taskId, (progress) => {
-      sendScanProgress('running', progress)
-    })
+        await pollUntilDone(baseUrl, taskId, (progress) => {
+          sendScanProgress('running', progress)
+        })
+        break
+      } catch (err) {
+        const isBetaFailure =
+          err instanceof ScanTaskFailedError &&
+          err.errorCode === 'BETA_ENGINE_FAILED' &&
+          err.engineMode === 'agentic_beta'
+        if (!isBetaFailure || retriedWithBaseline) throw err
+
+        const action = await vscode.window.showWarningMessage(
+          'Confession: Agentic Beta 自動掃描失敗，可改用基礎模式重試。',
+          '改用基礎模式重試',
+        )
+
+        if (action !== '改用基礎模式重試') throw err
+
+        retriedWithBaseline = true
+        engineMode = 'baseline'
+        log?.appendLine(`增量掃描 fallback：${filePath} → baseline`)
+      }
+    }
 
     const vulns = await fetchFileVulnerabilities(baseUrl, filePath)
     updateDiagnostics(filePath, vulns)

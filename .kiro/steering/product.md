@@ -27,6 +27,11 @@ inclusion: always
 - standard：交互點以檔案聚合後單次呼叫 LLM（區塊上下文）
 - deep：每檔案單次 LLM 完整掃描（保留宏觀分析）
 - 同一 Prompt 需透過指紋快取回應，避免重複消耗
+- 支援引擎路由：
+  - `baseline`：既有單層 LLM 分析流程
+  - `agentic_beta`：多代理流程（Planner → Skills/MCP → Analyst → Critic → Judge）
+- `agentic_beta` 由 `analysis.betaAgenticEnabled` 開關控制，預設關閉
+- Beta 失敗時不可自動切回 baseline，必須由使用者決定是否重試 baseline
 
 ## 專家審核與修復流程
 

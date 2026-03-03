@@ -1,4 +1,5 @@
 import type { Vulnerability } from './types'
+import type { ScanEngineMode, ScanErrorCode } from './types'
 
 /** 掃描檔案輸入 */
 export interface ScanFileInput {
@@ -13,6 +14,7 @@ export interface ScanOptions {
   includeLlmScan?: boolean
   forceRescan?: boolean
   scanScope?: 'file' | 'workspace'
+  engineMode?: ScanEngineMode
 }
 
 /** 掃描任務狀態 */
@@ -20,7 +22,25 @@ interface ScanTaskStatus {
   id: string
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
+  engineMode: ScanEngineMode
   errorMessage?: string | null
+  errorCode?: ScanErrorCode | null
+}
+
+export class ScanTaskFailedError extends Error {
+  readonly errorCode: ScanErrorCode | null
+  readonly engineMode: ScanEngineMode | null
+
+  constructor(
+    message: string,
+    errorCode: ScanErrorCode | null,
+    engineMode: ScanEngineMode | null,
+  ) {
+    super(message)
+    this.name = 'ScanTaskFailedError'
+    this.errorCode = errorCode
+    this.engineMode = engineMode
+  }
 }
 
 /** 進行中的掃描請求去重：key = 檔案路徑排序後的組合 */
@@ -30,10 +50,11 @@ const inflightRequests = new Map<string, Promise<string>>()
  * 計算掃描請求的去重鍵
  */
 function scanDedupeKey(files: ScanFileInput[]): string {
-  return files
+  const fileKey = files
     .map((f) => f.path)
     .sort()
     .join('|')
+  return fileKey
 }
 
 /**
@@ -46,7 +67,7 @@ export async function triggerScan(
   files: ScanFileInput[],
   options: ScanOptions,
 ): Promise<string> {
-  const key = scanDedupeKey(files)
+  const key = `${scanDedupeKey(files)}::${options.depth}::${options.scanScope ?? 'file'}::${options.engineMode ?? 'auto'}`
   const existing = inflightRequests.get(key)
   if (existing) return existing
 
@@ -76,6 +97,7 @@ async function doTriggerScan(
       includeLlmScan: options.includeLlmScan ?? false,
       forceRescan: options.forceRescan ?? false,
       scanScope: options.scanScope ?? 'file',
+      engineMode: options.engineMode,
     }),
   })
 
@@ -112,7 +134,11 @@ export async function pollUntilDone(
 
     if (task.status === 'completed') return
     if (task.status === 'failed') {
-      throw new Error(task.errorMessage ?? '掃描失敗')
+      throw new ScanTaskFailedError(
+        task.errorMessage ?? '掃描失敗',
+        task.errorCode ?? null,
+        task.engineMode ?? null,
+      )
     }
   }
 

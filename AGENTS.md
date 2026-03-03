@@ -39,6 +39,8 @@
   - `quick`：僅高風險 AST 點位觸發 LLM（條件式）
   - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
   - `deep`：每檔案單次 LLM 完整掃描（保留宏觀分析）
+  - 引擎模式：`baseline`（既有流程）/`agentic_beta`（Planner→Skills/MCP→Analyst→Critic→Judge）
+  - `analysis.betaAgenticEnabled` 為 Beta 開關，預設 `false`
   - LLM 呼叫逾時為 45 秒；僅 `workspace` 掃描在逾時或 HTTP 503（UNAVAILABLE）時自動重試 1 次
   - 同 Prompt 需做指紋快取，避免重複消耗 token
 - 專家審核流程：
@@ -81,8 +83,10 @@ confession/
 │   │   └── utils/
 │   └── src/server/
 │       ├── agents/
+│       │   └── agentic-beta/       # Beta 多代理管線與 skills
 │       ├── analyzers/
 │       ├── llm/
+│       ├── mcp/                    # MCP broker + policy（白名單/能力管制）
 │       ├── routes/
 │       ├── cache.ts
 │       ├── db.ts
@@ -151,6 +155,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `PUT /api/config`（局部更新後合併）
 - `POST /api/scan`
 - `GET /api/scan/status/:id`
+- `GET /api/scan/stream/:id`
 - `GET /api/scan/recent`
 - `GET /api/vulnerabilities`
 - `GET /api/vulnerabilities/trend`
@@ -171,12 +176,18 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `true`：忽略未變更檔案快取，強制重掃
   - `false/undefined`：啟用增量快取（未變更可跳過）
 - `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
+- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic_beta"`（未傳值時由持久化設定 `analysis.betaAgenticEnabled` 推導）
 - `GET /api/scan/recent` 回傳最近一次掃描摘要；若尚無掃描記錄回 `404 { error: "尚無掃描記錄" }`
+- `GET /api/scan/status/:id` / `GET /api/scan/recent` 回傳需包含 `engineMode`、`errorCode`
+- `GET /api/scan/stream/:id` 提供 `text/event-stream` 即時推送掃描進度（含 `scannedFiles/totalFiles`）
+  - 掃描完成或失敗後可關閉串流
+- `web/src/app/api/[...route]/route.ts` 需設定 `runtime = "nodejs"`、`dynamic = "force-dynamic"`、`maxDuration = 300` 以支援 SSE（最終可用時長仍受 Vercel 方案限制）
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
   - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
   - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
 - 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed` 並附帶 `errorMessage`
   - 若為 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
+- 若 `engineMode=agentic_beta` 失敗，`errorCode` 必須回 `BETA_ENGINE_FAILED`
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
 - 漏洞事件流：
@@ -209,6 +220,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）
   - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
+- Beta 模式開關：`confession.analysis.betaAgenticEnabled`
+- Beta 失敗回退：
+  - 手動掃描顯示互動提示，允許改用 baseline 重試
+  - `onSave` 僅顯示非阻塞提示，不可彈 modal
 - 重試策略：
   - `掃描當前檔案` / `onSave`：不重試（快速回應）
   - `掃描工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
@@ -224,7 +239,8 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
 - Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
-- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`
+- Ext → Web（貼上 fallback）：`clipboard_paste`
+- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
 - `vulnerabilities_updated` 為變更通知事件，前端不可依賴 payload 完整性，需以 query invalidate/refetch 收斂。
 
 ## 8. 程式碼規範

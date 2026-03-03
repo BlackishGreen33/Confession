@@ -26,6 +26,8 @@ export interface AnalysisAgentOptions {
   includeMacroScan: boolean
   /** 暫時性失敗的重試次數（不含首次請求） */
   maxRetryAttempts?: number
+  /** 每完成一個檔案（含跳過）時通知 */
+  onFileCompleted?: (filePath: string) => Promise<void> | void
 }
 
 /** LLM 用量統計 */
@@ -100,58 +102,62 @@ export async function analyzeWithLlm(
   const grouped = groupPointsByFile(points)
 
   for (const [filePath, file] of fileContents) {
-    const filePoints = grouped.get(filePath) ?? []
-    const selected = selectPointsForDepth(filePoints, options.depth)
-    stats.skippedByPolicy += filePoints.length - selected.length
-
-    const shouldRunDeepFullScan = options.depth === 'deep' && options.includeMacroScan
-    const shouldRunBatch = selected.length > 0
-
-    if (!shouldRunDeepFullScan && !shouldRunBatch) continue
-
-    const prompt = shouldRunDeepFullScan
-      ? buildDeepFileScanPrompt(
-          filePath,
-          file.content,
-          file.language,
-          options.depth,
-          toPromptPoints(selected),
-        )
-      : buildBatchAnalysisPrompt(
-          filePath,
-          file.language,
-          options.depth,
-          toPromptPoints(selected),
-          buildContextBlocks(file.content, selected, CONTEXT_WINDOW_LINES[options.depth]),
-        )
-
-    stats.processedFiles += 1
-
     try {
-      const raw = await callLlmWithCache(
-        prompt,
-        config,
-        modelName,
-        options.depth,
-        maxRetryAttempts,
-        stats,
-      )
-      const parsed = parseLlmResponse(raw)
-      if (!parsed) {
-        stats.parseFailures += 1
+      const filePoints = grouped.get(filePath) ?? []
+      const selected = selectPointsForDepth(filePoints, options.depth)
+      stats.skippedByPolicy += filePoints.length - selected.length
+
+      const shouldRunDeepFullScan = options.depth === 'deep' && options.includeMacroScan
+      const shouldRunBatch = selected.length > 0
+
+      if (!shouldRunDeepFullScan && !shouldRunBatch) continue
+
+      const prompt = shouldRunDeepFullScan
+        ? buildDeepFileScanPrompt(
+            filePath,
+            file.content,
+            file.language,
+            options.depth,
+            toPromptPoints(selected),
+          )
+        : buildBatchAnalysisPrompt(
+            filePath,
+            file.language,
+            options.depth,
+            toPromptPoints(selected),
+            buildContextBlocks(file.content, selected, CONTEXT_WINDOW_LINES[options.depth]),
+          )
+
+      stats.processedFiles += 1
+
+      try {
+        const raw = await callLlmWithCache(
+          prompt,
+          config,
+          modelName,
+          options.depth,
+          maxRetryAttempts,
+          stats,
+        )
+        const parsed = parseLlmResponse(raw)
+        if (!parsed) {
+          stats.parseFailures += 1
+          continue
+        }
+
+        stats.successfulFiles += 1
+
+        for (const vuln of deduplicateLlmVulns(parsed)) {
+          results.push(llmVulnToInput(vuln, filePath, modelName))
+        }
+      } catch (err) {
+        // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
+        stats.requestFailures += 1
+        accumulateFailureKind(stats, err)
         continue
       }
-
-      stats.successfulFiles += 1
-
-      for (const vuln of deduplicateLlmVulns(parsed)) {
-        results.push(llmVulnToInput(vuln, filePath, modelName))
-      }
-    } catch (err) {
-      // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
-      stats.requestFailures += 1
-      accumulateFailureKind(stats, err)
-      continue
+    } finally {
+      await notifyFileCompleted(options.onFileCompleted, filePath)
     }
   }
 
@@ -263,7 +269,11 @@ async function callLlmWithCache(
   maxRetryAttempts: number,
   stats: LlmUsageStats,
 ): Promise<string> {
-  const key = computeLlmPromptFingerprint(prompt, modelName, depth)
+  const key = computeLlmPromptFingerprint(prompt, modelName, depth, {
+    strategyVersion: 'v2',
+    engineMode: 'baseline',
+    agentRole: 'analysis',
+  })
   const cached = llmResponseCache.get(key)
   if (cached) {
     stats.cacheHits += 1
@@ -354,6 +364,18 @@ function classifyLlmError(err: unknown): 'quotaExceeded' | 'unavailable' | 'time
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function notifyFileCompleted(
+  callback: AnalysisAgentOptions['onFileCompleted'],
+  filePath: string,
+): Promise<void> {
+  if (!callback) return
+  try {
+    await callback(filePath)
+  } catch {
+    // 進度通知失敗不應中斷主要掃描流程
+  }
 }
 
 function normalizeSnippet(code: string): string {

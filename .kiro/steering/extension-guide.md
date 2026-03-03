@@ -20,9 +20,15 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）
   - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
+- Beta 開關：`confession.analysis.betaAgenticEnabled`
+  - `true`：預設走 `agentic_beta`
+  - `false`：預設走 `baseline`
 - 重試策略：
   - `掃描當前文件` / `onSave`：不重試（快速回應）
   - `掃描整個工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
+  - 若 `agentic_beta` 失敗且 `errorCode=BETA_ENGINE_FAILED`：
+    - 手動掃描顯示互動提示，允許改用 baseline 重試
+    - `onSave` 僅顯示非阻塞提示，不可彈 modal
 
 ## 指令與設定前綴
 
@@ -45,6 +51,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 
 - **ExtToWebMsg**：擴充套件 → Webview
   - `config_updated`（推送配置）
+  - `clipboard_paste`（回傳剪貼簿文字，作為 Cmd/Ctrl+V fallback）
   - `navigate_to_view`（切換到指定路由）
   - `vulnerability_detail_data`（推送單筆漏洞詳情）
   - `scan_progress`（推送掃描進度）
@@ -60,6 +67,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `update_config`（寫回 settings.json，需 `requestId`）
   - `export_pdf`（由 Extension 開啟外部列印預覽，需 `requestId`）
   - `request_config`（請求目前配置）
+  - `paste_clipboard`（請求 Extension 讀取剪貼簿）
 
 補充語義：
 - `vulnerabilities_updated` 為「變更通知 + 可選資料」，Web 端需以 invalidate / refetch 為主，不依賴 payload 完整性。

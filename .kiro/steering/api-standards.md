@@ -16,6 +16,7 @@ fileMatchPattern: "**/src/server/**/*"
 | `/api/config` | PUT | 儲存配置（局部更新後合併） |
 | `/api/scan` | POST | 觸發掃描 |
 | `/api/scan/status/:id` | GET | 掃描進度 |
+| `/api/scan/stream/:id` | GET | 掃描進度 SSE 即時推送 |
 | `/api/scan/recent` | GET | 最近一次掃描摘要 |
 | `/api/vulnerabilities` | GET | 列表（篩選/排序/分頁） |
 | `/api/vulnerabilities/trend` | GET | 歷史趨勢（事件驅動，依日期聚合後累計；無事件時回退舊聚合） |
@@ -37,12 +38,24 @@ fileMatchPattern: "**/src/server/**/*"
   - `true`：忽略未變更檔案快取，強制重掃
   - `false/undefined`：啟用增量快取（未變更可跳過）
 - `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
+- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic_beta"`：
+  - 若有傳值，優先使用請求值
+  - 若未傳值，依持久化設定 `analysis.betaAgenticEnabled` 推導（true=agentic_beta）
+- `ScanTask` 需記錄 `engineMode` 與 `errorCode`
+- `GET /api/scan/status/:id` / `GET /api/scan/recent` 必須回傳 `engineMode`、`errorCode`
+- `GET /api/scan/stream/:id` 回應 `text/event-stream`，需即時推送 `{ id, status, progress, totalFiles, scannedFiles, engineMode, errorMessage, errorCode, createdAt, updatedAt }`
+  - 掃描狀態到 `completed` / `failed` 後可關閉串流
 - `GET /api/scan/recent` 回傳最近一次掃描摘要；若尚無掃描記錄回 `404 { error: "尚無掃描記錄" }`
+- Vercel 部署的 API catch-all route 需設定 Node runtime 與動態回應（避免快取中斷 SSE）：
+  - `runtime = "nodejs"`
+  - `dynamic = "force-dynamic"`
+  - `maxDuration = 300`（實際上限仍受方案限制）
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
   - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
   - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
 - 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed`，且附帶 `errorMessage`
   - 若為 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
+- 若 `engineMode=agentic_beta` 失敗，`errorCode` 必須為 `BETA_ENGINE_FAILED`
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 漏洞事件規範：
   - `scan_detected`：新漏洞建立時寫入
@@ -61,12 +74,15 @@ fileMatchPattern: "**/src/server/**/*"
 
 ## Agent 系統
 
-1. **Orchestrator** — 依語言分組 → 平行分派 → 合併 → LLM 分析 → 冪等寫入
-2. **JS/TS Agent** — TypeScript Compiler API AST，偵測：eval、innerHTML、直接查詢、原型鏈變異
-3. **Go Agent** — Go WASM 沙箱（`go/ast` + `go/parser`）
-4. **Analysis Agent** — LLM（Gemini / NVIDIA，檔案聚合策略）
+1. **Engine Router** — 根據 `engineMode` 分流到 baseline 或 agentic_beta
+2. **Orchestrator（baseline）** — 依語言分組 → 平行分派 → 合併 → LLM 分析 → 冪等寫入
+3. **Orchestrator（agentic_beta）** — ContextBundle → Planner → Skills/MCP → Analyst → Critic → Judge → 冪等寫入
+4. **JS/TS Agent** — TypeScript Compiler API AST，偵測：eval、innerHTML、直接查詢、原型鏈變異
+5. **Go Agent** — Go WASM 沙箱（`go/ast` + `go/parser`）
+6. **Analysis Agent（baseline）** — LLM（Gemini / NVIDIA，檔案聚合策略）
    - `quick`：僅高風險 AST 點位觸發（條件式 LLM）
    - `standard`：每檔案一次聚合分析（交互點排序 + 上限 + 區塊上下文）
    - `deep`：每檔案一次完整檔案掃描（保留宏觀能力）
    - LLM 呼叫逾時為 45 秒；僅 `workspace` 掃描在逾時或 HTTP 503（UNAVAILABLE）時自動重試 1 次
    - LLM 回應快取：以 prompt 指紋去重（TTL）
+7. **MCP Broker + Policy** — 僅允許白名單 server 與安全能力（pattern_scan/code_graph_lookup）

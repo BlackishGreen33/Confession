@@ -8,7 +8,7 @@ import type { PluginConfig } from '@/libs/types'
 /** 預設配置（與前端 atoms.ts 一致） */
 const DEFAULT_CONFIG: PluginConfig = {
   llm: { provider: 'nvidia', apiKey: '' },
-  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
+  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
   ignore: { paths: [] as string[], types: [] as string[] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
 }
@@ -27,6 +27,7 @@ const configBodySchema = z.object({
       triggerMode: z.enum(['onSave', 'manual']),
       depth: z.enum(['quick', 'standard', 'deep']),
       debounceMs: z.number().int().min(0),
+      betaAgenticEnabled: z.boolean().optional(),
     })
     .optional(),
   ignore: z
@@ -44,6 +45,18 @@ const configBodySchema = z.object({
 })
 
 export const configRoutes = new Hono()
+
+function normalizeConfig(raw: unknown): PluginConfig {
+  if (!raw || typeof raw !== 'object') return DEFAULT_CONFIG
+
+  const input = raw as Partial<PluginConfig>
+  return {
+    llm: { ...DEFAULT_CONFIG.llm, ...input.llm },
+    analysis: { ...DEFAULT_CONFIG.analysis, ...input.analysis },
+    ignore: { ...DEFAULT_CONFIG.ignore, ...input.ignore },
+    api: { ...DEFAULT_CONFIG.api, ...input.api },
+  }
+}
 
 function normalizeOptional(value: string | null | undefined): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -93,7 +106,7 @@ function mergeLlmConfig(
 configRoutes.get('/', async (c) => {
   const row = await prisma.config.findUnique({ where: { id: 'default' } })
   if (!row) return c.json(DEFAULT_CONFIG)
-  return c.json(JSON.parse(row.data))
+  return c.json(normalizeConfig(JSON.parse(row.data)))
 })
 
 /**
@@ -104,7 +117,7 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
 
   // 讀取現有配置，合併後寫入
   const existing = await prisma.config.findUnique({ where: { id: 'default' } })
-  const prev = existing ? (JSON.parse(existing.data) as typeof DEFAULT_CONFIG) : DEFAULT_CONFIG
+  const prev = existing ? normalizeConfig(JSON.parse(existing.data)) : DEFAULT_CONFIG
 
   const merged = {
     llm: mergeLlmConfig(prev.llm, body.llm),

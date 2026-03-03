@@ -35,8 +35,10 @@ confession/
 │   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
 │   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts
 │   │   └── utils/          # cn() 等工具函數
-│   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, db.ts, cache.ts, monitoring.ts
-│       └── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts 宣告）
+│   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, mcp/, db.ts, cache.ts, monitoring.ts
+│       ├── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts 宣告）
+│       ├── agents/agentic-beta/ # Beta 多代理：planner/skills/analyst/critic/judge/context-bundle
+│       └── mcp/            # MCP broker + policy（白名單與能力管制）
 ├── go-analyzer/            # Go AST → WASM
 │   ├── main.go             # 入口：go/parser + go/ast 遍歷，WASM 橋接
 │   ├── go.mod              # Go module 定義

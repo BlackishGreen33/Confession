@@ -28,6 +28,8 @@ export interface OrchestrateResult {
 
 export interface OrchestrateOptions {
   llmConfig?: LlmClientConfig
+  onFilteredFiles?: (meta: { totalFiles: number; changedFiles: number }) => Promise<void> | void
+  onFileCompleted?: (filePath: string) => Promise<void> | void
 }
 
 /**
@@ -44,6 +46,7 @@ export async function orchestrate(
 
   // 增量分析：過濾掉內容未變更的檔案
   const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
+  await notifyFilteredFiles(options.onFilteredFiles, request.files.length, changedFiles.length)
 
   if (changedFiles.length === 0) {
     return {
@@ -100,6 +103,7 @@ export async function orchestrate(
     includeMacroScan: request.includeLlmScan ?? false,
     maxRetryAttempts: retryAttempts,
     llmConfig: options.llmConfig,
+    onFileCompleted: options.onFileCompleted,
   })
   const vulns = analysisResult.vulnerabilities
 
@@ -167,5 +171,18 @@ function buildSummary(
     totalVulnerabilities: vulns.length,
     bySeverity,
     byLanguage,
+  }
+}
+
+async function notifyFilteredFiles(
+  callback: OrchestrateOptions['onFilteredFiles'],
+  totalFiles: number,
+  changedFiles: number,
+): Promise<void> {
+  if (!callback) return
+  try {
+    await callback({ totalFiles, changedFiles })
+  } catch {
+    // 進度通知失敗不應中斷主要掃描流程
   }
 }

@@ -46,6 +46,12 @@ export const commands = {
   executeCommand: () => Promise.resolve(),
 }
 
+export const env = {
+  clipboard: {
+    readText: () => Promise.resolve(''),
+  },
+}
+
 export class WorkspaceEdit {
   replace() {}
   insert() {}
