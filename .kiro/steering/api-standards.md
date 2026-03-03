@@ -31,6 +31,9 @@ fileMatchPattern: "**/src/server/**/*"
 - 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]
 - Schema 定義：#[[file:web/prisma/schema.prisma]]
 - 掃描任務需支援請求去重（fingerprint）與背景執行，不阻塞回應
+- `POST /api/export` 規範：
+  - CSV 回應需帶 UTF-8 BOM（避免繁中在部分試算表開啟亂碼）
+  - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 
 ## Agent 系統
 

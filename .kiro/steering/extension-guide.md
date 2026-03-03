@@ -33,8 +33,20 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 
 擴充套件與 webview 間使用 postMessage 通訊，型別定義於 #[[file:web/src/common/libs/types.ts]] 與 #[[file:extension/src/types.ts]]：
 
-- **ExtToWebMsg**：擴充套件 → Webview（`config_updated` 推送配置）
-- **WebToExtMsg**：Webview → 擴充套件（`update_config` 寫回 settings.json、`request_config` 請求目前配置）
+- **ExtToWebMsg**：擴充套件 → Webview
+  - `config_updated`（推送配置）
+  - `navigate_to_view`（切換到指定路由）
+  - `vulnerability_detail_data`（推送單筆漏洞詳情）
+  - `scan_progress`（推送掃描進度）
+  - `vulnerabilities_updated`（通知漏洞資料已更新）
+- **WebToExtMsg**：Webview → 擴充套件
+  - `request_scan`（請求掃描 file/workspace）
+  - `apply_fix`（套用修復）
+  - `ignore_vulnerability`（忽略漏洞）
+  - `navigate_to_code`（跳轉代碼位置）
+  - `open_vulnerability_detail`（開啟 Editor Panel 詳情）
+  - `update_config`（寫回 settings.json）
+  - `request_config`（請求目前配置）
 
 ### 配置雙向同步
 
