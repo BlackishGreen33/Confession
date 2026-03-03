@@ -35,6 +35,12 @@
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
+- AI 掃描策略（成本優先）：
+  - `quick`：僅高風險 AST 點位觸發 LLM（條件式）
+  - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
+  - `deep`：每檔案單次 LLM 完整掃描（保留宏觀分析）
+  - LLM 呼叫逾時為 45 秒；僅 `workspace` 掃描在逾時或 HTTP 503（UNAVAILABLE）時自動重試 1 次
+  - 同 Prompt 需做指紋快取，避免重複消耗 token
 - 專家審核流程：
   - 審核狀態變更需按「儲存審核」成功後才生效
   - 僅 `humanStatus = confirmed` 時可顯示/執行修復或忽略操作
@@ -148,6 +154,15 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - Prisma client 入口：`web/src/server/db.ts`
 - Schema：`web/prisma/schema.prisma`
 - 掃描流程需保留去重（fingerprint）與背景執行
+- `POST /api/scan` 支援 `forceRescan?: boolean`：
+  - `true`：忽略未變更檔案快取，強制重掃
+  - `false/undefined`：啟用增量快取（未變更可跳過）
+- `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
+- 掃描執行時，LLM 設定（apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
+- 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed` 並附帶 `errorMessage`
+  - 若為 Gemini 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
+- LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
+- 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
 - 漏洞事件流：
   - `scan_detected`：新漏洞建立時記錄
   - `review_saved`：`humanStatus/humanComment/owaspCategory` 任一變更時記錄
@@ -165,8 +180,17 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 設定前綴：`confession.*`
 - 嚴重度映射：critical/high → Error，medium → Warning，low/info → Information
 - 儲存觸發：`onDidSaveTextDocument` + debounce（預設 500ms）
+- 手動掃描（當前檔案/工作區）需使用 `forceRescan=true`，避免被未變更快取跳過
 - 僅處理：Go / JavaScript / TypeScript（含 React 變體）
 - Webview 與 Extension 以 postMessage 雙向同步配置與狀態
+- 狀態列需區分掃描失敗，不得在失敗時顯示「安全」
+- 分析深度語義：
+  - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
+  - `standard`：AST + 檔案聚合 LLM（每檔案一次）
+  - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
+- 重試策略：
+  - `掃描當前檔案` / `onSave`：不重試（快速回應）
+  - `掃描工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
 
 現行指令：
 - `codeVuln.scanFile`
