@@ -2,6 +2,7 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { createHash } from 'crypto'
 
 import { PrismaClient } from '../generated/prisma/client'
+import { deduplicateVulnerabilities } from './vulnerability-dedupe'
 
 const connectionString = process.env.DATABASE_URL ?? 'file:./dev.db'
 const adapter = new PrismaBetterSqlite3({ url: connectionString })
@@ -32,7 +33,9 @@ export interface VulnerabilityInput {
 }
 
 export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
-  for (const v of vulns) {
+  const deduped = deduplicateVulnerabilities(vulns)
+
+  for (const v of deduped) {
     const codeHash = createHash('sha256').update(v.codeSnippet).digest('hex')
     try {
       await prisma.vulnerability.upsert({
@@ -88,6 +91,62 @@ export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
       })
     }
   }
+
+  await prunePendingOpenDuplicates(deduped)
+}
+
+async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<void> {
+  if (vulns.length === 0) return
+
+  const linesByFile = new Map<string, Set<number>>()
+  for (const vuln of vulns) {
+    const lines = linesByFile.get(vuln.filePath) ?? new Set<number>()
+    lines.add(vuln.line)
+    linesByFile.set(vuln.filePath, lines)
+  }
+
+  const filePaths = Array.from(linesByFile.keys())
+  if (filePaths.length === 0) return
+
+  const candidates = await prisma.vulnerability.findMany({
+    where: {
+      filePath: { in: filePaths },
+      status: 'open',
+      humanStatus: 'pending',
+    },
+    select: {
+      id: true,
+      filePath: true,
+      line: true,
+      column: true,
+      endLine: true,
+      endColumn: true,
+      type: true,
+      cweId: true,
+      severity: true,
+      description: true,
+      codeSnippet: true,
+      aiConfidence: true,
+      status: true,
+      humanStatus: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+
+  const scoped = candidates.filter((item) => linesByFile.get(item.filePath)?.has(item.line) ?? false)
+  if (scoped.length <= 1) return
+
+  const deduped = deduplicateVulnerabilities(scoped)
+  if (deduped.length === scoped.length) return
+
+  const keepIds = new Set(deduped.map((item) => item.id))
+  const deleteIds = scoped.filter((item) => !keepIds.has(item.id)).map((item) => item.id)
+  if (deleteIds.length === 0) return
+
+  await prisma.vulnerability.deleteMany({
+    where: { id: { in: deleteIds } },
+  })
 }
 
 function isMissingEventsTableError(err: unknown): boolean {

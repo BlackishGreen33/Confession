@@ -66,11 +66,38 @@ describe('P1: AST 分析器完整性', () => {
     { code: 'const x = ctx.body', patternName: 'direct_query_body', type: 'sensitive_data' },
   ]
 
+  const sqlInjectionPatterns: PatternCase[] = [
+    {
+      code: 'const sql = "SELECT * FROM users WHERE id = \'" + id + "\'"',
+      patternName: 'sql_string_concat',
+      type: 'unsafe_pattern',
+    },
+    {
+      code: "const sql = `SELECT * FROM users WHERE name = '${name}'`",
+      patternName: 'sql_string_concat',
+      type: 'unsafe_pattern',
+    },
+  ]
+
+  const hardcodedSecretPatterns: PatternCase[] = [
+    {
+      code: "const JWT_SECRET = 'hard-coded-super-secret-key'",
+      patternName: 'hardcoded_secret',
+      type: 'sensitive_data',
+    },
+    {
+      code: "const cfg = { apiKey: 'token_live_12345678' }",
+      patternName: 'hardcoded_secret',
+      type: 'sensitive_data',
+    },
+  ]
+
   const prototypeMutationPatterns: PatternCase[] = [
     { code: 'obj.__proto__ = evil', patternName: '__proto__', type: 'prototype_mutation' },
     { code: 'Object.setPrototypeOf(a, b)', patternName: 'Object.setPrototypeOf', type: 'prototype_mutation' },
     { code: 'MyClass.prototype = newProto', patternName: 'prototype_assignment', type: 'prototype_mutation' },
     { code: 'Object.assign(t, { __proto__: evil })', patternName: 'Object.assign.__proto__', type: 'prototype_mutation' },
+    { code: 'Object.assign(Object.prototype, payload)', patternName: 'Object.assign.Object.prototype', type: 'prototype_mutation' },
   ]
 
   const allPatterns: PatternCase[] = [
@@ -79,6 +106,8 @@ describe('P1: AST 分析器完整性', () => {
     ...setTimeoutPatterns,
     ...innerHtmlPatterns,
     ...directQueryPatterns,
+    ...sqlInjectionPatterns,
+    ...hardcodedSecretPatterns,
     ...prototypeMutationPatterns,
   ]
 

@@ -52,7 +52,17 @@ function runBuiltinPatternScan(input: McpInvocation): McpResult {
   const evidence: string[] = []
 
   for (const [index, line] of lines.entries()) {
-    if (/\beval\s*\(/.test(line) || /innerHTML\s*=/.test(line) || /exec\.Command/.test(line)) {
+    const hasEvalLike = /\beval\s*\(/.test(line) || /innerHTML\s*=/.test(line) || /exec\.Command/.test(line)
+    const hasSqlConcat =
+      /\b(select|insert|update|delete|replace|drop|union|where|from|into|like)\b/i.test(line) &&
+      (/\+/.test(line) || /\$\{/.test(line))
+    const hasHardcodedSecret =
+      /(secret|token|api[_-]?key|password|passwd|jwt|private[_-]?key)/i.test(line) &&
+      /['"`][^'"`]{8,}['"`]/.test(line)
+    const hasPrototypePollution =
+      /Object\.assign\s*\(\s*Object\.prototype\b/.test(line) || /__proto__/.test(line)
+
+    if (hasEvalLike || hasSqlConcat || hasHardcodedSecret || hasPrototypePollution) {
       evidence.push(`pattern_hit line=${index + 1}: ${line.trim()}`)
     }
   }

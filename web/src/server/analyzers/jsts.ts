@@ -33,6 +33,8 @@ export function analyzeJsTs(
     detectNewFunction(node, matches)
     detectInnerHtml(node, matches)
     detectDirectQuery(node, matches)
+    detectSqlInjection(node, matches)
+    detectHardcodedSecret(node, matches)
     detectPrototypeMutation(node, matches)
     ts.forEachChild(node, visit)
   }
@@ -107,6 +109,72 @@ function detectDirectQuery(node: ts.Node, out: PatternMatch[]) {
   }
 }
 
+const SQL_KEYWORD = /\b(select|insert|update|delete|replace|drop|union|where|from|into|like)\b/i
+
+/** 偵測 SQL 字串拼接 / 模板插值 */
+function detectSqlInjection(node: ts.Node, out: PatternMatch[]) {
+  if (ts.isTemplateExpression(node)) {
+    const literalText =
+      node.head.text + node.templateSpans.map((span) => span.literal.text).join(' ')
+    if (SQL_KEYWORD.test(literalText) && node.templateSpans.length > 0) {
+      out.push({
+        node,
+        type: 'unsafe_pattern',
+        patternName: 'sql_string_concat',
+        confidence: 'medium',
+      })
+    }
+    return
+  }
+
+  if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.PlusToken) return
+
+  const parts = flattenPlusOperands(node)
+  const hasSqlLiteral = parts.some((part) => {
+    if (!isStringLike(part)) return false
+    return SQL_KEYWORD.test(readStringLike(part))
+  })
+  if (!hasSqlLiteral) return
+
+  const hasDynamicPart = parts.some((part) => !isStringLike(part))
+  if (!hasDynamicPart) return
+
+  out.push({
+    node,
+    type: 'unsafe_pattern',
+    patternName: 'sql_string_concat',
+    confidence: 'medium',
+  })
+}
+
+const SECRET_NAME = /(secret|token|api[_-]?key|password|passwd|jwt|private[_-]?key)/i
+
+/** 偵測硬編碼憑證 / token */
+function detectHardcodedSecret(node: ts.Node, out: PatternMatch[]) {
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+    if (!SECRET_NAME.test(node.name.text)) return
+    if (!isLikelySecretLiteral(node.initializer)) return
+    out.push({
+      node,
+      type: 'sensitive_data',
+      patternName: 'hardcoded_secret',
+      confidence: 'high',
+    })
+    return
+  }
+
+  if (!ts.isPropertyAssignment(node)) return
+  const keyName = readPropertyName(node.name)
+  if (!keyName || !SECRET_NAME.test(keyName)) return
+  if (!isLikelySecretLiteral(node.initializer)) return
+  out.push({
+    node,
+    type: 'sensitive_data',
+    patternName: 'hardcoded_secret',
+    confidence: 'high',
+  })
+}
+
 /** 偵測原型鏈變異 */
 function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
   // __proto__ 賦值：obj.__proto__ = ...
@@ -128,6 +196,18 @@ function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
     const name = extractFullCallName(node.expression)
     if (name === 'Object.setPrototypeOf') {
       out.push({ node, type: 'prototype_mutation', patternName: 'Object.setPrototypeOf', confidence: 'high' })
+    }
+    if (name === 'Object.assign' && node.arguments.length >= 1) {
+      const targetArg = node.arguments[0]
+      const targetName = extractFullCallName(targetArg)
+      if (targetName === 'Object.prototype') {
+        out.push({
+          node,
+          type: 'prototype_mutation',
+          patternName: 'Object.assign.Object.prototype',
+          confidence: 'high',
+        })
+      }
     }
     // Object.assign 含 __proto__
     if (name === 'Object.assign' && node.arguments.length >= 2) {
@@ -174,6 +254,40 @@ function extractFullCallName(expr: ts.Expression): string | null {
 function extractIdentifierName(expr: ts.Expression): string | null {
   if (ts.isIdentifier(expr)) return expr.text
   return null
+}
+
+function flattenPlusOperands(node: ts.Expression): ts.Expression[] {
+  if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.PlusToken) {
+    return [node]
+  }
+  return [...flattenPlusOperands(node.left), ...flattenPlusOperands(node.right)]
+}
+
+function isStringLike(node: ts.Expression): boolean {
+  return (
+    ts.isStringLiteral(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    ts.isTemplateExpression(node)
+  )
+}
+
+function readStringLike(node: ts.Expression): string {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
+  if (!ts.isTemplateExpression(node)) return ''
+  return node.head.text + node.templateSpans.map((span) => span.literal.text).join(' ')
+}
+
+function readPropertyName(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name)) return name.text
+  if (ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text
+  return null
+}
+
+function isLikelySecretLiteral(node: ts.Expression): boolean {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text.trim().length >= 8
+  }
+  return false
 }
 
 /** 將 PatternMatch + AST 節點轉換為 InteractionPoint */

@@ -88,6 +88,30 @@ describe('analyzeJsTs', () => {
     expect(results.some(r => r.patternName === 'Object.assign.__proto__')).toBe(true)
   })
 
+  it('detects Object.assign(Object.prototype, payload)', () => {
+    const code = `Object.assign(Object.prototype, payload)`
+    const results = analyzeJsTs(code, 'test.ts', 'typescript')
+    expect(results.some(r => r.patternName === 'Object.assign.Object.prototype')).toBe(true)
+  })
+
+  it('detects SQL template interpolation pattern', () => {
+    const code = "const sql = `SELECT * FROM users WHERE id = '${id}'`"
+    const results = analyzeJsTs(code, 'test.ts', 'typescript')
+    expect(results.some(r => r.patternName === 'sql_string_concat')).toBe(true)
+  })
+
+  it('detects SQL string concatenation pattern', () => {
+    const code = `const sql = "SELECT * FROM users WHERE email = '" + email + "'"`
+    const results = analyzeJsTs(code, 'test.ts', 'typescript')
+    expect(results.some(r => r.patternName === 'sql_string_concat')).toBe(true)
+  })
+
+  it('detects hardcoded secret variable', () => {
+    const code = "const JWT_SECRET = 'hard-coded-super-secret-key'"
+    const results = analyzeJsTs(code, 'test.ts', 'typescript')
+    expect(results.some(r => r.patternName === 'hardcoded_secret')).toBe(true)
+  })
+
   it('returns correct InteractionPoint structure', () => {
     const code = `eval("x")`
     const results = analyzeJsTs(code, 'src/app.ts', 'typescript')
