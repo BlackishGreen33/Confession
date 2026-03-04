@@ -50,6 +50,9 @@ confession/
 └── README.md               # 專案文件
 ```
 
+補充（近期資料模型變更）：
+- `web/prisma/schema.prisma` 的 `ScanTask` 新增 `fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`，用於記錄 agentic 自動回退 baseline 的執行情況。
+
 ## 邊界規則
 
 - 前端程式碼僅在 `web/` 內

@@ -40,7 +40,8 @@
   - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
   - `deep`：每檔案單次 LLM 完整掃描（保留宏觀分析）
   - 引擎模式：`baseline`（既有流程）/`agentic_beta`（Planner→Skills/MCP→Analyst→Critic→Judge）
-  - `analysis.betaAgenticEnabled` 為 Beta 開關，預設 `false`
+  - 正式預設引擎為 `agentic_beta`（使用者端不提供手動開關）
+  - `agentic_beta` 失敗時，後端需在同一 task 內自動回退 `baseline`
   - LLM 呼叫逾時為 45 秒；僅 `workspace` 掃描在逾時或 HTTP 503（UNAVAILABLE）時自動重試 1 次
   - 同 Prompt 需做指紋快取，避免重複消耗 token
 - 專家審核流程：
@@ -157,6 +158,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `GET /api/scan/status/:id`
 - `GET /api/scan/stream/:id`
 - `GET /api/scan/recent`
+- `POST /api/scan/cancel/:id`
 - `GET /api/vulnerabilities`
 - `GET /api/vulnerabilities/trend`
 - `GET /api/vulnerabilities/stats`
@@ -176,26 +178,45 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `true`：忽略未變更檔案快取，強制重掃
   - `false/undefined`：啟用增量快取（未變更可跳過）
 - `POST /api/scan` 支援 `scanScope?: "file" | "workspace"`，用於控制掃描策略（例如重試僅套用 workspace）
-- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic_beta"`（未傳值時由持久化設定 `analysis.betaAgenticEnabled` 推導）
+- `POST /api/scan` 支援 `workspaceSnapshotComplete?: boolean`（僅 workspace 掃描使用）：
+  - `false` 代表快照可能截斷，後端需跳過刪檔自動收斂，避免誤判
+- `POST /api/scan` 支援 `workspaceRoots?: string[]`（僅 workspace 掃描使用）：
+  - 後端收斂僅可影響 `workspaceRoots` 範圍，避免跨工作區誤關閉
+- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic_beta"`（未傳值時固定預設 `agentic_beta`）
+- `POST /api/scan` 建立新任務前，需先中止既有 `pending/running` 任務（標記 `failed`），避免多個掃描任務並行互相覆寫狀態
 - `GET /api/scan/recent` 回傳最近一次掃描摘要；若尚無掃描記錄回 `404 { error: "尚無掃描記錄" }`
-- `GET /api/scan/status/:id` / `GET /api/scan/recent` 回傳需包含 `engineMode`、`errorCode`
+- `GET /api/scan/status/:id` / `GET /api/scan/recent` 回傳需包含 `engineMode`、`errorCode` 與 `fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`
 - `GET /api/scan/stream/:id` 提供 `text/event-stream` 即時推送掃描進度（含 `scannedFiles/totalFiles`）
   - 掃描完成或失敗後可關閉串流
+- `POST /api/scan/cancel/:id`：
+  - 任務不存在回 `404`
+  - 任務已結束（`completed/failed`）回 `200` 且 `canceling=false`
+  - 任務進行中（`pending/running`）需立刻標記 `failed`，填寫可追蹤 `errorMessage`，並推送 SSE 事件，回 `202` 且 `canceling=true`
 - `web/src/app/api/[...route]/route.ts` 需設定 `runtime = "nodejs"`、`dynamic = "force-dynamic"`、`maxDuration = 300` 以支援 SSE（最終可用時長仍受 Vercel 方案限制）
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
   - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
   - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
 - 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed` 並附帶 `errorMessage`
   - 若為 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
-- 若 `engineMode=agentic_beta` 失敗，`errorCode` 必須回 `BETA_ENGINE_FAILED`
+- 若 `engineMode=agentic_beta` 失敗，需自動回退 `baseline`；僅在雙引擎都失敗時 `errorCode` 回 `BETA_ENGINE_FAILED`
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
+- 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`
 - 漏洞事件流：
   - `scan_detected`：新漏洞建立時記錄
   - `review_saved`：`humanStatus/humanComment/owaspCategory` 任一變更時記錄
   - `status_changed`：`status` 變更時記錄
   - 漏洞狀態更新與事件寫入必須同 transaction
   - 相容舊 DB：`vulnerability_events` 尚未存在時，`/trend` 回退舊聚合，`/:id/events` 回空陣列
+- 漏洞語義去重：
+  - 寫入層（`upsertVulnerabilities`）需先做語義去重（同一行同一敏感資料主題僅保留一筆）
+  - `hardcoded_secret` 與 `keyword_*` 重疊時，優先保留 `hardcoded_secret`
+  - 查詢層（`GET /api/vulnerabilities`、`GET /api/vulnerabilities/stats`）需以語義去重後資料回傳，避免列表與統計膨脹
+- 工作區快照收斂：
+  - 僅 `scanScope=workspace` 且 `workspaceSnapshotComplete !== false` 時啟用
+  - 需以 `workspaceRoots` 限定收斂範圍；缺少 roots 時跳過收斂
+  - 本次快照不存在的來源檔案，其 `open` 漏洞需自動收斂為 `fixed`，並寫入 `status_changed` 事件（說明可能刪除/改名）
+  - 收斂失敗不得讓整體掃描轉失敗，需寫結構化 log 供追查
 - `POST /api/export`：
   - request body：`format = json|csv|markdown|pdf`，`filters` 支援 `status/severity/humanStatus/filePath/search`
   - `json`：回傳 `ExportReportV2`（schemaVersion、filters、summary、items）
@@ -220,13 +241,20 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）
   - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
-- Beta 模式開關：`confession.analysis.betaAgenticEnabled`
-- Beta 失敗回退：
-  - 手動掃描顯示互動提示，允許改用 baseline 重試
-  - `onSave` 僅顯示非阻塞提示，不可彈 modal
+- 掃描引擎策略：預設 `agentic_beta`，由後端自動回退 `baseline`
+- Extension 端不顯示「改用 baseline」互動提示
 - 重試策略：
   - `掃描當前檔案` / `onSave`：不重試（快速回應）
   - `掃描工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
+- Timeout 與中斷策略：
+  - `掃描當前檔案` timeout：8 分鐘；`onSave` timeout：4 分鐘；`掃描工作區` timeout：30 分鐘
+  - 一旦前端輪詢逾時，Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務，避免殘留 `running` 任務
+- 即時同步策略：
+  - 單檔/增量掃描完成後，Extension 需拉取全域開放漏洞並廣播 `vulnerabilities_updated`
+  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`
+  - 工作區掃描完成後，需先清空再重建 diagnostics，避免已刪除/已修復檔案殘留舊標記
+  - `navigate_to_code` 若檔案不存在，需顯示非阻塞提示並引導重掃工作區
+  - `scanWorkspace` 需附帶 `workspaceRoots` 與 `workspaceSnapshotComplete`，供後端安全收斂舊漏洞
 
 現行指令：
 - `codeVuln.scanFile`
