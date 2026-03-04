@@ -28,6 +28,8 @@ export interface AnalysisAgentOptions {
   maxRetryAttempts?: number
   /** 每完成一個檔案（含跳過）時通知 */
   onFileCompleted?: (filePath: string) => Promise<void> | void
+  /** 取消檢查：若已取消應拋出錯誤中斷流程 */
+  assertNotCanceled?: () => void
 }
 
 /** LLM 用量統計 */
@@ -94,6 +96,7 @@ export async function analyzeWithLlm(
   fileContents: FileContentMap,
   options: AnalysisAgentOptions,
 ): Promise<AnalyzeWithLlmResult> {
+  options.assertNotCanceled?.()
   const config = options.llmConfig ?? configFromEnv()
   const modelName = config.model ?? resolveDefaultModel(config.provider)
   const maxRetryAttempts = Math.max(0, options.maxRetryAttempts ?? 0)
@@ -102,6 +105,7 @@ export async function analyzeWithLlm(
   const grouped = groupPointsByFile(points)
 
   for (const [filePath, file] of fileContents) {
+    options.assertNotCanceled?.()
     try {
       const filePoints = grouped.get(filePath) ?? []
       const selected = selectPointsForDepth(filePoints, options.depth)
@@ -131,6 +135,7 @@ export async function analyzeWithLlm(
       stats.processedFiles += 1
 
       try {
+        options.assertNotCanceled?.()
         const raw = await callLlmWithCache(
           prompt,
           config,
@@ -138,7 +143,9 @@ export async function analyzeWithLlm(
           options.depth,
           maxRetryAttempts,
           stats,
+          options.assertNotCanceled,
         )
+        options.assertNotCanceled?.()
         const parsed = parseLlmResponse(raw)
         if (!parsed) {
           stats.parseFailures += 1
@@ -268,7 +275,9 @@ async function callLlmWithCache(
   depth: ScanRequest['depth'],
   maxRetryAttempts: number,
   stats: LlmUsageStats,
+  assertNotCanceled?: () => void,
 ): Promise<string> {
+  assertNotCanceled?.()
   const key = computeLlmPromptFingerprint(prompt, modelName, depth, {
     strategyVersion: 'v2',
     engineMode: 'baseline',
@@ -280,7 +289,7 @@ async function callLlmWithCache(
     return cached.text
   }
 
-  const result = await callLlmWithRetry(prompt, config, maxRetryAttempts)
+  const result = await callLlmWithRetry(prompt, config, maxRetryAttempts, assertNotCanceled)
   stats.requestCount += 1
   stats.promptTokens += result.usage.promptTokens
   stats.completionTokens += result.usage.completionTokens
@@ -298,10 +307,12 @@ async function callLlmWithRetry(
   prompt: string,
   config: LlmClientConfig,
   maxRetryAttempts: number,
+  assertNotCanceled?: () => void,
 ): Promise<LlmCallResult> {
   let lastError: unknown
 
   for (let attempt = 0; attempt <= maxRetryAttempts; attempt += 1) {
+    assertNotCanceled?.()
     try {
       return await callLlmWithTimeout(prompt, config)
     } catch (err) {
@@ -310,6 +321,7 @@ async function callLlmWithRetry(
         throw err
       }
 
+      assertNotCanceled?.()
       await sleep(LLM_RETRY_BASE_DELAY_MS * (attempt + 1))
     }
   }

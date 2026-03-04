@@ -30,6 +30,7 @@ export interface OrchestrateOptions {
   llmConfig?: LlmClientConfig
   onFilteredFiles?: (meta: { totalFiles: number; changedFiles: number }) => Promise<void> | void
   onFileCompleted?: (filePath: string) => Promise<void> | void
+  assertNotCanceled?: () => void
 }
 
 /**
@@ -42,10 +43,12 @@ export async function orchestrate(
   request: ScanRequest,
   options: OrchestrateOptions = {},
 ): Promise<OrchestrateResult> {
+  options.assertNotCanceled?.()
   const retryAttempts = resolveRetryAttempts(request)
 
   // 增量分析：過濾掉內容未變更的檔案
   const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
+  options.assertNotCanceled?.()
   await notifyFilteredFiles(options.onFilteredFiles, request.files.length, changedFiles.length)
 
   if (changedFiles.length === 0) {
@@ -74,6 +77,7 @@ export async function orchestrate(
   }
 
   const { go, jsts } = groupByLanguage(changedFiles)
+  options.assertNotCanceled?.()
 
   // 並行調度語言 Agent
   const [goPoints, jstsPoints] = await Promise.all([
@@ -90,10 +94,12 @@ export async function orchestrate(
   ])
 
   const allPoints = [...goPoints, ...jstsPoints]
+  options.assertNotCanceled?.()
 
   // 建構檔案內容對照表供 Analysis Agent 使用
   const fileContents: FileContentMap = new Map()
   for (const file of changedFiles) {
+    options.assertNotCanceled?.()
     fileContents.set(file.path, { content: file.content, language: file.language })
   }
 
@@ -104,14 +110,17 @@ export async function orchestrate(
     maxRetryAttempts: retryAttempts,
     llmConfig: options.llmConfig,
     onFileCompleted: options.onFileCompleted,
+    assertNotCanceled: options.assertNotCanceled,
   })
   const vulns = analysisResult.vulnerabilities
 
+  options.assertNotCanceled?.()
   // 冪等存儲
   await upsertVulnerabilities(vulns)
 
   // 標記已分析的檔案
   for (const file of changedFiles) {
+    options.assertNotCanceled?.()
     const hash = computeContentHash(file.content)
     fileAnalysisCache.set(`${file.path}:${hash}`, true)
   }

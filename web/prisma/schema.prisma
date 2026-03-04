@@ -73,6 +73,10 @@ model ScanTask {
   progress     Float    @default(0)
   totalFiles   Int      @default(0)
   scannedFiles Int      @default(0)
+  fallbackUsed Boolean  @default(false)
+  fallbackFrom String?
+  fallbackTo   String?
+  fallbackReason String?
   errorMessage String?
   errorCode    String?
   createdAt    DateTime @default(now())
