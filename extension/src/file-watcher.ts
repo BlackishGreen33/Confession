@@ -2,13 +2,14 @@ import * as vscode from 'vscode'
 
 import { updateDiagnostics } from './diagnostics'
 import {
+  cancelScanTask,
+  fetchAllOpenVulnerabilities,
   fetchFileVulnerabilities,
   pollUntilDone,
-  ScanTaskFailedError,
   triggerScan,
 } from './scan-client'
 import { setAnalyzing, setFailed, setResult } from './status-bar'
-import type { PluginConfig, ScanEngineMode } from './types'
+import type { PluginConfig } from './types'
 import { sendScanProgress, sendVulnerabilities } from './webview'
 
 /** 支援的語言 ID */
@@ -44,6 +45,7 @@ type ConfigGetter = () => PluginConfig
 
 /** 輸出頻道參考 */
 let log: vscode.OutputChannel | undefined
+const ONSAVE_SCAN_TIMEOUT_MS = 4 * 60 * 1000
 
 /**
  * 檢查檔案路徑是否在忽略清單中
@@ -64,58 +66,49 @@ async function triggerIncrementalScan(document: vscode.TextDocument, config: Plu
   setAnalyzing()
   sendScanProgress('running', 0)
 
+  let taskId: string | null = null
   try {
     const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
-    let engineMode: ScanEngineMode = config.analysis.betaAgenticEnabled ? 'agentic_beta' : 'baseline'
-    let retriedWithBaseline = false
+    taskId = await triggerScan(
+      baseUrl,
+      [{ path: filePath, content, language }],
+      {
+        depth: config.analysis.depth,
+        includeLlmScan: config.analysis.depth === 'deep',
+        forceRescan: false,
+        scanScope: 'file',
+      },
+    )
 
-    while (true) {
-      try {
-        const taskId = await triggerScan(
-          baseUrl,
-          [{ path: filePath, content, language }],
-          {
-            depth: config.analysis.depth,
-            includeLlmScan: config.analysis.depth === 'deep',
-            forceRescan: false,
-            scanScope: 'file',
-            engineMode,
-          },
-        )
-
-        await pollUntilDone(baseUrl, taskId, (progress) => {
-          sendScanProgress('running', progress)
-        })
-        break
-      } catch (err) {
-        const isBetaFailure =
-          err instanceof ScanTaskFailedError &&
-          err.errorCode === 'BETA_ENGINE_FAILED' &&
-          err.engineMode === 'agentic_beta'
-        if (!isBetaFailure || retriedWithBaseline) throw err
-
-        const action = await vscode.window.showWarningMessage(
-          'Confession: Agentic Beta 自動掃描失敗，可改用基礎模式重試。',
-          '改用基礎模式重試',
-        )
-
-        if (action !== '改用基礎模式重試') throw err
-
-        retriedWithBaseline = true
-        engineMode = 'baseline'
-        log?.appendLine(`增量掃描 fallback：${filePath} → baseline`)
-      }
-    }
+    await pollUntilDone(
+      baseUrl,
+      taskId,
+      (progress) => {
+        sendScanProgress('running', progress)
+      },
+      { timeoutMs: ONSAVE_SCAN_TIMEOUT_MS },
+    )
 
     const vulns = await fetchFileVulnerabilities(baseUrl, filePath)
+    const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl).catch(() => null)
     updateDiagnostics(filePath, vulns)
-    setResult(vulns.length)
-    sendVulnerabilities(vulns)
+    setResult((allOpenVulns ?? vulns).length)
+    sendVulnerabilities(allOpenVulns ?? vulns)
     sendScanProgress('completed', 1)
 
     log?.appendLine(`掃描完成: ${filePath}, 發現 ${vulns.length} 個漏洞`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
+    if (taskId && err instanceof Error && err.message.includes('掃描任務逾時')) {
+      const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
+      try {
+        await cancelScanTask(baseUrl, taskId)
+        log?.appendLine(`已送出取消掃描請求: ${taskId}`)
+      } catch (cancelErr) {
+        const cancelMsg = cancelErr instanceof Error ? cancelErr.message : '未知錯誤'
+        log?.appendLine(`送出取消掃描失敗(${taskId}): ${cancelMsg}`)
+      }
+    }
     log?.appendLine(`增量掃描失敗: ${msg}`)
     setFailed(msg)
     sendScanProgress('failed', 0)

@@ -196,3 +196,129 @@ describe('GET /api/vulnerabilities/:id/events', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('vulnerability list/stat dedupe', () => {
+  const app = new Hono().route('/api/vulnerabilities', vulnerabilityRoutes)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('列表會將同一行敏感資料重疊告警去重', async () => {
+    const now = new Date('2026-03-04T09:00:00.000Z')
+    mockPrisma.vulnerability.findMany.mockResolvedValue([
+      {
+        id: 'k1',
+        filePath: '/tmp/a.ts',
+        line: 2,
+        column: 10,
+        endLine: 2,
+        endColumn: 25,
+        type: 'keyword_tokens_token',
+        cweId: 'CWE-200',
+        severity: 'medium',
+        description: '敏感資料 API_TOKEN 可能導致敏感資訊外洩。',
+        codeSnippet: "const API_TOKEN = 'token_live'",
+        aiConfidence: 0.8,
+        status: 'open',
+        humanStatus: 'pending',
+        humanComment: null,
+        humanReviewedAt: null,
+        owaspCategory: null,
+        riskDescription: null,
+        fixOldCode: null,
+        fixNewCode: null,
+        fixExplanation: null,
+        aiModel: null,
+        aiReasoning: null,
+        codeHash: 'h1',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'h1',
+        filePath: '/tmp/a.ts',
+        line: 2,
+        column: 10,
+        endLine: 2,
+        endColumn: 25,
+        type: 'hardcoded_secret',
+        cweId: 'CWE-200',
+        severity: 'high',
+        description: '硬編碼的敏感資料 API_TOKEN 可能導致敏感資訊外洩。',
+        codeSnippet: "const API_TOKEN = 'token_live'",
+        aiConfidence: 0.3,
+        status: 'open',
+        humanStatus: 'pending',
+        humanComment: null,
+        humanReviewedAt: null,
+        owaspCategory: null,
+        riskDescription: null,
+        fixOldCode: null,
+        fixNewCode: null,
+        fixExplanation: null,
+        aiModel: null,
+        aiReasoning: null,
+        codeHash: 'h2',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+
+    const res = await app.request('/api/vulnerabilities?page=1&pageSize=20')
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.total).toBe(1)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].type).toBe('hardcoded_secret')
+  })
+
+  it('stats 會用去重後結果計算總數', async () => {
+    const now = new Date('2026-03-04T09:00:00.000Z')
+    mockPrisma.vulnerability.findMany.mockResolvedValue([
+      {
+        filePath: '/tmp/a.ts',
+        line: 2,
+        column: 10,
+        endLine: 2,
+        endColumn: 25,
+        type: 'keyword_tokens_token',
+        cweId: 'CWE-200',
+        severity: 'medium',
+        description: '敏感資料 API_TOKEN 可能導致敏感資訊外洩。',
+        codeSnippet: "const API_TOKEN = 'token_live'",
+        aiConfidence: 0.8,
+        status: 'open',
+        humanStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        filePath: '/tmp/a.ts',
+        line: 2,
+        column: 10,
+        endLine: 2,
+        endColumn: 25,
+        type: 'hardcoded_secret',
+        cweId: 'CWE-200',
+        severity: 'high',
+        description: '硬編碼的敏感資料 API_TOKEN 可能導致敏感資訊外洩。',
+        codeSnippet: "const API_TOKEN = 'token_live'",
+        aiConfidence: 0.3,
+        status: 'open',
+        humanStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+
+    const res = await app.request('/api/vulnerabilities/stats')
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.total).toBe(1)
+    expect(body.byStatus.open).toBe(1)
+    expect(body.bySeverity.high).toBe(1)
+  })
+})

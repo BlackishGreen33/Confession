@@ -20,15 +20,25 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）
   - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
-- Beta 開關：`confession.analysis.betaAgenticEnabled`
-  - `true`：預設走 `agentic_beta`
-  - `false`：預設走 `baseline`
+- 掃描引擎：預設由後端以 `agentic_beta` 啟動，失敗時自動回退 `baseline`
 - 重試策略：
   - `掃描當前文件` / `onSave`：不重試（快速回應）
   - `掃描整個工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
-  - 若 `agentic_beta` 失敗且 `errorCode=BETA_ENGINE_FAILED`：
-    - 手動掃描顯示互動提示，允許改用 baseline 重試
-    - `onSave` 僅顯示非阻塞提示，不可彈 modal
+  - Extension 不顯示「是否改用 baseline」互動提示，回退行為完全由後端處理
+- Timeout 與中斷策略：
+  - `掃描當前文件` 輪詢 timeout：8 分鐘
+  - `onSave` 輪詢 timeout：4 分鐘
+  - `掃描整個工作區` 輪詢 timeout：30 分鐘
+  - 輪詢逾時後 Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務，避免任務殘留為 `running`
+- 即時同步策略：
+  - 單檔/增量掃描完成後，Extension 需同步拉取「全域開放漏洞」並廣播 `vulnerabilities_updated`
+  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`
+  - 工作區掃描完成後，需先清空再重建 diagnostics，避免已刪除/已修復檔案殘留舊標記
+- 工作區快照一致性：
+  - `scanWorkspace` 送出 `/api/scan` 時需帶 `workspaceSnapshotComplete`
+  - `scanWorkspace` 送出 `/api/scan` 時需同步帶 `workspaceRoots`（目前 workspace folders 的 `fsPath`）
+  - 若檔案數達查找上限（目前 5000），`workspaceSnapshotComplete=false`，避免後端誤把未納入快照的檔案漏洞自動關閉
+  - 若 `navigate_to_code` 目標檔案不存在，需顯示非阻塞提示並引導使用者重新掃描工作區同步狀態
 
 ## 指令與設定前綴
 

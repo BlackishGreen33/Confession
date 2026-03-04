@@ -20,6 +20,7 @@ export interface AgenticOrchestrateOptions {
   llmConfig?: LlmClientConfig
   onFilteredFiles?: (meta: { totalFiles: number; changedFiles: number }) => Promise<void> | void
   onFileCompleted?: (filePath: string) => Promise<void> | void
+  assertNotCanceled?: () => void
 }
 
 export interface AgenticOrchestrateResult {
@@ -42,8 +43,10 @@ export async function orchestrateAgenticBeta(
   request: ScanRequest,
   options: AgenticOrchestrateOptions = {},
 ): Promise<AgenticOrchestrateResult> {
+  options.assertNotCanceled?.()
   const maxRetryAttempts = resolveRetryAttempts(request)
   const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
+  options.assertNotCanceled?.()
   await notifyFilteredFiles(options.onFilteredFiles, request.files.length, changedFiles.length)
 
   if (changedFiles.length === 0) {
@@ -56,6 +59,7 @@ export async function orchestrateAgenticBeta(
   }
 
   const { go, jsts } = groupByLanguage(changedFiles)
+  options.assertNotCanceled?.()
   const [goPoints, jstsPoints] = await Promise.all([
     go.length > 0 ? analyzeGoFiles(go.map((file) => ({ path: file.path, content: file.content }))) : [],
     jsts.length > 0
@@ -70,9 +74,11 @@ export async function orchestrateAgenticBeta(
   ])
 
   const allPoints = [...goPoints, ...jstsPoints]
+  options.assertNotCanceled?.()
   const pointsByFile = new Map<string, typeof allPoints>()
 
   for (const point of allPoints) {
+    options.assertNotCanceled?.()
     const list = pointsByFile.get(point.filePath) ?? []
     list.push(point)
     pointsByFile.set(point.filePath, list)
@@ -83,6 +89,7 @@ export async function orchestrateAgenticBeta(
   const finalVulns: VulnerabilityInput[] = []
 
   for (const file of changedFiles) {
+    options.assertNotCanceled?.()
     try {
       const filePoints = pointsByFile.get(file.path) ?? []
       const bundle = buildContextBundle(file.path, file.language, file.content, filePoints, request.depth)
@@ -90,6 +97,7 @@ export async function orchestrateAgenticBeta(
       llmStats.processedFiles += 1
 
       const plan = planForContext(bundle)
+      options.assertNotCanceled?.()
       const skillRecords = await runSkillPlan(bundle, plan)
 
       try {
@@ -98,6 +106,7 @@ export async function orchestrateAgenticBeta(
           depth: request.depth,
           maxRetryAttempts,
         })
+        options.assertNotCanceled?.()
 
         if (analyst.cacheHit) {
           llmStats.cacheHits += 1
@@ -121,6 +130,7 @@ export async function orchestrateAgenticBeta(
         }
 
         const critic = runCritic(bundle, analyst.candidates, skillRecords)
+        options.assertNotCanceled?.()
         const judged = runJudge(bundle, critic)
 
         llmStats.successfulFiles += 1
@@ -148,9 +158,11 @@ export async function orchestrateAgenticBeta(
     }
   }
 
+  options.assertNotCanceled?.()
   await upsertVulnerabilities(finalVulns)
 
   for (const file of changedFiles) {
+    options.assertNotCanceled?.()
     const hash = computeContentHash(file.content)
     fileAnalysisCache.set(`${file.path}:${hash}`, true)
   }

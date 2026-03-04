@@ -584,6 +584,19 @@ const RecentScanCard: React.FC = () => {
                 {data.engineMode === 'agentic_beta' ? 'agentic_beta' : 'baseline'}
               </span>
             </div>
+            {data.fallbackUsed && (
+              <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
+                <span className="text-cyber-textmuted">自動回退</span>
+                <span className="font-mono text-white">
+                  {`${data.fallbackFrom ?? 'agentic_beta'} -> ${data.fallbackTo ?? 'baseline'}`}
+                </span>
+              </div>
+            )}
+            {data.fallbackUsed && data.fallbackReason && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                {data.fallbackReason}
+              </div>
+            )}
             {data.status === 'failed' && data.errorMessage && (
               <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
                 {data.errorMessage}

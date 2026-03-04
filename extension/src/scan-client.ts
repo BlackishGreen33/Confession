@@ -14,6 +14,8 @@ export interface ScanOptions {
   includeLlmScan?: boolean
   forceRescan?: boolean
   scanScope?: 'file' | 'workspace'
+  workspaceSnapshotComplete?: boolean
+  workspaceRoots?: string[]
   engineMode?: ScanEngineMode
 }
 
@@ -23,9 +25,21 @@ interface ScanTaskStatus {
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
   engineMode: ScanEngineMode
+  fallbackUsed?: boolean
+  fallbackFrom?: 'agentic_beta'
+  fallbackTo?: 'baseline'
+  fallbackReason?: string
   errorMessage?: string | null
   errorCode?: ScanErrorCode | null
 }
+
+export interface PollUntilDoneOptions {
+  timeoutMs?: number
+  intervalMs?: number
+}
+
+const DEFAULT_POLL_TIMEOUT_MS = 60_000
+const DEFAULT_POLL_INTERVAL_MS = 1_000
 
 export class ScanTaskFailedError extends Error {
   readonly errorCode: ScanErrorCode | null
@@ -97,6 +111,8 @@ async function doTriggerScan(
       includeLlmScan: options.includeLlmScan ?? false,
       forceRescan: options.forceRescan ?? false,
       scanScope: options.scanScope ?? 'file',
+      workspaceSnapshotComplete: options.workspaceSnapshotComplete,
+      workspaceRoots: options.workspaceRoots,
       engineMode: options.engineMode,
     }),
   })
@@ -109,6 +125,19 @@ async function doTriggerScan(
   return data.taskId
 }
 
+/**
+ * 取消指定掃描任務（POST /api/scan/cancel/:id）。
+ */
+export async function cancelScanTask(baseUrl: string, taskId: string): Promise<void> {
+  const base = baseUrl.replace(/\/+$/, '')
+  const res = await fetch(`${base}/api/scan/cancel/${taskId}`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    throw new Error(`取消掃描失敗: ${res.status}`)
+  }
+}
+
 
 /**
  * 輪詢掃描任務直到完成或失敗
@@ -117,12 +146,14 @@ export async function pollUntilDone(
   baseUrl: string,
   taskId: string,
   onProgress?: (progress: number) => void,
-  maxAttempts = 60,
-  intervalMs = 1000,
+  options: PollUntilDoneOptions = {},
 ): Promise<void> {
   const base = baseUrl.replace(/\/+$/, '')
+  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS)
+  const intervalMs = Math.max(200, options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+  const startedAt = Date.now()
 
-  for (let i = 0; i < maxAttempts; i++) {
+  while (Date.now() - startedAt < timeoutMs) {
     await sleep(intervalMs)
 
     const res = await fetch(`${base}/api/scan/status/${taskId}`)
@@ -142,7 +173,7 @@ export async function pollUntilDone(
     }
   }
 
-  throw new Error('掃描任務逾時')
+  throw new Error(`掃描任務逾時（>${Math.ceil(timeoutMs / 1000)} 秒）`)
 }
 
 /**

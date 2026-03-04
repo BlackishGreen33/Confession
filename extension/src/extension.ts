@@ -1,19 +1,19 @@
 import path from 'path'
 import * as vscode from 'vscode'
 
-import { registerDiagnostics, updateDiagnostics } from './diagnostics'
+import { clearAllDiagnostics, registerDiagnostics, updateDiagnostics } from './diagnostics'
 import { createFileWatcher } from './file-watcher'
 import {
+  cancelScanTask,
   fetchAllOpenVulnerabilities,
   fetchFileVulnerabilities,
   fetchVulnerabilityById,
   ignoreVulnerability,
   pollUntilDone,
-  ScanTaskFailedError,
   triggerScan,
 } from './scan-client'
 import { createStatusBar, setAnalyzing, setFailed, setResult } from './status-bar'
-import type { PluginConfig, ScanEngineMode } from './types'
+import type { PluginConfig } from './types'
 import {
   openSettingsPanel,
   registerViewProvider,
@@ -25,6 +25,9 @@ import {
 
 /** 輸出頻道，用於記錄插件日誌 */
 let outputChannel: vscode.OutputChannel
+const FILE_SCAN_TIMEOUT_MS = 8 * 60 * 1000
+const WORKSPACE_SCAN_TIMEOUT_MS = 30 * 60 * 1000
+const WORKSPACE_FILE_LIMIT = 5000
 
 /**
  * 從 VS Code settings.json 讀取插件配置
@@ -42,7 +45,6 @@ function getPluginConfig(): PluginConfig {
       triggerMode: config.get<'onSave' | 'manual'>('analysis.triggerMode', 'onSave'),
       depth: config.get<'quick' | 'standard' | 'deep'>('analysis.depth', 'standard'),
       debounceMs: config.get<number>('analysis.debounceMs', 500),
-      betaAgenticEnabled: config.get<boolean>('analysis.betaAgenticEnabled', false),
     },
     ignore: {
       paths: config.get<string[]>('ignore.paths', []),
@@ -63,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
   const pluginConfig = getPluginConfig()
   outputChannel.appendLine(`API 模式: ${pluginConfig.api.mode} (${pluginConfig.api.baseUrl})`)
   outputChannel.appendLine(
-    `分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}, Beta: ${pluginConfig.analysis.betaAgenticEnabled ? 'ON' : 'OFF'}`,
+    `分析觸發: ${pluginConfig.analysis.triggerMode}, 深度: ${pluginConfig.analysis.depth}`,
   )
 
   // --- 註冊兩個側邊欄 Webview View Provider ---
@@ -198,8 +200,9 @@ function countNewVulnerabilities(
   return count
 }
 
-function resolveEngineMode(config: PluginConfig): ScanEngineMode {
-  return config.analysis.betaAgenticEnabled ? 'agentic_beta' : 'baseline'
+function isScanTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return err.message.includes('掃描任務逾時')
 }
 
 /** 掃描當前檔案 */
@@ -226,56 +229,34 @@ async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
   setAnalyzing()
   sendScanProgress('running', 0)
 
+  let taskId: string | null = null
   try {
-    let engineMode = resolveEngineMode(config)
-    let retriedWithBaseline = false
+    taskId = await triggerScan(
+      baseUrl,
+      [{ path: doc.fileName, content: doc.getText(), language: inferredLanguage }],
+      {
+        depth: config.analysis.depth,
+        includeLlmScan: config.analysis.depth === 'deep',
+        forceRescan: true,
+        scanScope: 'file',
+      },
+    )
 
-    while (true) {
-      try {
-        const taskId = await triggerScan(
-          baseUrl,
-          [{ path: doc.fileName, content: doc.getText(), language: inferredLanguage }],
-          {
-            depth: config.analysis.depth,
-            includeLlmScan: config.analysis.depth === 'deep',
-            forceRescan: true,
-            scanScope: 'file',
-            engineMode,
-          },
-        )
-
-        await pollUntilDone(baseUrl, taskId, (progress) => {
-          sendScanProgress('running', progress)
-        })
-
-        break
-      } catch (err) {
-        const isBetaFailure =
-          err instanceof ScanTaskFailedError &&
-          err.errorCode === 'BETA_ENGINE_FAILED' &&
-          err.engineMode === 'agentic_beta'
-
-        if (!isBetaFailure || retriedWithBaseline) throw err
-
-        const action = await vscode.window.showWarningMessage(
-          'Confession: Agentic Beta 掃描失敗，是否改用基礎模式重試？',
-          '改用基礎模式重試',
-          '取消',
-        )
-
-        if (action !== '改用基礎模式重試') throw err
-
-        retriedWithBaseline = true
-        engineMode = 'baseline'
-        outputChannel.appendLine('使用者選擇改用基礎模式重試目前檔案掃描')
-      }
-    }
+    await pollUntilDone(
+      baseUrl,
+      taskId,
+      (progress) => {
+        sendScanProgress('running', progress)
+      },
+      { timeoutMs: FILE_SCAN_TIMEOUT_MS },
+    )
 
     const vulns = await fetchFileVulnerabilities(baseUrl, doc.fileName)
+    const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl).catch(() => null)
     const newCount = countNewVulnerabilities(beforeIds, vulns)
     updateDiagnostics(doc.fileName, vulns)
-    setResult(vulns.length)
-    sendVulnerabilities(vulns)
+    setResult((allOpenVulns ?? vulns).length)
+    sendVulnerabilities(allOpenVulns ?? vulns)
     sendScanProgress('completed', 1)
 
     outputChannel.appendLine(
@@ -283,6 +264,15 @@ async function scanCurrentFile(getConfig: () => PluginConfig): Promise<void> {
     )
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
+    if (taskId && isScanTimeoutError(err)) {
+      try {
+        await cancelScanTask(baseUrl, taskId)
+        outputChannel.appendLine(`已送出取消掃描請求: ${taskId}`)
+      } catch (cancelErr) {
+        const cancelMsg = cancelErr instanceof Error ? cancelErr.message : '未知錯誤'
+        outputChannel.appendLine(`送出取消掃描失敗(${taskId}): ${cancelMsg}`)
+      }
+    }
     outputChannel.appendLine(`掃描失敗: ${msg}`)
     setFailed(msg)
     sendScanProgress('failed', 0)
@@ -300,18 +290,21 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
 
   const config = getConfig()
   const baseUrl = config.api.baseUrl.replace(/\/+$/, '')
+  const workspaceRoots = folders.map((folder) => folder.uri.fsPath).filter((value) => value.length > 0)
 
   outputChannel.appendLine(`掃描工作區: ${folders.map((f) => f.name).join(', ')}`)
   setAnalyzing()
   sendScanProgress('running', 0)
 
+  let taskId: string | null = null
   try {
     // 搜尋所有支援的檔案
     const uris = await vscode.workspace.findFiles(
       '**/*.{go,js,jsx,ts,tsx}',
       '**/node_modules/**',
-      5000,
+      WORKSPACE_FILE_LIMIT,
     )
+    const workspaceSnapshotComplete = uris.length < WORKSPACE_FILE_LIMIT
 
     if (uris.length === 0) {
       outputChannel.appendLine('工作區中未找到支援的檔案')
@@ -357,49 +350,32 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     outputChannel.appendLine(
       `找到 ${scanFiles.length} 個檔案，開始掃描…（go=${langCount.go ?? 0}, js=${langCount.javascript ?? 0}, ts=${langCount.typescript ?? 0}）`,
     )
+    if (!workspaceSnapshotComplete) {
+      outputChannel.appendLine(
+        `工作區檔案數已達掃描上限 ${WORKSPACE_FILE_LIMIT}，本次不執行刪檔自動收斂以避免誤判`,
+      )
+    }
 
     const beforeOpenVulns = await fetchAllOpenVulnerabilities(baseUrl).catch(() => [])
     const beforeOpenIds = new Set(beforeOpenVulns.map((v) => v.id))
 
-    let engineMode = resolveEngineMode(config)
-    let retriedWithBaseline = false
+    taskId = await triggerScan(baseUrl, scanFiles, {
+      depth: config.analysis.depth,
+      includeLlmScan: config.analysis.depth === 'deep',
+      forceRescan: true,
+      scanScope: 'workspace',
+      workspaceSnapshotComplete,
+      workspaceRoots,
+    })
 
-    while (true) {
-      try {
-        const taskId = await triggerScan(baseUrl, scanFiles, {
-          depth: config.analysis.depth,
-          includeLlmScan: config.analysis.depth === 'deep',
-          forceRescan: true,
-          scanScope: 'workspace',
-          engineMode,
-        })
-
-        await pollUntilDone(baseUrl, taskId, (progress) => {
-          sendScanProgress('running', progress)
-        })
-
-        break
-      } catch (err) {
-        const isBetaFailure =
-          err instanceof ScanTaskFailedError &&
-          err.errorCode === 'BETA_ENGINE_FAILED' &&
-          err.engineMode === 'agentic_beta'
-
-        if (!isBetaFailure || retriedWithBaseline) throw err
-
-        const action = await vscode.window.showWarningMessage(
-          'Confession: Agentic Beta 工作區掃描失敗，是否改用基礎模式重試？',
-          '改用基礎模式重試',
-          '取消',
-        )
-
-        if (action !== '改用基礎模式重試') throw err
-
-        retriedWithBaseline = true
-        engineMode = 'baseline'
-        outputChannel.appendLine('使用者選擇改用基礎模式重試工作區掃描')
-      }
-    }
+    await pollUntilDone(
+      baseUrl,
+      taskId,
+      (progress) => {
+        sendScanProgress('running', progress)
+      },
+      { timeoutMs: WORKSPACE_SCAN_TIMEOUT_MS },
+    )
 
     // 取得所有開放漏洞並按檔案更新 diagnostics
     const allVulns = await fetchAllOpenVulnerabilities(baseUrl)
@@ -410,6 +386,8 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
       byFile.set(v.filePath, list)
     }
 
+    // 先清空再重建，避免已移除/已修復檔案留下舊診斷標記
+    clearAllDiagnostics()
     for (const [filePath, vulns] of byFile) {
       updateDiagnostics(filePath, vulns)
     }
@@ -425,6 +403,20 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     )
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
+    if (isScanTimeoutError(err)) {
+      if (taskId) {
+        try {
+          await cancelScanTask(baseUrl, taskId)
+          outputChannel.appendLine(`已送出取消掃描請求: ${taskId}`)
+        } catch (cancelErr) {
+          const cancelMsg = cancelErr instanceof Error ? cancelErr.message : '未知錯誤'
+          outputChannel.appendLine(`送出取消掃描失敗(${taskId}): ${cancelMsg}`)
+        }
+      }
+      outputChannel.appendLine(
+        '工作區掃描等待逾時，已停止前端等待。可稍後檢查 recent/status 或重新觸發掃描。',
+      )
+    }
     outputChannel.appendLine(`工作區掃描失敗: ${msg}`)
     setFailed(msg)
     sendScanProgress('failed', 0)
@@ -450,7 +442,8 @@ async function handleIgnoreVulnerability(vulnId: string, getConfig: () => Plugin
       if (vuln) {
         const vulns = await fetchFileVulnerabilities(baseUrl, vuln.filePath)
         updateDiagnostics(vuln.filePath, vulns)
-        setResult(vulns.length)
+        const allOpenVulns = await fetchAllOpenVulnerabilities(baseUrl)
+        setResult(allOpenVulns.length)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : '未知錯誤'

@@ -1,5 +1,6 @@
 import { zValidator } from '@hono/zod-validator'
 import { prisma } from '@server/db'
+import { deduplicateVulnerabilities } from '@server/vulnerability-dedupe'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
@@ -75,15 +76,12 @@ vulnerabilityRoutes.get('/', zValidator('query', listQuerySchema), async (c) => 
     ]
   }
 
-  const [items, total] = await Promise.all([
-    prisma.vulnerability.findMany({
-      where,
-      orderBy: { [sortBy]: sortOrder },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.vulnerability.count({ where }),
-  ])
+  const rows = await prisma.vulnerability.findMany({ where })
+  const deduped = deduplicateVulnerabilities(rows)
+  const sorted = sortVulnerabilities(deduped, sortBy, sortOrder)
+  const total = sorted.length
+  const offset = (page - 1) * pageSize
+  const items = sorted.slice(offset, offset + pageSize)
 
   return c.json({
     items: items.map(serializeVuln),
@@ -126,27 +124,41 @@ vulnerabilityRoutes.get('/trend', async (c) => {
  * GET /api/vulnerabilities/stats — 統計數據
  */
 vulnerabilityRoutes.get('/stats', async (c) => {
-  const [
-    total,
-    bySeverity,
-    byStatus,
-    byHumanStatus,
-  ] = await Promise.all([
-    prisma.vulnerability.count(),
-    prisma.vulnerability.groupBy({ by: ['severity'], _count: true }),
-    prisma.vulnerability.groupBy({ by: ['status'], _count: true }),
-    prisma.vulnerability.groupBy({ by: ['humanStatus'], _count: true }),
-  ])
+  const rows = await prisma.vulnerability.findMany({
+    select: {
+      filePath: true,
+      line: true,
+      column: true,
+      endLine: true,
+      endColumn: true,
+      type: true,
+      cweId: true,
+      severity: true,
+      description: true,
+      codeSnippet: true,
+      aiConfidence: true,
+      status: true,
+      humanStatus: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+  const deduped = deduplicateVulnerabilities(rows)
 
-  const fixed = byStatus.find((s) => s.status === 'fixed')?._count ?? 0
+  const total = deduped.length
+  const bySeverity = countBy(deduped, (item) => item.severity)
+  const byStatus = countBy(deduped, (item) => item.status)
+  const byHumanStatus = countBy(deduped, (item) => item.humanStatus)
+
+  const fixed = byStatus.fixed ?? 0
   const fixRate = total > 0 ? fixed / total : 0
 
   return c.json({
     total,
     fixRate,
-    bySeverity: Object.fromEntries(bySeverity.map((s) => [s.severity, s._count])),
-    byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count])),
-    byHumanStatus: Object.fromEntries(byHumanStatus.map((s) => [s.humanStatus, s._count])),
+    bySeverity,
+    byStatus,
+    byHumanStatus,
   })
 })
 
@@ -415,4 +427,55 @@ async function buildLegacyTrend() {
       ignored: counts.ignored,
     })),
   )
+}
+
+function sortVulnerabilities<
+  T extends {
+    severity: string
+    createdAt: Date
+    updatedAt: Date
+    filePath: string
+    line: number
+  },
+>(items: T[], sortBy: z.infer<typeof listQuerySchema>['sortBy'], sortOrder: 'asc' | 'desc'): T[] {
+  const sorted = [...items].sort((a, b) => {
+    if (sortBy === 'severity') {
+      const weightA = severityWeight(a.severity)
+      const weightB = severityWeight(b.severity)
+      return weightA - weightB
+    }
+    if (sortBy === 'createdAt') return a.createdAt.getTime() - b.createdAt.getTime()
+    if (sortBy === 'updatedAt') return a.updatedAt.getTime() - b.updatedAt.getTime()
+    if (sortBy === 'line') return a.line - b.line
+    return a.filePath.localeCompare(b.filePath)
+  })
+
+  if (sortOrder === 'desc') sorted.reverse()
+  return sorted
+}
+
+function severityWeight(severity: string): number {
+  switch (severity) {
+    case 'critical':
+      return 5
+    case 'high':
+      return 4
+    case 'medium':
+      return 3
+    case 'low':
+      return 2
+    case 'info':
+      return 1
+    default:
+      return 0
+  }
+}
+
+function countBy<T>(items: T[], selector: (item: T) => string): Record<string, number> {
+  const result: Record<string, number> = {}
+  for (const item of items) {
+    const key = selector(item)
+    result[key] = (result[key] ?? 0) + 1
+  }
+  return result
 }

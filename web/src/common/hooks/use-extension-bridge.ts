@@ -195,6 +195,19 @@ function syncUpdatedVulnerabilityCache(
   })
 }
 
+function refreshVulnerabilityQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
+  void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
+  void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
+  void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
+  void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+
+  // 立即觸發活躍查詢重抓，避免卡片數據停留在舊快取。
+  void queryClient.refetchQueries({ queryKey: ['vulnerabilities'], type: 'active' })
+  void queryClient.refetchQueries({ queryKey: ['vuln-stats'], type: 'active' })
+  void queryClient.refetchQueries({ queryKey: ['vuln-trend'], type: 'active' })
+}
+
 /**
  * 擴充套件橋接 hook：
  * - 監聽 config_updated 訊息，同步到 configAtom 與 config query cache
@@ -254,13 +267,12 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
                   : '掃描進行中…',
           })
           void queryClient.invalidateQueries({ queryKey: ['scan-recent'] })
+          if (msg.data.status === 'completed' || msg.data.status === 'failed') {
+            refreshVulnerabilityQueries(queryClient)
+          }
           break
         case 'vulnerabilities_updated':
-          void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
-          void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
-          void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
-          void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
-          void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+          refreshVulnerabilityQueries(queryClient)
           break
         case 'operation_result':
           resolvePendingOperation(msg.data)
@@ -284,11 +296,7 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
             msg.data.operation === 'ignore_vulnerability' ||
             msg.data.operation === 'refresh_vulnerabilities'
           ) {
-            void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
-            void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
-            void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
-            void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
-            void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+            refreshVulnerabilityQueries(queryClient)
           }
           break
       }

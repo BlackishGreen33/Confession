@@ -198,25 +198,6 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ analysis, onChange }) => (
         onChange={(e) => onChange({ debounceMs: Number(e.target.value) || 500 })}
       />
     </FormRow>
-
-    <FormRow
-      label="Agentic Beta"
-      description="開啟後改走多代理 LLM Beta 架構，關閉時維持基礎模式"
-      htmlFor="beta-agentic-enabled"
-    >
-      <Select
-        value={analysis.betaAgenticEnabled ? 'enabled' : 'disabled'}
-        onValueChange={(v) => onChange({ betaAgenticEnabled: v === 'enabled' })}
-      >
-        <SelectTrigger id="beta-agentic-enabled" className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="disabled">關閉（Baseline）</SelectItem>
-          <SelectItem value="enabled">開啟（Agentic Beta）</SelectItem>
-        </SelectContent>
-      </Select>
-    </FormRow>
   </div>
 )
 
@@ -454,7 +435,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase }) => {
 /** 預設配置，用於重置 */
 const DEFAULT_CONFIG: PluginConfig = {
   llm: { provider: 'nvidia', apiKey: '' },
-  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
 }

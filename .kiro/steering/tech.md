@@ -17,7 +17,7 @@ inclusion: always
 | 資料庫 | Prisma + SQLite（PostgreSQL 相容 schema） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
-| Beta Agentic | Planner/Skill/Analyst/Critic/Judge 多代理管線（可切換） |
+| Agentic Engine | Planner/Skill/Analyst/Critic/Judge 多代理管線（正式預設，失敗自動回退 baseline） |
 | MCP | 內建 broker + policy（白名單 server、僅允許安全能力） |
 | 測試 | Vitest + fast-check（PBT） |
 | CI/CD | GitHub Actions（`quality` + `commit-check`） |

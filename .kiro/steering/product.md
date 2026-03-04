@@ -30,8 +30,13 @@ inclusion: always
 - 支援引擎路由：
   - `baseline`：既有單層 LLM 分析流程
   - `agentic_beta`：多代理流程（Planner → Skills/MCP → Analyst → Critic → Judge）
-- `agentic_beta` 由 `analysis.betaAgenticEnabled` 開關控制，預設關閉
-- Beta 失敗時不可自動切回 baseline，必須由使用者決定是否重試 baseline
+- `agentic_beta` 為正式預設引擎（使用者端不提供手動開關）
+- `baseline` 保留為內部保險回退引擎，不作為一般設定項暴露
+- 當 `agentic_beta` 失敗時，後端需在同一 task 內自動回退 `baseline`
+- 掃描前端輪詢若逾時，需主動送出取消請求中止任務，避免殘留 `running` 任務造成狀態誤導
+- 工作區掃描需以「快照一致性」收斂舊漏洞：
+  - 來源檔案不在最新工作區快照時，自動將該漏洞由 `open` 收斂為 `fixed`
+  - 快照不完整（例如觸及檔案上限）時必須跳過收斂，避免誤判
 
 ## 專家審核與修復流程
 

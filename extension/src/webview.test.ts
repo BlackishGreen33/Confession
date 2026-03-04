@@ -100,7 +100,6 @@ const arbPluginConfig: fc.Arbitrary<PluginConfig> = fc.record({
     triggerMode: fc.constantFrom('onSave' as const, 'manual' as const),
     depth: fc.constantFrom('quick' as const, 'standard' as const, 'deep' as const),
     debounceMs: fc.nat({ max: 10000 }),
-    betaAgenticEnabled: fc.boolean(),
   }),
   ignore: fc.record({
     paths: fc.array(fc.string(), { maxLength: 5 }),
@@ -202,7 +201,7 @@ describe('Feature: sidebar-security-panel, Property 2: Extension → Webview 訊
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -309,12 +308,14 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
   let executeCommandSpy: ReturnType<typeof vi.fn>
   /** 模擬 vscode.window.showTextDocument 的 spy */
   let showTextDocumentSpy: ReturnType<typeof vi.fn>
+  /** 模擬 vscode.workspace.openTextDocument 的 spy */
+  let openTextDocumentSpy: ReturnType<typeof vi.fn>
   /** 模擬 vscode.workspace.getConfiguration 的 spy */
   let getConfigurationSpy: ReturnType<typeof vi.fn>
   /** 測試用的 PluginConfig */
   const mockConfig: PluginConfig = {
     llm: { provider: 'gemini', apiKey: 'test-key' },
-    analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+    analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
     ignore: { paths: [], types: [] },
     api: { baseUrl: 'http://localhost:3000', mode: 'local' },
   }
@@ -323,6 +324,11 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
     postMessageSpy = vi.fn()
     executeCommandSpy = vi.fn().mockResolvedValue(undefined)
     showTextDocumentSpy = vi.fn().mockResolvedValue(undefined)
+    openTextDocumentSpy = vi.fn().mockImplementation(async (uri: { fsPath?: string }) => ({
+      uri,
+      languageId: 'typescript',
+      save: vi.fn().mockResolvedValue(undefined),
+    }))
 
     // mock getConfiguration 回傳物件，含 get 與 update
     const mockCfgObj = {
@@ -333,6 +339,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
 
     vi.spyOn(vscode.commands, 'executeCommand').mockImplementation(executeCommandSpy)
     vi.spyOn(vscode.window, 'showTextDocument').mockImplementation(showTextDocumentSpy)
+    vi.spyOn(vscode.workspace, 'openTextDocument').mockImplementation(openTextDocumentSpy)
     vi.spyOn(vscode.workspace, 'getConfiguration').mockImplementation(getConfigurationSpy)
 
     // 攔截 registerWebviewViewProvider，捕獲 provider 並觸發 resolveWebviewView
@@ -386,6 +393,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
         // 清除所有 spy 的呼叫紀錄
         executeCommandSpy.mockClear()
         showTextDocumentSpy.mockClear()
+        openTextDocumentSpy.mockClear()
         getConfigurationSpy.mockClear()
         postMessageSpy.mockClear()
 
@@ -423,13 +431,17 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
             break
 
           case 'navigate_to_code': {
+            expect(openTextDocumentSpy).toHaveBeenCalledOnce()
+            const [openTarget] = openTextDocumentSpy.mock.calls[0] as [{ fsPath?: string }]
+            expect(openTarget.fsPath).toBe(msg.data.filePath)
+
             expect(showTextDocumentSpy).toHaveBeenCalledOnce()
-            const [uri, options] = showTextDocumentSpy.mock.calls[0] as [
-              { fsPath: string },
+            const [document, options] = showTextDocumentSpy.mock.calls[0] as [
+              { uri?: { fsPath?: string } },
               { selection: { start: { line: number; character: number } }; viewColumn: number },
             ]
             // 驗證開啟的檔案路徑正確
-            expect(uri.fsPath).toBe(msg.data.filePath)
+            expect(document.uri?.fsPath).toBe(msg.data.filePath)
             // 驗證游標位置正確（API 為 0-based，訊息為 1-based）
             expect(options.selection.start.line).toBe(msg.data.line - 1)
             expect(options.selection.start.character).toBe(msg.data.column - 1)
@@ -500,7 +512,7 @@ describe('Feature: sidebar-security-panel, Property 4: 配置變更觸發通知'
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -587,7 +599,7 @@ describe('Feature: sidebar-security-panel, Property 5: 可見性變更觸發配�
     // 初始配置（會在 fc.property 迭代中被替換）
     currentConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
@@ -679,7 +691,7 @@ describe('向後相容：viewType 與 openDashboard 指令', () => {
 
     const mockConfig: PluginConfig = {
       llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
     }
