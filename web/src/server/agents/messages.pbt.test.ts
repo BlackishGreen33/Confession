@@ -89,7 +89,6 @@ describe('P4: Agent 消息序列化往返', () => {
       triggerMode: fc.constantFrom('onSave', 'manual') as fc.Arbitrary<PluginConfig['analysis']['triggerMode']>,
       depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<PluginConfig['analysis']['depth']>,
       debounceMs: fc.nat({ max: 5000 }),
-      betaAgenticEnabled: fc.boolean(),
     }),
     ignore: fc.record({
       paths: fc.array(fc.string({ minLength: 1, maxLength: 30 }), { maxLength: 5 }),

@@ -8,7 +8,7 @@ import type { PluginConfig } from '@/libs/types'
 /** 預設配置（與前端 atoms.ts 一致） */
 const DEFAULT_CONFIG: PluginConfig = {
   llm: { provider: 'nvidia', apiKey: '' },
-  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500, betaAgenticEnabled: false },
+  analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [] as string[], types: [] as string[] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
 }
@@ -27,7 +27,6 @@ const configBodySchema = z.object({
       triggerMode: z.enum(['onSave', 'manual']),
       depth: z.enum(['quick', 'standard', 'deep']),
       debounceMs: z.number().int().min(0),
-      betaAgenticEnabled: z.boolean().optional(),
     })
     .optional(),
   ignore: z
@@ -49,12 +48,54 @@ export const configRoutes = new Hono()
 function normalizeConfig(raw: unknown): PluginConfig {
   if (!raw || typeof raw !== 'object') return DEFAULT_CONFIG
 
-  const input = raw as Partial<PluginConfig>
+  const input = raw as {
+    llm?: {
+      provider?: PluginConfig['llm']['provider']
+      apiKey?: string
+      endpoint?: string | null
+      model?: string | null
+    }
+    analysis?: {
+      triggerMode?: PluginConfig['analysis']['triggerMode']
+      depth?: PluginConfig['analysis']['depth']
+      debounceMs?: number
+    }
+    ignore?: {
+      paths?: string[]
+      types?: string[]
+    }
+    api?: {
+      baseUrl?: string
+      mode?: PluginConfig['api']['mode']
+    }
+  }
+
+  const endpoint = normalizeOptional(input.llm?.endpoint ?? undefined)
+  const model = normalizeOptional(input.llm?.model ?? undefined)
+
   return {
-    llm: { ...DEFAULT_CONFIG.llm, ...input.llm },
-    analysis: { ...DEFAULT_CONFIG.analysis, ...input.analysis },
-    ignore: { ...DEFAULT_CONFIG.ignore, ...input.ignore },
-    api: { ...DEFAULT_CONFIG.api, ...input.api },
+    llm: {
+      provider: input.llm?.provider ?? DEFAULT_CONFIG.llm.provider,
+      apiKey: input.llm?.apiKey ?? DEFAULT_CONFIG.llm.apiKey,
+      ...(endpoint ? { endpoint } : {}),
+      ...(model ? { model } : {}),
+    },
+    analysis: {
+      triggerMode: input.analysis?.triggerMode ?? DEFAULT_CONFIG.analysis.triggerMode,
+      depth: input.analysis?.depth ?? DEFAULT_CONFIG.analysis.depth,
+      debounceMs:
+        typeof input.analysis?.debounceMs === 'number'
+          ? input.analysis.debounceMs
+          : DEFAULT_CONFIG.analysis.debounceMs,
+    },
+    ignore: {
+      paths: Array.isArray(input.ignore?.paths) ? input.ignore.paths : DEFAULT_CONFIG.ignore.paths,
+      types: Array.isArray(input.ignore?.types) ? input.ignore.types : DEFAULT_CONFIG.ignore.types,
+    },
+    api: {
+      baseUrl: input.api?.baseUrl ?? DEFAULT_CONFIG.api.baseUrl,
+      mode: input.api?.mode ?? DEFAULT_CONFIG.api.mode,
+    },
   }
 }
 

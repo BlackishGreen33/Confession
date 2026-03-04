@@ -26,6 +26,10 @@ export interface ScanStatusResponse {
   totalFiles: number
   scannedFiles: number
   engineMode: ScanEngineMode
+  fallbackUsed: boolean
+  fallbackFrom?: 'agentic_beta'
+  fallbackTo?: 'baseline'
+  fallbackReason?: string
   errorMessage: string | null
   errorCode: ScanErrorCode | null
   createdAt: string

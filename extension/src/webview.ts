@@ -170,12 +170,7 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
 
     case 'navigate_to_code': {
       const { filePath, line, column } = msg.data
-      const uri = vscode.Uri.file(filePath)
-      const position = new vscode.Position(line - 1, column - 1)
-      vscode.window.showTextDocument(uri, {
-        selection: new vscode.Range(position, position),
-        viewColumn: vscode.ViewColumn.One,
-      })
+      void navigateToCodeLocation(filePath, line, column)
       break
     }
 
@@ -199,6 +194,49 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       void handleOpenVulnerabilityDetail(msg.data.vulnerabilityId, getConfig)
       break
   }
+}
+
+async function navigateToCodeLocation(
+  filePath: string,
+  line: number,
+  column: number,
+): Promise<void> {
+  const uri = vscode.Uri.file(filePath)
+  const position = new vscode.Position(line - 1, column - 1)
+
+  try {
+    const document = await vscode.workspace.openTextDocument(uri)
+    await vscode.window.showTextDocument(document, {
+      selection: new vscode.Range(position, position),
+      viewColumn: vscode.ViewColumn.One,
+    })
+  } catch (err) {
+    if (isFileNotFoundError(err)) {
+      vscode.window.showWarningMessage(
+        'Confession: 來源檔案不存在（可能已刪除或改名），請重新掃描工作區同步漏洞',
+      )
+      return
+    }
+
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    vscode.window.showErrorMessage(`Confession: 跳轉代碼失敗 — ${msg}`)
+  }
+}
+
+function isFileNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const maybeMessage = (err as { message?: unknown }).message
+  const maybeCode = (err as { code?: unknown }).code
+  const message = typeof maybeMessage === 'string' ? maybeMessage.toLowerCase() : ''
+  const code = typeof maybeCode === 'string' ? maybeCode.toUpperCase() : ''
+
+  if (code === 'ENOENT' || code === 'FILE_NOT_FOUND') return true
+  return (
+    message.includes('enoent') ||
+    message.includes('not found') ||
+    message.includes('no such file') ||
+    message.includes('cannot find')
+  )
 }
 
 async function handlePasteClipboardRequest(): Promise<void> {
@@ -481,11 +519,6 @@ async function writeConfigToSettings(
     await cfg.update('analysis.triggerMode', config.analysis.triggerMode, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.depth', config.analysis.depth, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.debounceMs', config.analysis.debounceMs, vscode.ConfigurationTarget.Global)
-    await cfg.update(
-      'analysis.betaAgenticEnabled',
-      config.analysis.betaAgenticEnabled,
-      vscode.ConfigurationTarget.Global,
-    )
     await cfg.update('ignore.paths', config.ignore.paths, vscode.ConfigurationTarget.Global)
     await cfg.update('ignore.types', config.ignore.types, vscode.ConfigurationTarget.Global)
     await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
@@ -586,6 +619,12 @@ async function applyVulnerabilityFix(vulnId: string): Promise<{
       },
     }
   } catch (err) {
+    if (isFileNotFoundError(err)) {
+      const message = '來源檔案不存在（可能已刪除或改名），請重新掃描工作區同步漏洞'
+      vscode.window.showWarningMessage(`Confession: ${message}`)
+      return { success: false, message, payload: { vulnerabilityId: vulnId } }
+    }
+
     const msg = err instanceof Error ? err.message : '未知錯誤'
     vscode.window.showErrorMessage(`Confession: 套用修復失敗 — ${msg}`)
     return { success: false, message: `套用修復失敗：${msg}`, payload: { vulnerabilityId: vulnId } }

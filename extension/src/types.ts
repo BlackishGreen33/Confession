@@ -49,7 +49,6 @@ export interface PluginConfig {
     triggerMode: 'onSave' | 'manual'
     depth: 'quick' | 'standard' | 'deep'
     debounceMs: number
-    betaAgenticEnabled: boolean
   }
   ignore: {
     paths: string[]

@@ -71,6 +71,10 @@ export interface ScanRequest {
   forceRescan?: boolean
   /** 掃描範圍，用於策略差異（例如重試策略） */
   scanScope?: 'file' | 'workspace'
+  /** 工作區快照是否完整（未觸及上限截斷） */
+  workspaceSnapshotComplete?: boolean
+  /** 工作區根路徑（用於限制快照收斂影響範圍） */
+  workspaceRoots?: string[]
   /** 掃描引擎模式：baseline（現行）或 agentic_beta（Beta 多代理） */
   engineMode?: ScanEngineMode
 }
@@ -108,6 +112,10 @@ export interface RecentScanSummary {
   totalFiles: number
   scannedFiles: number
   engineMode: ScanEngineMode
+  fallbackUsed: boolean
+  fallbackFrom?: 'agentic_beta'
+  fallbackTo?: 'baseline'
+  fallbackReason?: string
   errorMessage: string | null
   errorCode: ScanErrorCode | null
   createdAt: string
@@ -179,7 +187,6 @@ export interface PluginConfig {
     triggerMode: 'onSave' | 'manual'
     depth: 'quick' | 'standard' | 'deep'
     debounceMs: number
-    betaAgenticEnabled: boolean
   }
   ignore: {
     paths: string[]

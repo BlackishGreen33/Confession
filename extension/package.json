@@ -139,11 +139,6 @@
           "default": 500,
           "description": "Debounce delay in milliseconds for save-triggered analysis"
         },
-        "confession.analysis.betaAgenticEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable Agentic LLM Beta pipeline for scan requests"
-        },
         "confession.llm.endpoint": {
           "type": "string",
           "default": "",
