@@ -1,9 +1,9 @@
 'use client'
 
-import { ChevronDown, Download, FileText, FolderOpen, X, Zap } from 'lucide-react'
+import { ChevronDown, CircleHelp, Download, FileText, FolderOpen, X, Zap } from 'lucide-react'
 import Link from 'next/link'
 import React, { useCallback, useMemo, useState } from 'react'
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts'
 import { toast } from 'sonner'
 
 import { CyberDropdownMenu } from '@/components/elements/cyber-dropdown-menu'
@@ -12,12 +12,13 @@ import { GlowButton } from '@/components/glow-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { createRequestId, postToExtension } from '@/hooks/use-extension-bridge'
 import { useHealth } from '@/hooks/use-health'
 import { useRecentScanSummary } from '@/hooks/use-scan'
 import { useVulnStats } from '@/hooks/use-vulnerabilities'
 import { api } from '@/libs/api-client'
-import type { ExportFilters, ExportFormat } from '@/libs/types'
+import type { ExportFilters, ExportFormat, ScanEngineMode, ScanErrorCode } from '@/libs/types'
 
 import { TrendChart } from './trend-chart'
 
@@ -109,6 +110,11 @@ function isInVscodeWebview(): boolean {
   } catch {
     return false
   }
+}
+
+function getErrorDetail(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  return null
 }
 
 function toExportFilters(state: ExportDialogState): ExportFilters {
@@ -222,6 +228,8 @@ interface CyberStatCardProps {
   barColor: string
   hoverBorderColor: string
   delay: string
+  onClick?: () => void
+  actionHint?: string
 }
 
 const CyberStatCard: React.FC<CyberStatCardProps> = ({
@@ -233,19 +241,42 @@ const CyberStatCard: React.FC<CyberStatCardProps> = ({
   barColor,
   hoverBorderColor,
   delay,
+  onClick,
+  actionHint,
 }) => {
+  const clickable = typeof onClick === 'function'
   return (
     <div
-      className={`group relative min-h-[140px] overflow-hidden rounded-xl border border-cyber-border bg-cyber-surface shadow-lg transition-[border-color,box-shadow] duration-75 hover:duration-300 animate-slide-in animate-on-load cursor-default ${hoverBorderColor} ${delay}`}
+      className={`group relative min-h-[140px] overflow-hidden rounded-xl border border-cyber-border bg-cyber-surface shadow-lg transition-[border-color,box-shadow] duration-75 hover:duration-300 animate-slide-in animate-on-load ${clickable ? 'cursor-pointer' : 'cursor-default'} ${hoverBorderColor} ${delay}`}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onClick?.()
+              }
+            }
+          : undefined
+      }
     >
       {/* 頂部漸層線 */}
       <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-cyber-primary/30 to-transparent" />
 
       <div className="h-full p-5 flex flex-col justify-between relative z-10">
         <div className="space-y-1">
-          <span className="text-[10px] font-black tracking-[0.2em] uppercase text-cyber-textmuted block">
-            {label}
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-black tracking-[0.2em] uppercase text-cyber-textmuted block">
+              {label}
+            </span>
+            {actionHint && (
+              <span className="text-[9px] font-black uppercase tracking-[0.15em] text-cyber-textmuted/70">
+                {actionHint}
+              </span>
+            )}
+          </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-black text-white font-mono tracking-tighter">
               {value}
@@ -336,7 +367,7 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
                 <Cell key={entry.severity} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip
+            <RechartsTooltip
               contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
               itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
               labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
@@ -377,44 +408,154 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
   )
 }
 
-interface ScanStatusViewModel {
+interface RecentScanAvailabilityViewModel {
   label: string
   className: string
 }
 
-function toScanStatusView(status: string | undefined): ScanStatusViewModel {
-  switch (status) {
-    case 'running':
-      return {
-        label: '掃描進行中',
-        className: 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary',
-      }
-    case 'completed':
-      return {
-        label: '最近掃描完成',
-        className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-      }
-    case 'failed':
-      return {
-        label: '最近掃描失敗',
-        className: 'border-red-500/30 bg-red-500/10 text-red-400',
-      }
-    case 'pending':
-      return {
-        label: '掃描等待中',
-        className: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-      }
-    default:
-      return {
-        label: '尚無掃描記錄',
-        className: 'border-cyber-border bg-cyber-surface2/30 text-cyber-textmuted',
-      }
+function toRecentScanAvailabilityView(params: {
+  status?: string
+  isLoading: boolean
+  isError: boolean
+}): RecentScanAvailabilityViewModel {
+  const { status, isLoading, isError } = params
+  if (isLoading) {
+    return {
+      label: '可用性檢測中',
+      className: 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary',
+    }
+  }
+
+  if (isError || status === 'failed') {
+    return {
+      label: '最近掃描不可用',
+      className: 'border-red-500/30 bg-red-500/10 text-red-400',
+    }
+  }
+
+  if (status === 'completed' || status === 'running' || status === 'pending') {
+    return {
+      label: '最近掃描可用',
+      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+    }
+  }
+
+  return {
+    label: '尚無掃描記錄',
+    className: 'border-cyber-border bg-cyber-surface2/30 text-cyber-textmuted',
   }
 }
 
 function formatRecentTime(iso: string | undefined): string {
   if (!iso) return '尚無資料'
   return new Date(iso).toLocaleString('zh-TW', { hour12: false })
+}
+
+interface TechHelpContent {
+  title: string
+  description: string
+  footnote?: string
+}
+
+const TECH_HELP_CONTENT = {
+  engine: {
+    title: '掃描引擎是什麼？',
+    description:
+      '掃描引擎代表本次漏洞分析採用的策略。智慧多代理引擎會多步驟交叉判斷，基準引擎則偏向穩定與快速。',
+    footnote: '代號僅供技術追查：agentic_beta / baseline',
+  },
+  fallback: {
+    title: '自動回退是什麼？',
+    description:
+      '若智慧多代理引擎在本次任務中失敗，系統會自動切到基準引擎，避免整次掃描直接中斷。',
+    footnote: '目標是提升可用性，不代表漏洞已自動修復。',
+  },
+  errorCode: {
+    title: '錯誤代碼如何看？',
+    description: '錯誤代碼用於快速定位失敗類型，可搭配錯誤訊息與回退資訊判斷後續動作。',
+  },
+} satisfies Record<string, TechHelpContent>
+
+function toEngineModeLabel(mode: ScanEngineMode): {
+  display: string
+  detail: string
+  code: string
+} {
+  if (mode === 'agentic_beta') {
+    return {
+      display: '智慧多代理分析',
+      detail: '規劃→技能→分析→審核，多步驟交叉判斷',
+      code: 'agentic_beta',
+    }
+  }
+  return {
+    display: '基準分析引擎',
+    detail: '單階段分析流程，偏向穩定與快速',
+    code: 'baseline',
+  }
+}
+
+function toFallbackLabel(params: {
+  fallbackUsed: boolean
+  fallbackFrom?: 'agentic_beta'
+  fallbackTo?: 'baseline'
+  fallbackReason?: string
+}): {
+  display: string
+  detail: string
+  tone: 'normal' | 'warning'
+} {
+  if (!params.fallbackUsed) {
+    return {
+      display: '未觸發',
+      detail: '本次掃描未需要切換備援引擎',
+      tone: 'normal',
+    }
+  }
+  const from = toEngineModeLabel(params.fallbackFrom ?? 'agentic_beta')
+  const to = toEngineModeLabel(params.fallbackTo ?? 'baseline')
+  return {
+    display: '已觸發',
+    detail: `${from.display} → ${to.display}`,
+    tone: 'warning',
+  }
+}
+
+function toErrorCodeLabel(code: ScanErrorCode | null): string | null {
+  if (!code) return null
+  if (code === 'BETA_ENGINE_FAILED') return '多代理流程失敗（含回退後仍失敗）'
+  if (code === 'LLM_ANALYSIS_FAILED') return '模型分析回應失敗'
+  return '未知錯誤'
+}
+
+const TechInlineHelp: React.FC<{ content: TechHelpContent }> = ({ content }) => {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyber-border text-cyber-textmuted transition-colors hover:border-cyber-primary hover:text-cyber-primary"
+          aria-label={`${content.title}說明`}
+        >
+          <CircleHelp className="h-3 w-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="end"
+        collisionPadding={12}
+        className="w-[min(18rem,calc(100vw-2rem))] rounded-lg border-cyber-border bg-cyber-surface2 p-3 text-left text-[11px] leading-relaxed text-cyber-text"
+      >
+        <span className="block text-[10px] font-black uppercase tracking-wider text-cyber-primary">
+          {content.title}
+        </span>
+        <span className="mt-1 block text-cyber-textmuted">{content.description}</span>
+        {content.footnote && (
+          <span className="mt-2 block font-mono text-cyber-textmuted">{content.footnote}</span>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 // === 儀表盤標題區塊 ===
@@ -425,20 +566,22 @@ interface DashboardHeaderProps {
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onOpenExport }) => {
   const [isScanMenuOpen, setIsScanMenuOpen] = useState(false)
-  const { isHealthy, isLoading, isError } = useHealth()
+  const { health, isLoading, isError } = useHealth()
+  const healthStatus = health?.status
+  const isOperable = !isError && healthStatus !== 'down'
 
   // 根據健康狀態決定顯示樣式
-  const statusLabel = isLoading ? '檢測中…' : isError ? '連線異常' : isHealthy ? '正常運行' : '服務異常'
-  const statusColor = isLoading
+  const statusLabel = isLoading
+    ? '檢測中…'
+    : isOperable
+      ? '正常運行'
+      : '無法運行'
+  const statusColor = isLoading || isOperable
     ? 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary'
-    : isHealthy
-      ? 'border-cyber-primary/30 bg-cyber-primary/10 text-cyber-primary'
-      : 'border-red-500/30 bg-red-500/10 text-red-400'
-  const dotColor = isLoading
+    : 'border-red-500/30 bg-red-500/10 text-red-400'
+  const dotColor = isLoading || isOperable
     ? 'bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]'
-    : isHealthy
-      ? 'bg-cyber-primary animate-pulse shadow-[0_0_5px_#58A6FF]'
-      : 'bg-red-500 animate-pulse shadow-[0_0_5px_#F85149]'
+    : 'bg-red-500 animate-pulse shadow-[0_0_5px_#F85149]'
 
   const handleScan = useCallback((scope: 'file' | 'workspace') => {
     postToExtension({ type: 'request_scan', data: { scope } })
@@ -539,7 +682,30 @@ const CyberCard: React.FC<CyberCardProps> = ({ title, subtitle, children, classN
 
 const RecentScanCard: React.FC = () => {
   const { data, isLoading, isError } = useRecentScanSummary()
-  const status = toScanStatusView(data?.status)
+  const [showTechDetail, setShowTechDetail] = useState(false)
+  const availability = toRecentScanAvailabilityView({
+    status: data?.status,
+    isLoading,
+    isError,
+  })
+  const inVscodeWebview = isInVscodeWebview()
+  const engineMode = data ? toEngineModeLabel(data.engineMode) : null
+  const fallbackInfo = data
+    ? toFallbackLabel({
+        fallbackUsed: data.fallbackUsed,
+        fallbackFrom: data.fallbackFrom,
+        fallbackTo: data.fallbackTo,
+        fallbackReason: data.fallbackReason ?? undefined,
+      })
+    : null
+  const errorCodeLabel = data ? toErrorCodeLabel(data.errorCode) : null
+
+  const handleOpenVulnerabilityList = useCallback(() => {
+    postToExtension({
+      type: 'focus_sidebar_view',
+      data: { view: 'vulnerabilities' },
+    })
+  }, [])
 
   return (
     <CyberCard
@@ -551,10 +717,10 @@ const RecentScanCard: React.FC = () => {
       <div className="space-y-4">
         <Badge
           variant="outline"
-          className={`gap-2 text-[10px] font-black uppercase tracking-[0.2em] ${status.className}`}
+          className={`gap-2 text-[10px] font-black uppercase tracking-[0.2em] ${availability.className}`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          {status.label}
+          {availability.label}
         </Badge>
 
         {isLoading && <p className="text-xs text-cyber-textmuted">讀取最近掃描資訊中…</p>}
@@ -576,43 +742,325 @@ const RecentScanCard: React.FC = () => {
             </div>
             <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
               <span className="text-cyber-textmuted">任務狀態</span>
-              <span className="font-mono text-white">{data.status}</span>
-            </div>
-            <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
-              <span className="text-cyber-textmuted">掃描引擎</span>
               <span className="font-mono text-white">
-                {data.engineMode === 'agentic_beta' ? 'agentic_beta' : 'baseline'}
+                {data.status === 'failed' ? '不可用' : '可用'}
               </span>
             </div>
-            {data.fallbackUsed && (
-              <div className="flex items-center justify-between rounded border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2">
-                <span className="text-cyber-textmuted">自動回退</span>
-                <span className="font-mono text-white">
-                  {`${data.fallbackFrom ?? 'agentic_beta'} -> ${data.fallbackTo ?? 'baseline'}`}
+
+            <button
+              type="button"
+              aria-expanded={showTechDetail}
+              className="w-full rounded-md border border-cyber-primary/40 bg-linear-to-r from-cyber-primary/10 to-cyber-bg/50 px-3 py-2 text-left transition-colors hover:border-cyber-primary hover:from-cyber-primary/15"
+              onClick={() => setShowTechDetail((prev) => !prev)}
+            >
+              <span className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.15em] text-cyber-primary">
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-cyber-primary/50 bg-cyber-primary/10">
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${showTechDetail ? 'rotate-180' : ''}`}
+                    />
+                  </span>
+                  技術詳情
                 </span>
-              </div>
-            )}
-            {data.fallbackUsed && data.fallbackReason && (
-              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                {data.fallbackReason}
-              </div>
-            )}
-            {data.status === 'failed' && data.errorMessage && (
-              <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
-                {data.errorMessage}
+                <span className="text-[10px] font-black uppercase tracking-[0.15em] text-cyber-textmuted">
+                  {showTechDetail ? '點擊收合' : '點擊展開'}
+                </span>
+              </span>
+            </button>
+
+            {showTechDetail && (
+              <div className="space-y-2 rounded border border-cyber-border/60 bg-cyber-bg/40 p-3 text-[11px]">
+                <div className="flex items-start justify-between gap-3 rounded border border-cyber-border/50 bg-cyber-surface/40 px-3 py-2">
+                  <div className="flex items-center gap-2 text-cyber-textmuted">
+                    <span>掃描引擎</span>
+                    <TechInlineHelp content={TECH_HELP_CONTENT.engine} />
+                  </div>
+                  {engineMode && (
+                    <div className="text-right">
+                      <div className="font-semibold text-white">{engineMode.display}</div>
+                      <div className="mt-1 text-[10px] text-cyber-textmuted">{engineMode.detail}</div>
+                      <div className="mt-1 font-mono text-[10px] text-cyber-textmuted/80">
+                        代號：{engineMode.code}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start justify-between gap-3 rounded border border-cyber-border/50 bg-cyber-surface/40 px-3 py-2">
+                  <div className="flex items-center gap-2 text-cyber-textmuted">
+                    <span>自動回退</span>
+                    <TechInlineHelp content={TECH_HELP_CONTENT.fallback} />
+                  </div>
+                  {fallbackInfo && (
+                    <div className="text-right">
+                      <div
+                        className={`font-semibold ${fallbackInfo.tone === 'warning' ? 'text-amber-300' : 'text-white'}`}
+                      >
+                        {fallbackInfo.display}
+                      </div>
+                      <div className="mt-1 text-[10px] text-cyber-textmuted">{fallbackInfo.detail}</div>
+                    </div>
+                  )}
+                </div>
+                {errorCodeLabel && (
+                  <div className="flex items-start justify-between gap-3 rounded border border-cyber-border/50 bg-cyber-surface/40 px-3 py-2">
+                    <div className="flex items-center gap-2 text-cyber-textmuted">
+                      <span>錯誤代碼</span>
+                      <TechInlineHelp content={TECH_HELP_CONTENT.errorCode} />
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono text-[11px] text-white">{data.errorCode}</div>
+                      <div className="mt-1 text-[10px] text-cyber-textmuted">{errorCodeLabel}</div>
+                    </div>
+                  </div>
+                )}
+                {data.fallbackUsed && data.fallbackReason && (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-200">
+                    {data.fallbackReason}
+                  </div>
+                )}
+                {data.status === 'failed' && data.errorMessage && (
+                  <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-300">
+                    {data.errorMessage}
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
-        <Link
-          href="/vulnerabilities"
-          className="inline-flex items-center rounded border border-cyber-primary/50 bg-cyber-primary/10 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-cyber-primary transition-colors hover:border-cyber-primary hover:bg-cyber-primary/20"
-        >
-          前往漏洞列表
-        </Link>
+        {inVscodeWebview ? (
+          <button
+            type="button"
+            onClick={handleOpenVulnerabilityList}
+            className="inline-flex items-center rounded border border-cyber-primary/50 bg-cyber-primary/10 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-cyber-primary transition-colors hover:border-cyber-primary hover:bg-cyber-primary/20"
+          >
+            前往漏洞列表
+          </button>
+        ) : (
+          <Link
+            href="/vulnerabilities"
+            className="inline-flex items-center rounded border border-cyber-primary/50 bg-cyber-primary/10 px-3 py-2 text-[11px] font-black uppercase tracking-wider text-cyber-primary transition-colors hover:border-cyber-primary hover:bg-cyber-primary/20"
+          >
+            前往漏洞列表
+          </Link>
+        )}
       </div>
     </CyberCard>
+  )
+}
+
+interface HealthMetricHelpContent {
+  formula: string
+  meaning: string
+  ideal: string
+}
+
+const HEALTH_METRIC_HELP: Record<string, HealthMetricHelpContent> = {
+  exposure: {
+    formula: 'S = 100 * exp(-ORB/K)，LEV = 1 - Π(1-p_i)',
+    meaning: '衡量目前開放漏洞的整體暴露風險與至少一項被利用機率。',
+    ideal: '越高越好；LEV 建議越低越好。',
+  },
+  remediation: {
+    formula: 'S = 0.7*exp(-MTTR/72h) + 0.3*closureRate',
+    meaning: '衡量修復速度（MTTR）與近期關閉率（closure rate）。',
+    ideal: '建議 >= 70。',
+  },
+  quality: {
+    formula: 'S = 0.65*efficiency + 0.35*coverage',
+    meaning: '衡量審核後有效率（confirmed vs false_positive）與審核覆蓋度。',
+    ideal: '建議 >= 75。',
+  },
+  reliability: {
+    formula: 'S = 0.5*success + 0.2*(1-fallback) + 0.3*latency',
+    meaning: '衡量掃描成功率、fallback 比率與延遲穩定度。',
+    ideal: '建議 >= 80。',
+  },
+}
+
+const HealthMetricHelp: React.FC<{ content: HealthMetricHelpContent }> = ({ content }) => {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyber-border text-cyber-textmuted transition-colors hover:border-cyber-primary hover:text-cyber-primary"
+          aria-label="查看指標說明"
+        >
+          <CircleHelp className="h-3 w-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="end"
+        collisionPadding={12}
+        className="w-[min(18rem,calc(100vw-2rem))] rounded-lg border-cyber-border bg-cyber-surface2 p-3 text-left text-[11px] leading-relaxed text-cyber-text"
+      >
+        <span className="block text-[10px] font-black uppercase tracking-wider text-cyber-primary">怎麼算</span>
+        <span className="mt-1 block font-mono text-cyber-textmuted">{content.formula}</span>
+        <span className="mt-2 block text-[10px] font-black uppercase tracking-wider text-cyber-primary">
+          代表什麼
+        </span>
+        <span className="mt-1 block text-cyber-textmuted">{content.meaning}</span>
+        <span className="mt-2 block text-[10px] font-black uppercase tracking-wider text-cyber-primary">
+          理想區間
+        </span>
+        <span className="mt-1 block text-cyber-textmuted">{content.ideal}</span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+interface HealthDetailDrawerProps {
+  open: boolean
+  onClose: () => void
+}
+
+const HealthDetailDrawer: React.FC<HealthDetailDrawerProps> = ({ open, onClose }) => {
+  const [windowMode, setWindowMode] = useState<'7d' | '30d'>('30d')
+  const windowDays: 7 | 30 = windowMode === '7d' ? 7 : 30
+  const { health, isLoading, isError } = useHealth(windowDays, open)
+
+  if (!open) return null
+
+  const components = health
+    ? [
+        {
+          key: 'exposure',
+          label: 'Exposure',
+          value: health.score.components.exposure.value,
+          detail: `ORB=${health.score.components.exposure.orb.toFixed(2)} / LEV=${(
+            health.score.components.exposure.lev * 100
+          ).toFixed(1)}%`,
+        },
+        {
+          key: 'remediation',
+          label: 'Remediation',
+          value: health.score.components.remediation.value,
+          detail: `MTTR=${health.score.components.remediation.mttrHours.toFixed(1)}h / closure=${(
+            health.score.components.remediation.closureRate * 100
+          ).toFixed(1)}%`,
+        },
+        {
+          key: 'quality',
+          label: 'Quality',
+          value: health.score.components.quality.value,
+          detail: `efficiency=${(health.score.components.quality.efficiency * 100).toFixed(1)}% / coverage=${(
+            health.score.components.quality.coverage * 100
+          ).toFixed(1)}%`,
+        },
+        {
+          key: 'reliability',
+          label: 'Reliability',
+          value: health.score.components.reliability.value,
+          detail: `success=${(health.score.components.reliability.successRate * 100).toFixed(1)}% / fallback=${(
+            health.score.components.reliability.fallbackRate * 100
+          ).toFixed(1)}% / p95=${Math.round(health.score.components.reliability.workspaceP95Ms)}ms`,
+        },
+      ] as const
+    : []
+
+  const lowest =
+    components.length > 0
+      ? components.reduce((acc, cur) => (cur.value < acc.value ? cur : acc), components[0])
+      : null
+  const actionSuggestion =
+    !lowest
+      ? '暫無足夠資料產生建議。'
+      : lowest.key === 'exposure'
+        ? '先處理 critical/high 且 open 的漏洞，優先降低 ORB 與 LEV。'
+        : lowest.key === 'remediation'
+          ? '優先縮短 MTTR：先處理已確認且可快速修復的 open 項目。'
+          : lowest.key === 'quality'
+            ? '提高審核覆蓋率與效率，優先完成 pending 審核。'
+            : '優先改善掃描穩定度：降低 fallback 率並縮短 workspace P95。'
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/55 backdrop-blur-sm">
+      <button className="h-full flex-1 cursor-default" aria-label="關閉健康抽屜遮罩" onClick={onClose} />
+      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-cyber-border bg-cyber-surface p-6 shadow-2xl">
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-black tracking-tight text-white">健康評分詳情</h2>
+            {health ? (
+              <p className="mt-1 text-xs text-cyber-textmuted">
+                總分 {health.score.value.toFixed(1)} / Grade {health.score.grade}（更新：
+                {new Date(health.evaluatedAt).toLocaleString('zh-TW', { hour12: false })}）
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-cyber-textmuted">健康資料載入中…</p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-cyber-border bg-cyber-bg text-cyber-text hover:border-cyber-primary/60 hover:text-white"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="mb-4 inline-flex rounded-md border border-cyber-border bg-cyber-bg p-1">
+          <button
+            type="button"
+            onClick={() => setWindowMode('7d')}
+            className={`rounded px-3 py-1 text-xs font-black uppercase tracking-wider ${windowMode === '7d' ? 'bg-cyber-primary/20 text-cyber-primary' : 'text-cyber-textmuted'}`}
+          >
+            7D
+          </button>
+          <button
+            type="button"
+            onClick={() => setWindowMode('30d')}
+            className={`rounded px-3 py-1 text-xs font-black uppercase tracking-wider ${windowMode === '30d' ? 'bg-cyber-primary/20 text-cyber-primary' : 'text-cyber-textmuted'}`}
+          >
+            30D
+          </button>
+        </div>
+
+        <p className="mb-4 text-xs text-cyber-textmuted">
+          {windowMode === '7d'
+            ? '7D 視角：重點觀察 Reliability 與近期掃描成功率。'
+            : '30D 視角：重點觀察 Exposure / Remediation / Quality 的趨勢。'}
+        </p>
+
+        {isError ? (
+          <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+            無法載入健康評分資料，請稍後再試。
+          </p>
+        ) : isLoading || !health ? (
+          <p className="rounded-lg border border-cyber-border bg-cyber-bg/40 px-4 py-3 text-xs text-cyber-textmuted">
+            正在計算健康評分…
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {components.map((item) => (
+              <div
+                key={item.key}
+                className="rounded-lg border border-cyber-border bg-cyber-bg/40 px-4 py-3 transition-colors hover:border-cyber-primary/40"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black uppercase tracking-[0.18em] text-cyber-textmuted">
+                      {item.label}
+                    </span>
+                    <HealthMetricHelp content={HEALTH_METRIC_HELP[item.key]} />
+                  </div>
+                  <span className="font-mono text-xl font-black text-white">{item.value.toFixed(1)}</span>
+                </div>
+                <p className="mt-2 text-[11px] text-cyber-textmuted">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-300">優先行動建議</p>
+          <p className="mt-2 text-xs text-amber-100">{actionSuggestion}</p>
+        </div>
+      </aside>
+    </div>
   )
 }
 
@@ -785,8 +1233,10 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
 export const Dashboard: React.FC = () => {
   const { data: stats, isLoading, isError } = useVulnStats()
+  const { health } = useHealth(30)
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isHealthDrawerOpen, setIsHealthDrawerOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
   const [exportDialogState, setExportDialogState] = useState<ExportDialogState>(
     DEFAULT_EXPORT_DIALOG_STATE,
@@ -863,15 +1313,20 @@ export const Dashboard: React.FC = () => {
       toast.success(`已下載 ${filename}`)
       setIsExportDialogOpen(false)
     } catch (err) {
-      const fallback =
+      const detail = getErrorDetail(err)
+      const message =
         exportFormat === 'pdf'
-          ? 'PDF 匯出失敗：請確認本機可呼叫列印視窗或改匯出 Markdown/JSON'
+          ? 'PDF 匯出失敗，請稍後再試'
           : '匯出失敗，請稍後再試'
-      const message = err instanceof Error && err.message ? err.message : fallback
+      const description =
+        (detail ? `更多資訊：${detail}` : null) ??
+        (exportFormat === 'pdf'
+          ? '更多資訊：可改用 Markdown 或 JSON 匯出。'
+          : undefined)
       if (loadingToastId !== undefined) {
-        toast.error(message, { id: loadingToastId })
+        toast.error(message, { id: loadingToastId, description })
       } else {
-        toast.error(message)
+        toast.error(message, { description })
       }
     } finally {
       setIsExporting(false)
@@ -899,8 +1354,8 @@ export const Dashboard: React.FC = () => {
   const ignoredCount = stats.byStatus?.ignored ?? 0
   const criticalHighCount = (stats.bySeverity?.critical ?? 0) + (stats.bySeverity?.high ?? 0)
 
-  // 健康評分：基於修復率
-  const healthScore =
+  // 健康評分：預設 fallback 為 fixRate 分級；若 /api/health 有資料則優先使用 v2
+  const legacyHealthGrade =
     stats.total === 0
       ? 'A+'
       : stats.fixRate >= 0.8
@@ -910,6 +1365,19 @@ export const Dashboard: React.FC = () => {
           : stats.fixRate >= 0.4
             ? 'B'
             : 'C'
+
+  const healthGrade = health?.score.grade ?? legacyHealthGrade
+  const healthScoreValue =
+    health?.score.value !== undefined ? health.score.value.toFixed(1) : `${Math.round(stats.fixRate * 100)}`
+  const healthTrend =
+    health?.score.value !== undefined
+      ? `${health.score.value.toFixed(1)} / 100`
+      : `${Math.round(stats.fixRate * 100)}%`
+  const healthSubtext =
+    health?.score.value !== undefined
+      ? `Exposure ${health.score.components.exposure.value.toFixed(1)}・Reliability ${health.score.components.reliability.value.toFixed(1)}`
+      : `已修復 ${fixedCount}・已忽略 ${ignoredCount}`
+  const healthTrendUp = (health?.score.value ?? stats.fixRate * 100) >= 60
 
   const statCards: CyberStatCardProps[] = [
     {
@@ -944,58 +1412,66 @@ export const Dashboard: React.FC = () => {
     },
     {
       label: '健康評分',
-      value: healthScore,
-      trend: `${Math.round(stats.fixRate * 100)}%`,
-      trendUp: stats.fixRate >= 0.5,
-      subtext: `已修復 ${fixedCount}・已忽略 ${ignoredCount}`,
+      value: healthGrade,
+      trend: healthTrend,
+      trendUp: healthTrendUp,
+      subtext: healthSubtext,
       barColor: 'bg-green-600',
       hoverBorderColor: 'hover:border-green-500 hover:shadow-green-500/20',
       delay: 'delay-400',
+      onClick: () => setIsHealthDrawerOpen(true),
+      actionHint: `SCORE ${healthScoreValue}`,
     },
   ]
 
   return (
-    <div className="space-y-8">
-      {/* 標題區塊 */}
-      <DashboardHeader onOpenExport={handleOpenExportDialog} />
+    <TooltipProvider delayDuration={120}>
+      <div className="space-y-8">
+        {/* 標題區塊 */}
+        <DashboardHeader onOpenExport={handleOpenExportDialog} />
 
-      {/* 統計卡片 */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {statCards.map((card) => (
-          <CyberStatCard key={card.label} {...card} />
-        ))}
-      </div>
-
-      {/* 圖表區 */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* 嚴重性分佈甜甜圈圖 */}
-        <CyberCard
-          title="風險資源分配"
-          subtitle="Threat Matrix Allocation"
-          className="lg:col-span-4 flex flex-col min-h-[440px]"
-          delay="delay-400"
-        >
-          <SeverityChart bySeverity={stats.bySeverity} total={stats.total} />
-        </CyberCard>
-
-        {/* 安全趨勢面積圖 */}
-        <div className="lg:col-span-8">
-          <TrendChart />
+        {/* 統計卡片 */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {statCards.map((card) => (
+            <CyberStatCard key={card.label} {...card} />
+          ))}
         </div>
 
-        <RecentScanCard />
-      </div>
+        {/* 圖表區 */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* 嚴重性分佈甜甜圈圖 */}
+          <CyberCard
+            title="風險資源分配"
+            subtitle="Threat Matrix Allocation"
+            className="lg:col-span-4 flex flex-col min-h-[440px]"
+            delay="delay-400"
+          >
+            <SeverityChart bySeverity={stats.bySeverity} total={stats.total} />
+          </CyberCard>
 
-      <ExportDialog
-        open={isExportDialogOpen}
-        isExporting={isExporting}
-        format={exportFormat}
-        filters={exportDialogState}
-        onClose={handleCloseExportDialog}
-        onConfirm={() => void handleExportReport()}
-        onFormatChange={setExportFormat}
-        onFiltersChange={handleExportFiltersChange}
-      />
-    </div>
+          {/* 安全趨勢面積圖 */}
+          <div className="lg:col-span-8">
+            <TrendChart />
+          </div>
+
+          <RecentScanCard />
+        </div>
+
+        <ExportDialog
+          open={isExportDialogOpen}
+          isExporting={isExporting}
+          format={exportFormat}
+          filters={exportDialogState}
+          onClose={handleCloseExportDialog}
+          onConfirm={() => void handleExportReport()}
+          onFormatChange={setExportFormat}
+          onFiltersChange={handleExportFiltersChange}
+        />
+        <HealthDetailDrawer
+          open={isHealthDrawerOpen}
+          onClose={() => setIsHealthDrawerOpen(false)}
+        />
+      </div>
+    </TooltipProvider>
   )
 }
