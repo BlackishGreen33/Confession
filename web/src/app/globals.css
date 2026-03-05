@@ -200,6 +200,57 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* 全域互動手感：可點擊元素需明確呈現 pointer。 */
+  a[href],
+  button:not(:disabled),
+  summary,
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    a[href],
+    button:not(:disabled),
+    summary,
+    [role='button']:not([aria-disabled='true']) {
+      transition:
+        transform 120ms ease,
+        filter 160ms ease,
+        box-shadow 200ms ease,
+        border-color 200ms ease,
+        background-color 200ms ease,
+        color 200ms ease;
+    }
+
+    a[href]:hover,
+    button:not(:disabled):hover,
+    summary:hover,
+    [role='button']:not([aria-disabled='true']):hover {
+      filter: brightness(1.03);
+    }
+
+    a[href]:active,
+    button:not(:disabled):active,
+    summary:active,
+    [role='button']:not([aria-disabled='true']):active {
+      transform: translateY(1px) scale(0.99);
+    }
+  }
+
+  a[href]:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  [role='button']:not([aria-disabled='true']):focus-visible {
+    outline: 2px solid var(--cyber-primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.25);
+  }
 }
 
 /* Cyber 工具類別 */
