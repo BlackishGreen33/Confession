@@ -122,8 +122,28 @@ export interface RecentScanSummary {
   updatedAt: string
 }
 
+export type VulnerabilityFilterPreset = 'critical_open' | 'high_open' | 'open_all'
+
 export type HealthStatus = 'ok' | 'degraded' | 'down'
 export type HealthGrade = 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D'
+export type HealthTopFactorKey =
+  | 'fallback_rate'
+  | 'mttr_hours'
+  | 'workspace_p95'
+  | 'lev'
+  | 'closure_rate'
+  | 'efficiency'
+  | 'coverage'
+  | 'success_rate'
+
+export interface HealthTopFactor {
+  key: HealthTopFactorKey
+  direction: 'positive' | 'negative'
+  label: string
+  valueText: string
+  reason: string
+  impactScore: number
+}
 
 export interface HealthScoreExposure {
   value: number
@@ -163,6 +183,7 @@ export interface HealthResponseV2 {
       quality: HealthScoreQuality
       reliability: HealthScoreReliability
     }
+    topFactors: HealthTopFactor[]
   }
   engine: {
     latestTaskId?: string
@@ -179,6 +200,10 @@ export type ExtToWebMsg =
   | { type: 'scan_progress'; data: { status: string; progress: number } }
   | { type: 'config_updated'; data: PluginConfig }
   | { type: 'clipboard_paste'; data: { text: string } }
+  | {
+      type: 'apply_vulnerability_preset'
+      data: { preset: VulnerabilityFilterPreset; sourceRequestId?: string }
+    }
   | { type: 'navigate_to_view'; data: { route: string } }
   | { type: 'vulnerability_detail_data'; data: Vulnerability }
   | {
@@ -190,6 +215,7 @@ export type ExtToWebMsg =
           | 'ignore_vulnerability'
           | 'refresh_vulnerabilities'
           | 'update_config'
+          | 'focus_sidebar_view'
           | 'export_pdf'
         success: boolean
         message: string
@@ -203,7 +229,11 @@ export type ExtToWebMsg =
 
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
-  | { type: 'focus_sidebar_view'; data: { view: 'dashboard' | 'vulnerabilities' } }
+  | {
+      type: 'focus_sidebar_view'
+      requestId?: string
+      data: { view: 'dashboard' | 'vulnerabilities'; preset?: VulnerabilityFilterPreset }
+    }
   | { type: 'apply_fix'; requestId: string; data: { vulnerabilityId: string } }
   | {
       type: 'ignore_vulnerability'

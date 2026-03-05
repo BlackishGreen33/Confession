@@ -34,6 +34,7 @@ app.get('/health', async (c) => {
           quality: { value: 0, efficiency: 0, coverage: 0 },
           reliability: { value: 0, successRate: 0, fallbackRate: 0, workspaceP95Ms: 0 },
         },
+        topFactors: [],
       },
       engine: {},
     })

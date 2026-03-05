@@ -147,6 +147,10 @@ vulnerabilityRoutes.get('/stats', async (c) => {
 
   const total = deduped.length
   const bySeverity = countBy(deduped, (item) => item.severity)
+  const bySeverityOpen = countBy(
+    deduped.filter((item) => item.status === 'open'),
+    (item) => item.severity,
+  )
   const byStatus = countBy(deduped, (item) => item.status)
   const byHumanStatus = countBy(deduped, (item) => item.humanStatus)
 
@@ -157,6 +161,7 @@ vulnerabilityRoutes.get('/stats', async (c) => {
     total,
     fixRate,
     bySeverity,
+    bySeverityOpen,
     byStatus,
     byHumanStatus,
   })
