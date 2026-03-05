@@ -63,14 +63,15 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - **ExtToWebMsg**：擴充套件 → Webview
   - `config_updated`（推送配置）
   - `clipboard_paste`（回傳剪貼簿文字，作為 Cmd/Ctrl+V fallback）
+  - `apply_vulnerability_preset`（套用漏洞列表預設篩選；供 Dashboard 建議一鍵導流）
   - `navigate_to_view`（切換到指定路由）
   - `vulnerability_detail_data`（推送單筆漏洞詳情）
   - `scan_progress`（推送掃描進度）
   - `vulnerabilities_updated`（通知漏洞資料已更新）
-  - `operation_result`（回覆需 requestId 的操作成功/失敗與訊息，採跨視圖廣播）
+  - `operation_result`（回覆需 requestId 的操作成功/失敗與訊息，採跨視圖廣播；含 `focus_sidebar_view` 回執）
 - **WebToExtMsg**：Webview → 擴充套件
   - `request_scan`（請求掃描 file/workspace）
-  - `focus_sidebar_view`（切換側邊欄 view，支援 dashboard/vulnerabilities）
+  - `focus_sidebar_view`（切換側邊欄 view，支援 dashboard/vulnerabilities；可帶 `preset` 與 `requestId` 要求回執）
   - `apply_fix`（套用修復，需 `requestId`）
   - `ignore_vulnerability`（忽略漏洞，需 `requestId`）
   - `refresh_vulnerabilities`（請求全視圖漏洞資料刷新，需 `requestId`）
@@ -83,6 +84,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 
 補充語義：
 - `vulnerabilities_updated` 為「變更通知 + 可選資料」，Web 端需以 invalidate / refetch 為主，不依賴 payload 完整性。
+- `focus_sidebar_view + preset` 需在切 view 成功後廣播 `apply_vulnerability_preset`，並採短暫重試避免 view 尚未 ready 時丟失訊息。
 
 ### 配置雙向同步
 

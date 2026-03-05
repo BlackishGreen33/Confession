@@ -32,6 +32,7 @@
 
 - 名稱：Confession（薄暮靜析的告解詩）
 - 定位：VS Code 靜態程式碼漏洞分析插件
+- 介面目標環境：VS Code Webview（桌面場景優先），不以行動端為需求邊界
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
@@ -50,6 +51,11 @@
   - 僅 `humanStatus = confirmed` 時可顯示/執行修復或忽略操作
   - 服務可用性文案需依 `/api/health` 動態顯示，不可寫死
   - 前端可見狀態以二態為主：`正常運行` / `無法運行`（不直接對使用者暴露 `degraded` 字樣）
+  - Dashboard 健康卡摘要不可重複顯示同一資訊（例如分數重覆），需改為互補資訊（等級/更新時間/關鍵因子）
+  - Dashboard 健康卡需提供 `Score / Exposure / Reliability` 的快速引導說明（含「怎麼算/代表什麼/理想區間」）
+  - Dashboard 四卡上方需提供「一句總結 + 3 信號 + 1 主行動」摘要卡，支援一鍵導流漏洞列表
+  - `風險資源分配` 需提供 Priority Lanes（優先序 + 建議投入比例 + 一鍵導流）
+  - `安全威脅演進` 需提供 Trend Insights（7 日淨變化、修復速度、清空估算 ETA）與壓力警示
 
 ## 3. 專案結構（最新）
 
@@ -109,6 +115,7 @@ confession/
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
 - `web/src/common/components/ui/tooltip.tsx`：shadcn/Radix Tooltip 元件封裝（支援碰撞避讓與 Portal）
 - `web/src/common/components/ui/sonner.tsx`：shadcn/sonner Toast 樣式封裝元件
+- `web/src/common/libs/dashboard-insights.ts`：Dashboard 洞察計算（摘要卡、Priority Lanes、Trend Insights、preset 導流）
 
 邊界規則：
 - 前端程式碼僅在 `web/`
@@ -177,6 +184,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `evaluatedAt`
   - `score.version = "v2"`、`score.value`、`score.grade`
   - `score.components.exposure/remediation/quality/reliability`
+  - `score.topFactors`（Top 3 影響因素，含 `label/direction/valueText/reason/impactScore`）
   - `engine.latestTaskId/latestStatus/latestEngineMode`
   - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
 - 所有請求驗證使用 `zod/v4` + `@hono/zod-validator`
@@ -222,6 +230,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 寫入層（`upsertVulnerabilities`）需先做語義去重（同一行同一敏感資料主題僅保留一筆）
   - `hardcoded_secret` 與 `keyword_*` 重疊時，優先保留 `hardcoded_secret`
   - 查詢層（`GET /api/vulnerabilities`、`GET /api/vulnerabilities/stats`）需以語義去重後資料回傳，避免列表與統計膨脹
+  - `GET /api/vulnerabilities/stats` 需提供 `bySeverityOpen`（僅 `status=open` 的嚴重度分佈），供 Dashboard 風險資源分配使用
 - 工作區快照收斂：
   - 僅 `scanScope=workspace` 且 `workspaceSnapshotComplete !== false` 時啟用
   - 需以 `workspaceRoots` 限定收斂範圍；缺少 roots 時跳過收斂
@@ -277,8 +286,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
 - Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
-- Ext → Web（貼上 fallback）：`clipboard_paste`
-- Web → Ext：`request_scan`、`focus_sidebar_view`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
+- Ext → Web（導流/貼上）：`apply_vulnerability_preset`、`clipboard_paste`
+- Web → Ext：`request_scan`、`focus_sidebar_view(requestId?, preset?)`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
+- `focus_sidebar_view` 若帶 `requestId`，Extension 必須回 `operation_result(operation='focus_sidebar_view')` 供前端做導航成功/失敗回饋
+- `focus_sidebar_view + preset` 成功後需廣播 `apply_vulnerability_preset`，且需短暫重試避免 view 尚未 ready 時丟失
 - `vulnerabilities_updated` 為變更通知事件，前端不可依賴 payload 完整性，需以 query invalidate/refetch 收斂。
 
 ## 8. 程式碼規範
@@ -287,6 +298,13 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - SQLite 不使用原生 enum：以字串欄位 + Zod 驗證
 - 禁止無理由新增 runtime 依賴
 - 禁止濫用 `@ts-ignore` / `eslint-disable`
+- 可點擊 UI 元素需提供明確游標回饋：
+  - 可操作：`cursor: pointer`
+  - 不可操作（disabled/aria-disabled）：`cursor: not-allowed`
+- 可點擊 UI 元素需提供一致互動動效：
+  - `hover`：輕微高亮（亮度/邊框/背景）
+  - `active`：按壓回饋（微縮放或位移）
+  - `focus-visible`：可視焦點框（cyber primary ring）
 - React 元件使用箭頭函式 + `React.FC<Props>`
 - hooks 檔案維持「React Query hooks 與 Jotai atoms 同檔共置」
 - 漏洞冪等鍵：`[filePath, line, column, codeHash, type]`
