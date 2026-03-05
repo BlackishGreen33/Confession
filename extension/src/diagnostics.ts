@@ -40,6 +40,38 @@ function vulnToDiagnostic(vuln: Vulnerability): vscode.Diagnostic {
   return diagnostic
 }
 
+function normalizeSnippetForMatch(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .trim()
+}
+
+function includesSnippetLoosely(text: string, snippet: string): boolean {
+  if (!snippet.trim()) return false
+  if (text.includes(snippet)) return true
+  const normalizedSnippet = normalizeSnippetForMatch(snippet)
+  if (!normalizedSnippet) return false
+  return normalizeSnippetForMatch(text).includes(normalizedSnippet)
+}
+
+function hasMonitoringCodeNearLine(
+  doc: vscode.TextDocument,
+  monitoringCode: string,
+  centerLine: number,
+  lineWindow = 30,
+): boolean {
+  const maxLine = Math.max(0, doc.lineCount - 1)
+  const startLine = Math.max(0, centerLine - lineWindow)
+  const endLine = Math.min(maxLine, centerLine + lineWindow)
+  const start = new vscode.Position(startLine, 0)
+  const end = doc.lineAt(endLine).range.end
+  const text = doc.getText(new vscode.Range(start, end))
+  return includesSnippetLoosely(text, monitoringCode)
+}
+
 // === 更新 Diagnostics ===
 
 export function updateDiagnostics(filePath: string, vulns: Vulnerability[]): void {
@@ -131,25 +163,33 @@ const codeActionProvider: vscode.CodeActionProvider = {
 
       // 一鍵修復
       if (vuln.fixOldCode && vuln.fixNewCode) {
-        const fixAction = new vscode.CodeAction(
-          `Confession: 修復 ${vuln.type}`,
-          vscode.CodeActionKind.QuickFix,
-        )
-        fixAction.diagnostics = [vulnToDiagnostic(vuln)]
-        fixAction.edit = new vscode.WorkspaceEdit()
+        const fullText = document.getText()
+        const vulnText = document.getText(vulnRange)
+        const alreadyFixed =
+          includesSnippetLoosely(vulnText, vuln.fixNewCode) ||
+          includesSnippetLoosely(fullText, vuln.fixNewCode)
 
-        // 套用修復代碼
-        fixAction.edit.replace(document.uri, vulnRange, vuln.fixNewCode)
+        if (!alreadyFixed) {
+          const fixAction = new vscode.CodeAction(
+            `Confession: 修復 ${vuln.type}`,
+            vscode.CodeActionKind.QuickFix,
+          )
+          fixAction.diagnostics = [vulnToDiagnostic(vuln)]
+          fixAction.edit = new vscode.WorkspaceEdit()
 
-        // 插入嵌入式監測日誌（修復代碼下一行）
-        const monitoringCode = generateMonitoringCode(vuln, document.languageId)
-        if (monitoringCode) {
-          const insertPos = new vscode.Position(vuln.endLine, 0)
-          fixAction.edit.insert(document.uri, insertPos, monitoringCode + '\n')
+          // 套用修復代碼
+          fixAction.edit.replace(document.uri, vulnRange, vuln.fixNewCode)
+
+          // 插入嵌入式監測日誌（修復代碼下一行）
+          const monitoringCode = generateMonitoringCode(vuln, document.languageId)
+          if (monitoringCode && !hasMonitoringCodeNearLine(document, monitoringCode, vuln.endLine)) {
+            const insertPos = new vscode.Position(vuln.endLine, 0)
+            fixAction.edit.insert(document.uri, insertPos, monitoringCode + '\n')
+          }
+
+          fixAction.isPreferred = true
+          actions.push(fixAction)
         }
-
-        fixAction.isPreferred = true
-        actions.push(fixAction)
       }
 
       // 忽略此問題
