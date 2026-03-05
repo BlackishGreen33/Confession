@@ -219,20 +219,7 @@
     button:not(:disabled),
     summary,
     [role='button']:not([aria-disabled='true']) {
-      transition:
-        transform 120ms ease,
-        filter 160ms ease,
-        box-shadow 200ms ease,
-        border-color 200ms ease,
-        background-color 200ms ease,
-        color 200ms ease;
-    }
-
-    a[href]:hover,
-    button:not(:disabled):hover,
-    summary:hover,
-    [role='button']:not([aria-disabled='true']):hover {
-      filter: brightness(1.03);
+      transition: transform 120ms ease;
     }
 
     a[href]:active,
@@ -241,15 +228,6 @@
     [role='button']:not([aria-disabled='true']):active {
       transform: translateY(1px) scale(0.99);
     }
-  }
-
-  a[href]:focus-visible,
-  button:focus-visible,
-  summary:focus-visible,
-  [role='button']:not([aria-disabled='true']):focus-visible {
-    outline: 2px solid var(--cyber-primary);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.25);
   }
 }
 
