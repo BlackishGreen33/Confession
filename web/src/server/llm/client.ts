@@ -36,13 +36,6 @@ export interface LlmCallResult {
   usage: LlmUsage
 }
 
-type FetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal']
-
-/** LLM 呼叫控制選項 */
-export interface LlmCallOptions {
-  signal?: FetchSignal
-}
-
 export const DEFAULT_LLM_PROVIDER: LlmProvider = 'nvidia'
 
 /** 取得指定 provider 的預設模型 */
@@ -87,14 +80,10 @@ export function configFromEnv(provider: LlmProvider = DEFAULT_LLM_PROVIDER): Llm
 }
 
 /** 依 provider 路由到對應實作 */
-export async function callLlm(
-  prompt: string,
-  config: LlmClientConfig,
-  options: LlmCallOptions = {},
-): Promise<LlmCallResult> {
+export async function callLlm(prompt: string, config: LlmClientConfig): Promise<LlmCallResult> {
   if (config.provider === 'gemini') {
-    return callGemini(prompt, config, options)
+    return callGemini(prompt, config)
   }
 
-  return callNvidia(prompt, config, options)
+  return callNvidia(prompt, config)
 }

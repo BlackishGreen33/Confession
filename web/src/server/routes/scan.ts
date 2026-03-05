@@ -70,8 +70,6 @@ const USER_CANCELED_MESSAGE = '使用者已取消掃描'
 const SUPERSEDED_BY_NEW_SCAN_MESSAGE = '新掃描任務已啟動，上一個掃描已中止'
 const WORKSPACE_SNAPSHOT_AUTO_FIXED_MESSAGE =
   '來源檔案未出現在本次工作區快照，已自動標記為 fixed（可能已刪除或改名）'
-const PROGRESS_FLUSH_INTERVAL_MS = 500
-const PROGRESS_FLUSH_FILE_STEP = 5
 
 export const scanRoutes = new Hono()
 
@@ -437,88 +435,34 @@ async function executeEngineAttempt(params: {
 
   let completedFiles = 0
   let lastReportedCompleted = -1
-  let pendingCompletedDelta = 0
-  let lastProgressFlushAt = 0
-  let flushTimer: ReturnType<typeof setTimeout> | null = null
-  let flushPromise: Promise<void> | null = null
-
-  async function flushRunningProgress(force = false): Promise<void> {
-    assertNotCanceled()
-    const normalized = Math.max(0, Math.min(totalFiles, completedFiles))
-    if (!force && normalized === lastReportedCompleted) return
-
-    if (flushPromise) {
-      await flushPromise
-      if (!force && normalized === lastReportedCompleted) return
-    }
-
-    flushPromise = (async () => {
-      const progress = totalFiles > 0 ? Math.min(0.98, normalized / totalFiles) : 0.98
-      try {
-        const updated = await prisma.scanTask.update({
-          where: { id: taskId },
-          data: {
-            status: 'running',
-            scannedFiles: normalized,
-            progress,
-            engineMode,
-            errorCode: null,
-            errorMessage: null,
-            ...toFallbackUpdateData(fallbackMeta),
-          },
-        })
-        emitScanProgress(toScanProgressEvent(updated))
-        lastReportedCompleted = normalized
-        pendingCompletedDelta = 0
-        lastProgressFlushAt = Date.now()
-      } catch {
-        // 進度更新失敗不應中斷掃描主流程
-      }
-    })()
-
-    await flushPromise
-    flushPromise = null
-  }
-
-  function scheduleRunningProgressFlush(): void {
-    if (flushTimer) return
-    flushTimer = setTimeout(() => {
-      flushTimer = null
-      void flushRunningProgress(false).catch(() => {
-        // 取消或更新失敗由主流程處理，避免未處理 Promise 拋錯
-      })
-    }, PROGRESS_FLUSH_INTERVAL_MS)
-  }
-
-  async function drainRunningProgressFlush(): Promise<void> {
-    if (flushTimer) {
-      clearTimeout(flushTimer)
-      flushTimer = null
-    }
-    await flushRunningProgress(true)
-  }
 
   async function updateRunningProgress(nextCompletedFiles: number): Promise<void> {
     assertNotCanceled()
     const normalized = Math.max(0, Math.min(totalFiles, nextCompletedFiles))
-    const previous = completedFiles
     completedFiles = normalized
 
-    if (normalized > previous) {
-      pendingCompletedDelta += normalized - previous
+    if (normalized === lastReportedCompleted) return
+    lastReportedCompleted = normalized
+
+    const progress = totalFiles > 0 ? Math.min(0.98, normalized / totalFiles) : 0.98
+
+    try {
+      const updated = await prisma.scanTask.update({
+        where: { id: taskId },
+        data: {
+          status: 'running',
+          scannedFiles: normalized,
+          progress,
+          engineMode,
+          errorCode: null,
+          errorMessage: null,
+          ...toFallbackUpdateData(fallbackMeta),
+        },
+      })
+      emitScanProgress(toScanProgressEvent(updated))
+    } catch {
+      // 進度更新失敗不應中斷掃描主流程
     }
-
-    const shouldFlushImmediately =
-      normalized === totalFiles ||
-      pendingCompletedDelta >= PROGRESS_FLUSH_FILE_STEP ||
-      Date.now() - lastProgressFlushAt >= PROGRESS_FLUSH_INTERVAL_MS
-
-    if (shouldFlushImmediately) {
-      await flushRunningProgress(false)
-      return
-    }
-
-    scheduleRunningProgressFlush()
   }
 
   async function handleFilteredFiles(meta: { totalFiles: number; changedFiles: number }): Promise<void> {
@@ -589,7 +533,6 @@ async function executeEngineAttempt(params: {
           )
 
     assertNotCanceled()
-    await drainRunningProgressFlush()
     logLlmUsage(taskId, engineMode, body.depth, result)
 
     if (isLlmAnalysisFailed(result.llmStats)) {
@@ -602,7 +545,6 @@ async function executeEngineAttempt(params: {
 
     return { ok: true }
   } catch (err) {
-    await drainRunningProgressFlush()
     if (isScanCanceledError(err)) {
       throw err
     }

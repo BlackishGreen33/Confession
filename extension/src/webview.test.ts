@@ -15,11 +15,6 @@ import * as fc from 'fast-check'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as vscode from 'vscode'
 
-import {
-  fetchAllOpenVulnerabilities,
-  fetchVulnerabilityById,
-  updateVulnerabilityStatus,
-} from './scan-client'
 import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
 import { buildHtml, postMessageToWebview, registerDashboardProvider, sendConfigUpdate } from './webview'
 
@@ -258,10 +253,6 @@ vi.mock('./monitoring', () => ({
   generateMonitoringCode: vi.fn().mockReturnValue(null),
 }))
 
-const mockedFetchVulnerabilityById = vi.mocked(fetchVulnerabilityById)
-const mockedFetchAllOpenVulnerabilities = vi.mocked(fetchAllOpenVulnerabilities)
-const mockedUpdateVulnerabilityStatus = vi.mocked(updateVulnerabilityStatus)
-
 // === Property 3 的 Arbitrary 定義 ===
 
 /** 產生隨機 WebToExtMsg（涵蓋所有通訊訊息類型） */
@@ -270,12 +261,6 @@ const arbWebToExtMsg: fc.Arbitrary<WebToExtMsg> = fc.oneof(
     type: fc.constant('request_scan' as const),
     data: fc.record({
       scope: fc.constantFrom('file' as const, 'workspace' as const),
-    }),
-  }),
-  fc.record({
-    type: fc.constant('focus_sidebar_view' as const),
-    data: fc.record({
-      view: fc.constantFrom('dashboard' as const, 'vulnerabilities' as const),
     }),
   }),
   fc.record({
@@ -427,13 +412,6 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
               expect(executeCommandSpy).toHaveBeenCalledWith('codeVuln.scanWorkspace')
             }
             break
-          case 'focus_sidebar_view':
-            if (msg.data.view === 'vulnerabilities') {
-              expect(executeCommandSpy).toHaveBeenCalledWith('codeVuln.showVulnerabilities')
-            } else {
-              expect(executeCommandSpy).toHaveBeenCalledWith('codeVuln.showDashboard')
-            }
-            break
 
           case 'apply_fix':
             // applyVulnerabilityFix 會先呼叫 getConfiguration 取得 baseUrl
@@ -489,167 +467,6 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
         }
       }),
       { numRuns: 100 },
-    )
-  })
-})
-
-describe('AI 自動修復冪等保護', () => {
-  let messageHandler: (msg: WebToExtMsg) => void
-  let postMessageSpy: ReturnType<typeof vi.fn>
-  let applyEditSpy: ReturnType<typeof vi.fn>
-  let openTextDocumentSpy: ReturnType<typeof vi.fn>
-
-  function positionToOffset(text: string, line: number, character: number): number {
-    const lines = text.split('\n')
-    let offset = 0
-    for (let i = 0; i < line; i += 1) {
-      offset += lines[i]?.length ?? 0
-      if (i < lines.length - 1) offset += 1
-    }
-    return offset + character
-  }
-
-  function offsetToPosition(text: string, offset: number): { line: number; character: number } {
-    const safeOffset = Math.max(0, Math.min(offset, text.length))
-    const prefix = text.slice(0, safeOffset)
-    const parts = prefix.split('\n')
-    const line = Math.max(0, parts.length - 1)
-    const character = parts[parts.length - 1]?.length ?? 0
-    return { line, character }
-  }
-
-  beforeEach(() => {
-    postMessageSpy = vi.fn()
-    applyEditSpy = vi.fn().mockResolvedValue(true)
-
-    const fixedSnippet = `if (payload.__proto__) { delete payload.__proto__ }\nObject.assign(Object.prototype, payload.__proto__ as object)`
-    const sourceText = `export const mergeConfig = (payload: Record<string, unknown>) => {\n  const target: Record<string, unknown> = {}\n\n  // 高風險：可污染原型鏈\n  ${fixedSnippet}\n\n  return target\n}\n`
-
-    openTextDocumentSpy = vi.fn().mockResolvedValue({
-      uri: { fsPath: '/tmp/prototype-pollution.ts' },
-      languageId: 'typescript',
-      save: vi.fn().mockResolvedValue(undefined),
-      getText: (range?: { start: { line: number; character: number }; end: { line: number; character: number } }) => {
-        if (!range) return sourceText
-        const start = positionToOffset(sourceText, range.start.line, range.start.character)
-        const end = positionToOffset(sourceText, range.end.line, range.end.character)
-        return sourceText.slice(start, end)
-      },
-      positionAt: (offset: number) => {
-        const pos = offsetToPosition(sourceText, offset)
-        return new vscode.Position(pos.line, pos.character)
-      },
-    })
-
-    vi.spyOn(vscode.workspace, 'applyEdit').mockImplementation(applyEditSpy)
-    vi.spyOn(vscode.workspace, 'openTextDocument').mockImplementation(openTextDocumentSpy)
-    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
-      get: (_key: string, defaultValue: unknown) => defaultValue,
-      update: vi.fn().mockResolvedValue(undefined),
-    })
-    vi.spyOn(vscode.window, 'registerWebviewViewProvider').mockImplementation(
-      (_viewId: string, provider: vscode.WebviewViewProvider) => {
-        const mockWebviewView = {
-          webview: {
-            options: {},
-            html: '',
-            postMessage: postMessageSpy,
-            onDidReceiveMessage: vi.fn((handler: (msg: WebToExtMsg) => void) => {
-              messageHandler = handler
-              return { dispose: vi.fn() }
-            }),
-          },
-          onDidChangeVisibility: vi.fn(),
-          visible: true,
-        } as unknown as vscode.WebviewView
-
-        provider.resolveWebviewView(
-          mockWebviewView,
-          {} as vscode.WebviewViewResolveContext,
-          {} as vscode.CancellationToken,
-        )
-
-        return { dispose: vi.fn() }
-      },
-    )
-
-    const vuln: Vulnerability = {
-      id: 'vuln-1',
-      filePath: '/tmp/prototype-pollution.ts',
-      line: 5,
-      column: 3,
-      endLine: 5,
-      endColumn: 60,
-      codeSnippet: 'Object.assign(Object.prototype, payload.__proto__ as object)',
-      codeHash: 'a'.repeat(64),
-      type: 'prototype_pollution',
-      cweId: 'CWE-915',
-      severity: 'critical',
-      description: 'prototype pollution',
-      riskDescription: 'risk',
-      fixOldCode: 'Object.assign(Object.prototype, payload.__proto__ as object)',
-      fixNewCode: fixedSnippet,
-      fixExplanation: 'remove __proto__',
-      aiModel: null,
-      aiConfidence: 0.9,
-      aiReasoning: null,
-      humanStatus: 'confirmed',
-      humanComment: null,
-      owaspCategory: null,
-      status: 'open',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-
-    mockedFetchVulnerabilityById.mockReset()
-    mockedFetchAllOpenVulnerabilities.mockReset()
-    mockedUpdateVulnerabilityStatus.mockReset()
-    mockedFetchVulnerabilityById
-      .mockResolvedValueOnce(vuln)
-      .mockResolvedValueOnce({ ...vuln, status: 'fixed' })
-    mockedFetchAllOpenVulnerabilities.mockResolvedValue([])
-    mockedUpdateVulnerabilityStatus.mockResolvedValue(true)
-
-    const mockContext = {
-      extensionUri: { fsPath: '/mock' },
-      subscriptions: [],
-    } as unknown as vscode.ExtensionContext
-    const mockConfig: PluginConfig = {
-      llm: { provider: 'gemini', apiKey: '' },
-      analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
-      ignore: { paths: [], types: [] },
-      api: { baseUrl: 'http://localhost:3000', mode: 'local' },
-    }
-    registerDashboardProvider(mockContext, () => mockConfig)
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('修復片段已存在時，不應再次寫入代碼，但應更新狀態為 fixed', async () => {
-    messageHandler({
-      type: 'apply_fix',
-      requestId: 'req-1',
-      data: { vulnerabilityId: 'vuln-1' },
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(applyEditSpy).not.toHaveBeenCalled()
-    expect(mockedUpdateVulnerabilityStatus).toHaveBeenCalledWith(
-      'http://localhost:3000',
-      'vuln-1',
-      'fixed',
-    )
-    expect(postMessageSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'operation_result',
-        data: expect.objectContaining({
-          requestId: 'req-1',
-          operation: 'apply_fix',
-          success: true,
-        }),
-      }),
     )
   })
 })
