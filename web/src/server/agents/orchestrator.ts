@@ -45,6 +45,7 @@ export async function orchestrate(
 ): Promise<OrchestrateResult> {
   options.assertNotCanceled?.()
   const retryAttempts = resolveRetryAttempts(request)
+  const maxParallelFiles = resolveBaselineParallelFiles(request)
 
   // 增量分析：過濾掉內容未變更的檔案
   const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
@@ -106,7 +107,9 @@ export async function orchestrate(
   // LLM 深度分析
   const analysisResult = await analyzeWithLlm(allPoints, fileContents, {
     depth: request.depth,
+    scanScope: request.scanScope,
     includeMacroScan: request.includeLlmScan ?? false,
+    maxParallelFiles,
     maxRetryAttempts: retryAttempts,
     llmConfig: options.llmConfig,
     onFileCompleted: options.onFileCompleted,
@@ -136,6 +139,20 @@ function resolveRetryAttempts(request: ScanRequest): number {
   const scope =
     request.scanScope ?? (request.files.length > 1 ? 'workspace' : 'file')
   return scope === 'workspace' ? 1 : 0
+}
+
+function resolveBaselineParallelFiles(request: ScanRequest): number {
+  const scope = request.scanScope ?? (request.files.length > 1 ? 'workspace' : 'file')
+  if (scope !== 'workspace') return 1
+
+  switch (request.depth) {
+    case 'quick':
+      return 6
+    case 'standard':
+      return 4
+    case 'deep':
+      return 2
+  }
 }
 
 /**

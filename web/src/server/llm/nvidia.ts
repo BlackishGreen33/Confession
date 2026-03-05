@@ -44,6 +44,12 @@ export interface NvidiaCallResult {
   usage: NvidiaUsage
 }
 
+type FetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal']
+
+export interface NvidiaCallOptions {
+  signal?: FetchSignal
+}
+
 const DEFAULT_ENDPOINT = 'https://integrate.api.nvidia.com/v1'
 export const DEFAULT_NVIDIA_MODEL = 'qwen/qwen2.5-coder-32b-instruct'
 
@@ -73,7 +79,11 @@ export function configFromEnv(): NvidiaClientConfig {
  * 呼叫 NVIDIA OpenAI 相容 Chat Completions API，回傳原始文字。
  * 使用低溫度（0.1）以提高結構化輸出的穩定性。
  */
-export async function callNvidia(prompt: string, config: NvidiaClientConfig): Promise<NvidiaCallResult> {
+export async function callNvidia(
+  prompt: string,
+  config: NvidiaClientConfig,
+  options: NvidiaCallOptions = {},
+): Promise<NvidiaCallResult> {
   const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_NVIDIA_MODEL } = config
 
   if (!apiKey) {
@@ -88,6 +98,7 @@ export async function callNvidia(prompt: string, config: NvidiaClientConfig): Pr
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: options.signal,
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: prompt }],

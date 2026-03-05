@@ -174,15 +174,19 @@ async function callLlmWithTimeout(
   prompt: string,
   config: LlmClientConfig,
 ): Promise<LlmCallResult> {
+  const abortController = new globalThis.AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
 
   try {
-    return await Promise.race([
-      callLlm(prompt, config),
-      new Promise<LlmCallResult>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('LLM 呼叫逾時')), LLM_TIMEOUT_MS)
-      }),
-    ])
+    timer = setTimeout(() => {
+      abortController.abort()
+    }, LLM_TIMEOUT_MS)
+    return await callLlm(prompt, config, { signal: abortController.signal })
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('LLM 呼叫逾時')
+    }
+    throw err
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -199,4 +203,13 @@ function isRetryableLlmError(err: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isAbortError(err: unknown): boolean {
+  return Boolean(
+    err &&
+      typeof err === 'object' &&
+      'name' in err &&
+      (err as { name?: unknown }).name === 'AbortError',
+  )
 }
