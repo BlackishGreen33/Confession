@@ -135,6 +135,8 @@ describe('calculateHealthScore', () => {
     expect(out.score.components.remediation).toBeDefined()
     expect(out.score.components.quality).toBeDefined()
     expect(out.score.components.reliability).toBeDefined()
+    expect(Array.isArray(out.score.topFactors)).toBe(true)
+    expect(out.score.topFactors.length).toBeLessThanOrEqual(3)
   })
 
   it('riskWindowDays 切換會影響 remediation/quality 分數', () => {
@@ -158,5 +160,39 @@ describe('calculateHealthScore', () => {
     expect(score7d.score.components.remediation.value).toBeGreaterThan(
       score30d.score.components.remediation.value,
     )
+  })
+
+  it('fallback/mttr/p95 變差時，topFactors 會出現對應負向因子', () => {
+    const tasks = Array.from({ length: 20 }, (_, index) =>
+      buildTask({
+        id: `task-${index}`,
+        status: 'completed',
+        fallbackUsed: index < 12,
+        totalFiles: 30,
+        createdAt: new Date(`2026-03-04T00:${String(index).padStart(2, '0')}:00.000Z`),
+        updatedAt: new Date(`2026-03-04T02:${String(index).padStart(2, '0')}:00.000Z`),
+      }),
+    )
+
+    const out = calculateHealthScore(
+      buildInput({
+        vulnerabilities: [
+          buildVulnerability({
+            status: 'fixed',
+            humanStatus: 'confirmed',
+            createdAt: new Date('2026-03-01T00:00:00.000Z'),
+            updatedAt: new Date('2026-03-04T20:00:00.000Z'),
+          }),
+        ],
+        scanTasks: tasks,
+        latestTask: tasks[tasks.length - 1],
+      }),
+    )
+
+    const topKeys = out.score.topFactors.map((factor) => factor.key)
+    expect(topKeys).toContain('fallback_rate')
+    expect(topKeys).toContain('mttr_hours')
+    expect(topKeys).toContain('workspace_p95')
+    expect(out.score.topFactors.every((factor) => factor.direction === 'negative')).toBe(true)
   })
 })

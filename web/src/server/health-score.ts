@@ -1,4 +1,10 @@
-import type { HealthGrade, HealthResponseV2, HealthStatus, ScanEngineMode } from '@/libs/types'
+import type {
+  HealthGrade,
+  HealthResponseV2,
+  HealthStatus,
+  HealthTopFactor,
+  ScanEngineMode,
+} from '@/libs/types'
 
 import { prisma } from './db'
 import { deduplicateVulnerabilities } from './vulnerability-dedupe'
@@ -161,6 +167,12 @@ export function calculateHealthScore(
     quality: quality.value,
     reliability: reliability.value,
   })
+  const topFactors = buildTopFactors({
+    exposure,
+    remediation,
+    quality,
+    reliability,
+  })
   const grade = toHealthGrade(scoreValue)
   const status = toHealthStatus(scoreValue, reliability.successRate, latestTask?.status ?? null)
 
@@ -194,6 +206,7 @@ export function calculateHealthScore(
           workspaceP95Ms: Math.round(reliability.workspaceP95Ms),
         },
       },
+      topFactors,
     },
     engine: {
       latestTaskId: latestTask?.id,
@@ -431,4 +444,134 @@ function normalizeWindowDays(value: number | undefined, fallback: number): numbe
   const normalized = Math.floor(value)
   if (normalized <= 0) return fallback
   return Math.min(normalized, 90)
+}
+
+interface TopFactorSource {
+  exposure: { lev: number }
+  remediation: { mttrHours: number; closureRate: number }
+  quality: { efficiency: number; coverage: number }
+  reliability: { successRate: number; fallbackRate: number; workspaceP95Ms: number }
+}
+
+function buildTopFactors(source: TopFactorSource): HealthTopFactor[] {
+  const target = 0.75
+  const mttrBenefit = Math.exp(-source.remediation.mttrHours / 72)
+  const latencyPenalty = Math.max(0, source.reliability.workspaceP95Ms - LATENCY_TARGET_MS) / LATENCY_TARGET_MS
+  const latencyBenefit = Math.exp(-latencyPenalty)
+
+  const candidates = [
+    buildFactorCandidate({
+      key: 'fallback_rate',
+      label: '自動回退率',
+      valueText: `${(source.reliability.fallbackRate * 100).toFixed(1)}%`,
+      beneficialScore: 1 - source.reliability.fallbackRate,
+      target,
+      reasonWhenPositive: '備援切換維持在低水位，掃描流程穩定性良好。',
+      reasonWhenNegative: '自動回退率偏高，代表智慧多代理流程穩定性仍需改善。',
+    }),
+    buildFactorCandidate({
+      key: 'mttr_hours',
+      label: 'MTTR 修復時間',
+      valueText: `${source.remediation.mttrHours.toFixed(1)}h`,
+      beneficialScore: mttrBenefit,
+      target,
+      reasonWhenPositive: '平均修復時間維持在可控範圍，修復節奏健康。',
+      reasonWhenNegative: '平均修復時間偏長，拖累整體修復效率分數。',
+    }),
+    buildFactorCandidate({
+      key: 'workspace_p95',
+      label: '工作區 P95 延遲',
+      valueText: `${Math.round(source.reliability.workspaceP95Ms)}ms`,
+      beneficialScore: latencyBenefit,
+      target,
+      reasonWhenPositive: '工作區掃描尾延遲穩定，可靠度評分加分。',
+      reasonWhenNegative: '工作區掃描尾延遲偏高，影響可靠度體感。',
+    }),
+    buildFactorCandidate({
+      key: 'lev',
+      label: 'LEV 被利用機率',
+      valueText: `${(source.exposure.lev * 100).toFixed(1)}%`,
+      beneficialScore: 1 - source.exposure.lev,
+      target,
+      reasonWhenPositive: '整體被利用機率維持較低，暴露風險相對可控。',
+      reasonWhenNegative: '至少一項漏洞被利用機率偏高，需優先壓低暴露風險。',
+    }),
+    buildFactorCandidate({
+      key: 'closure_rate',
+      label: '30 天關閉率',
+      valueText: `${(source.remediation.closureRate * 100).toFixed(1)}%`,
+      beneficialScore: source.remediation.closureRate,
+      target,
+      reasonWhenPositive: '近期關閉率穩定，修復交付能力良好。',
+      reasonWhenNegative: '近期關閉率偏低，待處理漏洞消化速度不足。',
+    }),
+    buildFactorCandidate({
+      key: 'efficiency',
+      label: '審核效率',
+      valueText: `${(source.quality.efficiency * 100).toFixed(1)}%`,
+      beneficialScore: source.quality.efficiency,
+      target,
+      reasonWhenPositive: '審核結果有效率高，誤報干擾較低。',
+      reasonWhenNegative: '審核效率偏低，誤報或判定品質仍需改善。',
+    }),
+    buildFactorCandidate({
+      key: 'coverage',
+      label: '審核覆蓋率',
+      valueText: `${(source.quality.coverage * 100).toFixed(1)}%`,
+      beneficialScore: source.quality.coverage,
+      target,
+      reasonWhenPositive: '審核覆蓋率良好，品質指標更可信。',
+      reasonWhenNegative: '審核覆蓋率偏低，品質分數波動風險較高。',
+    }),
+    buildFactorCandidate({
+      key: 'success_rate',
+      label: '掃描成功率',
+      valueText: `${(source.reliability.successRate * 100).toFixed(1)}%`,
+      beneficialScore: source.reliability.successRate,
+      target,
+      reasonWhenPositive: '近期掃描成功率高，服務可用性穩定。',
+      reasonWhenNegative: '近期掃描成功率偏低，穩定性仍需補強。',
+    }),
+  ]
+
+  const negatives = candidates
+    .filter((item) => item.direction === 'negative')
+    .sort((a, b) => b.impactScore - a.impactScore)
+  const positives = candidates
+    .filter((item) => item.direction === 'positive')
+    .sort((a, b) => b.impactScore - a.impactScore)
+
+  const picked =
+    negatives.length >= 3
+      ? negatives.slice(0, 3)
+      : [...negatives, ...positives.slice(0, Math.max(0, 3 - negatives.length))]
+
+  return picked.map((item) => ({ ...item, impactScore: round(item.impactScore, 4) }))
+}
+
+function buildFactorCandidate(params: {
+  key: HealthTopFactor['key']
+  label: string
+  valueText: string
+  beneficialScore: number
+  target: number
+  reasonWhenPositive: string
+  reasonWhenNegative: string
+}): HealthTopFactor {
+  const normalizedBenefit = clamp(params.beneficialScore, 0, 1)
+  const direction: HealthTopFactor['direction'] =
+    normalizedBenefit >= params.target ? 'positive' : 'negative'
+  const denominator = direction === 'positive' ? 1 - params.target : params.target
+  const impactScore = denominator > 0
+    ? clamp(Math.abs(normalizedBenefit - params.target) / denominator, 0, 1)
+    : 0
+
+  return {
+    key: params.key,
+    direction,
+    label: params.label,
+    valueText: params.valueText,
+    reason: direction === 'positive' ? params.reasonWhenPositive : params.reasonWhenNegative,
+    impactScore,
+  }
 }

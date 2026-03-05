@@ -22,6 +22,7 @@ interface VulnStatsResponse {
   total: number
   fixRate: number
   bySeverity: Record<string, number>
+  bySeverityOpen?: Record<string, number>
   byStatus: Record<string, number>
   byHumanStatus: Record<string, number>
 }
