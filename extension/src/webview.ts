@@ -9,7 +9,13 @@ import {
   fetchVulnerabilityById,
   updateVulnerabilityStatus,
 } from './scan-client'
-import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from './types'
+import type {
+  ExtToWebMsg,
+  PluginConfig,
+  Vulnerability,
+  VulnerabilityFilterPreset,
+  WebToExtMsg,
+} from './types'
 
 type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
 type OperationName = OperationResult['operation']
@@ -157,11 +163,7 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       break
 
     case 'focus_sidebar_view':
-      if (msg.data.view === 'vulnerabilities') {
-        void vscode.commands.executeCommand('codeVuln.showVulnerabilities')
-      } else {
-        void vscode.commands.executeCommand('codeVuln.showDashboard')
-      }
+      void handleFocusSidebarViewRequest(msg.requestId, msg.data.view, msg.data.preset)
       break
 
     case 'apply_fix':
@@ -201,6 +203,48 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
     case 'open_vulnerability_detail':
       void handleOpenVulnerabilityDetail(msg.data.vulnerabilityId, getConfig)
       break
+  }
+}
+
+async function handleFocusSidebarViewRequest(
+  requestId: string | undefined,
+  view: 'dashboard' | 'vulnerabilities',
+  preset?: VulnerabilityFilterPreset,
+): Promise<void> {
+  const command = view === 'vulnerabilities' ? 'codeVuln.showVulnerabilities' : 'codeVuln.showDashboard'
+
+  try {
+    await vscode.commands.executeCommand(command)
+    if (view === 'vulnerabilities' && preset) {
+      dispatchVulnerabilityPresetWithRetry(preset, requestId)
+    }
+    if (!requestId) return
+    postOperationResult(
+      buildOperationResult(requestId, 'focus_sidebar_view', true, `已切換至${view === 'vulnerabilities' ? '漏洞列表' : '儀錶盤'}`),
+    )
+  } catch (err) {
+    if (!requestId) return
+    const msg = err instanceof Error ? err.message : '未知錯誤'
+    postOperationResult(
+      buildOperationResult(requestId, 'focus_sidebar_view', false, `切換視圖失敗：${msg}`),
+    )
+  }
+}
+
+function dispatchVulnerabilityPresetWithRetry(
+  preset: VulnerabilityFilterPreset,
+  sourceRequestId?: string,
+): void {
+  const message: ExtToWebMsg = {
+    type: 'apply_vulnerability_preset',
+    data: { preset, sourceRequestId },
+  }
+
+  const retriesMs = [0, 200, 700, 1_500]
+  for (const delay of retriesMs) {
+    setTimeout(() => {
+      postMessageToWebview(message)
+    }, delay)
   }
 }
 
@@ -549,6 +593,38 @@ type FixTargetResolution =
   | { kind: 'already_fixed' }
   | { kind: 'not_found' }
 
+function normalizeSnippetForMatch(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .trim()
+}
+
+function includesSnippetLoosely(text: string, snippet: string): boolean {
+  if (!snippet.trim()) return false
+  if (text.includes(snippet)) return true
+  const normalizedSnippet = normalizeSnippetForMatch(snippet)
+  if (!normalizedSnippet) return false
+  return normalizeSnippetForMatch(text).includes(normalizedSnippet)
+}
+
+function hasMonitoringCodeNearLine(
+  doc: vscode.TextDocument,
+  monitoringCode: string,
+  centerLine: number,
+  lineWindow = 30,
+): boolean {
+  const maxLine = Math.max(0, doc.lineCount - 1)
+  const startLine = Math.max(0, centerLine - lineWindow)
+  const endLine = Math.min(maxLine, centerLine + lineWindow)
+  const start = new vscode.Position(startLine, 0)
+  const end = doc.lineAt(endLine).range.end
+  const text = doc.getText(new vscode.Range(start, end))
+  return includesSnippetLoosely(text, monitoringCode)
+}
+
 function toVulnerabilityRange(vuln: Vulnerability): vscode.Range {
   return new vscode.Range(
     new vscode.Position(vuln.line - 1, vuln.column - 1),
@@ -600,14 +676,17 @@ function resolveFixTarget(doc: vscode.TextDocument, vuln: Vulnerability): FixTar
 
   const baseRange = toVulnerabilityRange(vuln)
   const baseText = doc.getText(baseRange)
-  if (baseText === vuln.fixOldCode) {
+  if (includesSnippetLoosely(baseText, vuln.fixOldCode)) {
     return { kind: 'replace', range: baseRange }
   }
-  if (baseText === vuln.fixNewCode) {
+  if (includesSnippetLoosely(baseText, vuln.fixNewCode)) {
     return { kind: 'already_fixed' }
   }
 
   const fullText = doc.getText()
+  if (includesSnippetLoosely(fullText, vuln.fixNewCode)) {
+    return { kind: 'already_fixed' }
+  }
   const targetLine = Math.max(0, vuln.line - 1)
   const newOffsets = findOccurrenceOffsets(fullText, vuln.fixNewCode)
   const newOffset = pickNearestOffset(doc, newOffsets, targetLine, FIX_LINE_SEARCH_WINDOW)
@@ -664,8 +743,11 @@ async function applyVulnerabilityFix(vulnId: string): Promise<{
       // 插入嵌入式監測日誌（修復代碼下一行）
       const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
       if (monitoringCode) {
-        const insertPos = new vscode.Position(fixTarget.range.end.line + 1, 0)
-        edit.insert(uri, insertPos, monitoringCode + '\n')
+        const insertLine = Math.min(doc.lineCount, fixTarget.range.end.line + 1)
+        if (!hasMonitoringCodeNearLine(doc, monitoringCode, insertLine)) {
+          const insertPos = new vscode.Position(insertLine, 0)
+          edit.insert(uri, insertPos, monitoringCode + '\n')
+        }
       }
 
       const applied = await vscode.workspace.applyEdit(edit)

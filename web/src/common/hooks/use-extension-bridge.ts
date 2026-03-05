@@ -5,11 +5,26 @@ import { useSetAtom } from 'jotai'
 import { useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useRef } from 'react'
 
-import { configAtom, scanStatusAtom, vulnerabilityDetailAtom } from '@/libs/atoms'
-import type { ExtToWebMsg, PluginConfig, Vulnerability, WebToExtMsg } from '@/libs/types'
+import {
+  configAtom,
+  scanStatusAtom,
+  vulnerabilityDetailAtom,
+  vulnerabilityPresetAtom,
+  vulnFiltersAtom,
+} from '@/libs/atoms'
+import { presetToFilters } from '@/libs/dashboard-insights'
+import type {
+  ExtToWebMsg,
+  PluginConfig,
+  Vulnerability,
+  VulnerabilityFilterPreset,
+  WebToExtMsg,
+} from '@/libs/types'
 
 type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
-type RequestMessage = Extract<WebToExtMsg, { requestId: string }>
+type RequestMessage =
+  | Extract<WebToExtMsg, { requestId: string }>
+  | (Extract<WebToExtMsg, { type: 'focus_sidebar_view' }> & { requestId: string })
 
 interface PendingOperation {
   resolve: (value: OperationResult) => void
@@ -176,6 +191,19 @@ export async function sendRequestToExtension(
   return pending
 }
 
+/** 請求 Extension 聚焦側邊欄 view，並等待回執。 */
+export function sendFocusSidebarViewAndWait(
+  view: 'dashboard' | 'vulnerabilities',
+  preset?: VulnerabilityFilterPreset,
+  timeoutMs = 8_000,
+): Promise<OperationResult> {
+  const requestId = createRequestId('focus-view')
+  return sendRequestToExtension(
+    { type: 'focus_sidebar_view', requestId, data: { view, preset } },
+    timeoutMs,
+  )
+}
+
 /** 向擴充套件發送開啟漏洞詳情請求 */
 export function sendOpenVulnerabilityDetail(vulnId: string): void {
   postToExtension({ type: 'open_vulnerability_detail', data: { vulnerabilityId: vulnId } })
@@ -234,6 +262,8 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
   const setConfig = useSetAtom(configAtom)
   const setScanStatus = useSetAtom(scanStatusAtom)
   const setVulnDetail = useSetAtom(vulnerabilityDetailAtom)
+  const setVulnFilters = useSetAtom(vulnFiltersAtom)
+  const setVulnPreset = useSetAtom(vulnerabilityPresetAtom)
   const queryClient = useQueryClient()
   const router = useRouter()
   const initializedRef = useRef(false)
@@ -257,6 +287,17 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
           break
         case 'navigate_to_view':
           router.push(msg.data.route)
+          break
+        case 'apply_vulnerability_preset':
+          setVulnFilters((prev) => ({
+            ...prev,
+            ...presetToFilters(msg.data.preset),
+          }))
+          setVulnPreset({
+            preset: msg.data.preset,
+            sourceRequestId: msg.data.sourceRequestId,
+            appliedAt: new Date().toISOString(),
+          })
           break
         case 'vulnerability_detail_data':
           setVulnDetail(msg.data)
@@ -317,7 +358,16 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
     }
 
     return () => window.removeEventListener('message', handler)
-  }, [passive, queryClient, router, setConfig, setScanStatus, setVulnDetail])
+  }, [
+    passive,
+    queryClient,
+    router,
+    setConfig,
+    setScanStatus,
+    setVulnDetail,
+    setVulnFilters,
+    setVulnPreset,
+  ])
 
   useEffect(() => {
     if (passive || !isInVscodeWebview()) {
@@ -360,9 +410,19 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
     return sendRequestToExtension({ type: 'update_config', requestId, data: config })
   }, [])
 
+  const sendFocusSidebarViewRequest = useCallback(
+    (
+      view: 'dashboard' | 'vulnerabilities',
+      preset?: VulnerabilityFilterPreset,
+      timeoutMs = 8_000,
+    ) => sendFocusSidebarViewAndWait(view, preset, timeoutMs),
+    [],
+  )
+
   return {
     sendConfigToExtension,
     sendConfigToExtensionAndWait,
+    sendFocusSidebarViewRequest,
     isInVscodeWebview: isInVscodeWebview(),
   }
 }

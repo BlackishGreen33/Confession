@@ -2,7 +2,7 @@
 
 import { atom } from 'jotai'
 
-import type { PluginConfig, Vulnerability } from './types'
+import type { PluginConfig, Vulnerability, VulnerabilityFilterPreset } from './types'
 
 // === 漏洞相關 ===
 
@@ -19,6 +19,12 @@ export const vulnFiltersAtom = atom<{
   severity?: Vulnerability['severity']
   search: string
 }>({ search: '' })
+
+export const vulnerabilityPresetAtom = atom<{
+  preset: VulnerabilityFilterPreset
+  sourceRequestId?: string
+  appliedAt: string
+} | null>(null)
 
 // === 掃描相關 ===
 

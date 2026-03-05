@@ -68,12 +68,18 @@ export interface ExportFilters {
   search?: string
 }
 
+export type VulnerabilityFilterPreset = 'critical_open' | 'high_open' | 'open_all'
+
 // Extension → Webview 訊息
 export type ExtToWebMsg =
   | { type: 'vulnerabilities_updated'; data: Vulnerability[] }
   | { type: 'scan_progress'; data: { status: string; progress: number } }
   | { type: 'config_updated'; data: PluginConfig }
   | { type: 'clipboard_paste'; data: { text: string } }
+  | {
+      type: 'apply_vulnerability_preset'
+      data: { preset: VulnerabilityFilterPreset; sourceRequestId?: string }
+    }
   | { type: 'navigate_to_view'; data: { route: string } }
   | { type: 'vulnerability_detail_data'; data: Vulnerability }
   | {
@@ -85,6 +91,7 @@ export type ExtToWebMsg =
           | 'ignore_vulnerability'
           | 'refresh_vulnerabilities'
           | 'update_config'
+          | 'focus_sidebar_view'
           | 'export_pdf'
         success: boolean
         message: string
@@ -99,7 +106,11 @@ export type ExtToWebMsg =
 // Webview → Extension 訊息
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
-  | { type: 'focus_sidebar_view'; data: { view: 'dashboard' | 'vulnerabilities' } }
+  | {
+      type: 'focus_sidebar_view'
+      requestId?: string
+      data: { view: 'dashboard' | 'vulnerabilities'; preset?: VulnerabilityFilterPreset }
+    }
   | { type: 'apply_fix'; requestId: string; data: { vulnerabilityId: string } }
   | {
       type: 'ignore_vulnerability'

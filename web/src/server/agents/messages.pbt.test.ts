@@ -114,6 +114,15 @@ describe('P4: Agent 消息序列化往返', () => {
       data: pluginConfigArb,
     }),
     fc.record({
+      type: fc.constant('apply_vulnerability_preset') as fc.Arbitrary<'apply_vulnerability_preset'>,
+      data: fc.record({
+        preset: fc.constantFrom('critical_open', 'high_open', 'open_all') as fc.Arbitrary<
+          'critical_open' | 'high_open' | 'open_all'
+        >,
+        sourceRequestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), { nil: undefined }),
+      }),
+    }),
+    fc.record({
       type: fc.constant('operation_result') as fc.Arbitrary<'operation_result'>,
       data: fc.record({
         requestId: fc.string({ minLength: 1, maxLength: 64 }),
@@ -122,8 +131,15 @@ describe('P4: Agent 消息序列化往返', () => {
           'ignore_vulnerability',
           'refresh_vulnerabilities',
           'update_config',
+          'focus_sidebar_view',
+          'export_pdf',
         ) as fc.Arbitrary<
-          'apply_fix' | 'ignore_vulnerability' | 'refresh_vulnerabilities' | 'update_config'
+          | 'apply_fix'
+          | 'ignore_vulnerability'
+          | 'refresh_vulnerabilities'
+          | 'update_config'
+          | 'focus_sidebar_view'
+          | 'export_pdf'
         >,
         success: fc.boolean(),
         message: fc.string({ minLength: 1, maxLength: 100 }),
@@ -146,8 +162,10 @@ describe('P4: Agent 消息序列化往返', () => {
     }),
     fc.record({
       type: fc.constant('focus_sidebar_view') as fc.Arbitrary<'focus_sidebar_view'>,
+      requestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), { nil: undefined }),
       data: fc.record({
         view: fc.constantFrom('dashboard', 'vulnerabilities') as fc.Arbitrary<'dashboard' | 'vulnerabilities'>,
+        preset: fc.option(fc.constantFrom('critical_open', 'high_open', 'open_all'), { nil: undefined }),
       }),
     }),
     fc.record({
