@@ -35,6 +35,7 @@ fileMatchPattern: "**/src/server/**/*"
   - `evaluatedAt`
   - `score.version = "v2"`、`score.value(0..100)`、`score.grade`
   - `score.components.exposure/remediation/quality/reliability`
+  - `score.topFactors`（Top 3 影響因素，含 `label/direction/valueText/reason/impactScore`）
   - `engine.latestTaskId/latestStatus/latestEngineMode`
   - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
 - 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
@@ -85,6 +86,7 @@ fileMatchPattern: "**/src/server/**/*"
   - `upsertVulnerabilities` 寫入前需做語義去重（同一行同一敏感資料主題僅保留一筆）
   - `hardcoded_secret` 與 `keyword_*` 重疊時，優先保留 `hardcoded_secret`
   - `GET /api/vulnerabilities` 與 `GET /api/vulnerabilities/stats` 需基於語義去重後資料回傳，避免同源重複告警膨脹
+  - `GET /api/vulnerabilities/stats` 需回傳 `bySeverityOpen`（僅 `status=open` 的嚴重度分佈），供 Dashboard 做資源分配建議
 - 工作區快照收斂規範：
   - 僅 `scanScope=workspace` 且 `workspaceSnapshotComplete !== false` 時啟用
   - 必須以 `workspaceRoots` 限定收斂範圍；缺少 roots 時跳過收斂

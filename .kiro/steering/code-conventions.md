@@ -10,6 +10,13 @@ inclusion: always
 - 列舉以 `String` 儲存 + Zod 驗證（SQLite 不支援原生 enum）
 - 不要引入新的 runtime 依賴而不說明理由
 - 避免 `@ts-ignore`，用正確的型別解決問題
+- 所有可點擊 UI 元素需有明確互動游標：
+  - 可操作：`cursor: pointer`
+  - 不可操作（disabled/aria-disabled）：`cursor: not-allowed`
+- 所有可點擊 UI 元素需提供一致互動動效：
+  - `hover`：輕微高亮（亮度/邊框/背景）
+  - `active`：按壓回饋（微縮放或位移）
+  - `focus-visible`：可視焦點框（cyber primary ring）
 
 ## Commit 訊息
 
