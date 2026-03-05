@@ -156,6 +156,14 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       }
       break
 
+    case 'focus_sidebar_view':
+      if (msg.data.view === 'vulnerabilities') {
+        void vscode.commands.executeCommand('codeVuln.showVulnerabilities')
+      } else {
+        void vscode.commands.executeCommand('codeVuln.showDashboard')
+      }
+      break
+
     case 'apply_fix':
       void handleApplyFixRequest(msg.requestId, msg.data.vulnerabilityId)
       break
@@ -534,6 +542,90 @@ async function writeConfigToSettings(
 
 // === 內部：套用漏洞修復 ===
 
+const FIX_LINE_SEARCH_WINDOW = 120
+
+type FixTargetResolution =
+  | { kind: 'replace'; range: vscode.Range }
+  | { kind: 'already_fixed' }
+  | { kind: 'not_found' }
+
+function toVulnerabilityRange(vuln: Vulnerability): vscode.Range {
+  return new vscode.Range(
+    new vscode.Position(vuln.line - 1, vuln.column - 1),
+    new vscode.Position(vuln.endLine - 1, vuln.endColumn - 1),
+  )
+}
+
+function findOccurrenceOffsets(text: string, needle: string): number[] {
+  if (!needle) return []
+  const offsets: number[] = []
+  let cursor = 0
+  while (cursor <= text.length) {
+    const idx = text.indexOf(needle, cursor)
+    if (idx < 0) break
+    offsets.push(idx)
+    cursor = idx + Math.max(1, needle.length)
+  }
+  return offsets
+}
+
+function pickNearestOffset(
+  doc: vscode.TextDocument,
+  offsets: number[],
+  targetLine: number,
+  maxLineDelta: number,
+): number | undefined {
+  if (offsets.length === 0) return undefined
+  if (offsets.length === 1) return offsets[0]
+
+  let bestOffset = offsets[0]
+  let bestDelta = Math.abs(doc.positionAt(bestOffset).line - targetLine)
+
+  for (let i = 1; i < offsets.length; i += 1) {
+    const lineDelta = Math.abs(doc.positionAt(offsets[i]).line - targetLine)
+    if (lineDelta < bestDelta) {
+      bestOffset = offsets[i]
+      bestDelta = lineDelta
+    }
+  }
+
+  if (bestDelta <= maxLineDelta) return bestOffset
+  return undefined
+}
+
+function resolveFixTarget(doc: vscode.TextDocument, vuln: Vulnerability): FixTargetResolution {
+  if (!vuln.fixOldCode || !vuln.fixNewCode) {
+    return { kind: 'not_found' }
+  }
+
+  const baseRange = toVulnerabilityRange(vuln)
+  const baseText = doc.getText(baseRange)
+  if (baseText === vuln.fixOldCode) {
+    return { kind: 'replace', range: baseRange }
+  }
+  if (baseText === vuln.fixNewCode) {
+    return { kind: 'already_fixed' }
+  }
+
+  const fullText = doc.getText()
+  const targetLine = Math.max(0, vuln.line - 1)
+  const newOffsets = findOccurrenceOffsets(fullText, vuln.fixNewCode)
+  const newOffset = pickNearestOffset(doc, newOffsets, targetLine, FIX_LINE_SEARCH_WINDOW)
+  if (newOffset !== undefined) {
+    return { kind: 'already_fixed' }
+  }
+
+  const oldOffsets = findOccurrenceOffsets(fullText, vuln.fixOldCode)
+  const oldOffset = pickNearestOffset(doc, oldOffsets, targetLine, FIX_LINE_SEARCH_WINDOW)
+  if (oldOffset !== undefined) {
+    const start = doc.positionAt(oldOffset)
+    const end = doc.positionAt(oldOffset + vuln.fixOldCode.length)
+    return { kind: 'replace', range: new vscode.Range(start, end) }
+  }
+
+  return { kind: 'not_found' }
+}
+
 async function applyVulnerabilityFix(vulnId: string): Promise<{
   success: boolean
   message: string
@@ -562,36 +654,45 @@ async function applyVulnerabilityFix(vulnId: string): Promise<{
 
     const uri = vscode.Uri.file(vuln.filePath)
     const doc = await vscode.workspace.openTextDocument(uri)
-    const range = new vscode.Range(
-      new vscode.Position(vuln.line - 1, vuln.column - 1),
-      new vscode.Position(vuln.endLine - 1, vuln.endColumn - 1),
-    )
+    const fixTarget = resolveFixTarget(doc, vuln)
+    let codeChanged = false
 
-    const edit = new vscode.WorkspaceEdit()
-    edit.replace(uri, range, vuln.fixNewCode)
+    if (fixTarget.kind === 'replace') {
+      const edit = new vscode.WorkspaceEdit()
+      edit.replace(uri, fixTarget.range, vuln.fixNewCode)
 
-    // 插入嵌入式監測日誌（修復代碼下一行）
-    const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
-    if (monitoringCode) {
-      const insertPos = new vscode.Position(vuln.endLine, 0)
-      edit.insert(uri, insertPos, monitoringCode + '\n')
+      // 插入嵌入式監測日誌（修復代碼下一行）
+      const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
+      if (monitoringCode) {
+        const insertPos = new vscode.Position(fixTarget.range.end.line + 1, 0)
+        edit.insert(uri, insertPos, monitoringCode + '\n')
+      }
+
+      const applied = await vscode.workspace.applyEdit(edit)
+      if (!applied) {
+        vscode.window.showErrorMessage('Confession: 套用修復失敗')
+        return { success: false, message: '套用修復失敗', payload: { vulnerabilityId: vulnId } }
+      }
+      codeChanged = true
+    } else if (fixTarget.kind === 'not_found') {
+      const message = '目前檔案找不到可替換的漏洞片段，請先重新掃描再嘗試修復'
+      vscode.window.showWarningMessage(`Confession: ${message}`)
+      return { success: false, message, payload: { vulnerabilityId: vulnId } }
     }
 
-    const applied = await vscode.workspace.applyEdit(edit)
-
-    if (!applied) {
-      vscode.window.showErrorMessage('Confession: 套用修復失敗')
-      return { success: false, message: '套用修復失敗', payload: { vulnerabilityId: vulnId } }
+    if (codeChanged) {
+      await doc.save()
     }
-
-    await doc.save()
     const updated = await updateVulnerabilityStatus(baseUrl, vulnId, 'fixed')
     if (!updated) {
       const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnId)
-      vscode.window.showWarningMessage('Confession: 代碼修復成功，但更新漏洞狀態為 fixed 失敗')
+      const failMessage = codeChanged
+        ? '代碼修復成功，但更新漏洞狀態為 fixed 失敗'
+        : '修復片段已存在，但更新漏洞狀態為 fixed 失敗'
+      vscode.window.showWarningMessage(`Confession: ${failMessage}`)
       return {
         success: false,
-        message: '代碼修復成功，但更新漏洞狀態為 fixed 失敗',
+        message: failMessage,
         payload: {
           vulnerabilityId: vulnId,
           updatedVulnerability: updatedVulnerability ?? undefined,
@@ -608,11 +709,14 @@ async function applyVulnerabilityFix(vulnId: string): Promise<{
     }
 
     const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnId)
-    vscode.window.showInformationMessage(`Confession: 已套用修復 (${vuln.type})`)
+    const successMessage = codeChanged
+      ? `已套用修復 (${vuln.type})`
+      : `修復片段已存在，已同步狀態為 fixed (${vuln.type})`
+    vscode.window.showInformationMessage(`Confession: ${successMessage}`)
 
     return {
       success: true,
-      message: `已套用修復 (${vuln.type})`,
+      message: successMessage,
       payload: {
         vulnerabilityId: vulnId,
         updatedVulnerability: updatedVulnerability ?? undefined,
@@ -753,15 +857,25 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
 
       // Extension → Panel → iframe（轉發）
       window.addEventListener('message', (event) => {
-        if (event.data && event.data.type && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(event.data, '*');
+        const data = event.data;
+        if (
+          data &&
+          data.type &&
+          iframe.contentWindow &&
+          data.__confessionBridge !== 'iframe'
+        ) {
+          iframe.contentWindow.postMessage(data, '*');
         }
       });
 
       // iframe → Panel → Extension（轉發）
       window.addEventListener('message', (event) => {
-        if (event.source === iframe.contentWindow && event.data && event.data.type) {
-          vscode.postMessage(event.data);
+        const data = event.data;
+        const isFromIframe =
+          event.source === iframe.contentWindow ||
+          data?.__confessionBridge === 'iframe';
+        if (isFromIframe && data && data.type) {
+          vscode.postMessage(data);
         }
       });
 
@@ -846,15 +960,25 @@ export function buildHtml(baseUrl: string, route: string): string {
       // Extension → Webview → iframe（轉發）
       window.addEventListener('message', (event) => {
         // 來自 Extension Host 的訊息轉發給 iframe
-        if (event.data && event.data.type && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(event.data, '*');
+        const data = event.data;
+        if (
+          data &&
+          data.type &&
+          iframe.contentWindow &&
+          data.__confessionBridge !== 'iframe'
+        ) {
+          iframe.contentWindow.postMessage(data, '*');
         }
       });
 
       // iframe → Webview → Extension（轉發）
       window.addEventListener('message', (event) => {
-        if (event.source === iframe.contentWindow && event.data && event.data.type) {
-          vscode.postMessage(event.data);
+        const data = event.data;
+        const isFromIframe =
+          event.source === iframe.contentWindow ||
+          data?.__confessionBridge === 'iframe';
+        if (isFromIframe && data && data.type) {
+          vscode.postMessage(data);
         }
       });
 

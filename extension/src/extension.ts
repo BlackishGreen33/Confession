@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import path from 'path'
 import * as vscode from 'vscode'
 
@@ -28,6 +30,7 @@ let outputChannel: vscode.OutputChannel
 const FILE_SCAN_TIMEOUT_MS = 8 * 60 * 1000
 const WORKSPACE_SCAN_TIMEOUT_MS = 30 * 60 * 1000
 const WORKSPACE_FILE_LIMIT = 5000
+const WORKSPACE_READ_CONCURRENCY = 16
 
 /**
  * 從 VS Code settings.json 讀取插件配置
@@ -78,6 +81,20 @@ export function activate(context: vscode.ExtensionContext) {
     registerViewProvider(context, viewId, getPluginConfig, route)
   }
 
+  async function focusConfessionView(view: 'dashboard' | 'vulnerabilities'): Promise<void> {
+    // 先確保 Confession 視圖容器被打開，再聚焦指定 view。
+    try {
+      await vscode.commands.executeCommand('workbench.view.extension.confession-security')
+    } catch {
+      // 某些 VS Code 版本可能不存在該命令，忽略後續直接嘗試 focus 指定 view。
+    }
+    if (view === 'vulnerabilities') {
+      await vscode.commands.executeCommand('confession.vulnerabilities.focus')
+      return
+    }
+    await vscode.commands.executeCommand('confession.dashboard.focus')
+  }
+
   // --- 註冊指令 ---
   context.subscriptions.push(
     vscode.commands.registerCommand('codeVuln.scanFile', () => {
@@ -90,15 +107,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('codeVuln.openDashboard', () => {
       outputChannel.appendLine('聚焦側邊欄安全儀表盤')
-      vscode.commands.executeCommand('confession.dashboard.focus')
+      void focusConfessionView('dashboard')
     }),
 
     vscode.commands.registerCommand('codeVuln.showDashboard', () => {
-      vscode.commands.executeCommand('confession.dashboard.focus')
+      void focusConfessionView('dashboard')
     }),
 
     vscode.commands.registerCommand('codeVuln.showVulnerabilities', () => {
-      vscode.commands.executeCommand('confession.vulnerabilities.focus')
+      void focusConfessionView('vulnerabilities')
     }),
 
     vscode.commands.registerCommand('codeVuln.showSettings', () => {
@@ -203,6 +220,27 @@ function countNewVulnerabilities(
 function isScanTimeoutError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   return err.message.includes('掃描任務逾時')
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const safeConcurrency = Math.max(1, Math.floor(concurrency))
+  const results = new Array<R>(items.length)
+  let cursor = 0
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await mapper(items[index], index)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(safeConcurrency, items.length) }, () => worker()))
+  return results
 }
 
 /** 掃描當前檔案 */
@@ -313,23 +351,26 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
       return
     }
 
-    // 讀取檔案內容
-    const files = await Promise.all(
-      uris
-        .filter((uri) => !config.ignore.paths.some((p) => uri.fsPath.includes(p)))
-        .map(async (uri) => {
-          const doc = await vscode.workspace.openTextDocument(uri)
-          const language = inferApiLanguage(doc.languageId, uri.fsPath)
-          if (!language) {
-            return null
-          }
-          return {
-            path: uri.fsPath,
-            content: doc.getText(),
-            language,
-          }
-        }),
-    )
+    // 讀取檔案內容（workspace.fs + 併發限制，避免大量 openTextDocument 造成額外負擔）
+    const candidateUris = uris.filter((uri) => !config.ignore.paths.some((p) => uri.fsPath.includes(p)))
+    const files = await mapWithConcurrency(candidateUris, WORKSPACE_READ_CONCURRENCY, async (uri) => {
+      const language = inferApiLanguage('', uri.fsPath)
+      if (!language) return null
+
+      try {
+        const bytes = await vscode.workspace.fs.readFile(uri)
+        const content = Buffer.from(bytes).toString('utf8')
+        return {
+          path: uri.fsPath,
+          content,
+          language,
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '未知錯誤'
+        outputChannel.appendLine(`讀取檔案失敗，已跳過: ${uri.fsPath} (${msg})`)
+        return null
+      }
+    })
 
     const scanFiles = files.filter((file): file is NonNullable<typeof file> => file !== null)
     if (scanFiles.length === 0) {
