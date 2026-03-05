@@ -66,13 +66,7 @@ function resolvePendingOperation(result: OperationResult): void {
 /** 向擴充套件發送訊息（透過 parent window 轉發） */
 export function postToExtension(msg: WebToExtMsg): void {
   if (isInVscodeWebview()) {
-    window.parent.postMessage(
-      {
-        ...msg,
-        __confessionBridge: 'iframe',
-      },
-      '*',
-    )
+    window.parent.postMessage(msg, '*')
   }
 }
 

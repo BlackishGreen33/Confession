@@ -3,14 +3,16 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { deduplicatedGet } from '@/libs/api-client'
-import type { HealthResponseV2 } from '@/libs/types'
+
+interface HealthResponse {
+  status: string
+}
 
 /** 系統健康狀態，每 30 秒輪詢一次 */
-export function useHealth(windowDays: 7 | 30 = 30, enabled = true) {
-  const query = useQuery<HealthResponseV2>({
-    queryKey: ['health', windowDays],
-    queryFn: () => deduplicatedGet<HealthResponseV2>(`/api/health?windowDays=${windowDays}`),
-    enabled,
+export function useHealth() {
+  const query = useQuery<HealthResponse>({
+    queryKey: ['health'],
+    queryFn: () => deduplicatedGet<HealthResponse>('/api/health'),
     staleTime: 30_000,
     refetchInterval: 30_000,
     retry: 1,
@@ -20,5 +22,5 @@ export function useHealth(windowDays: 7 | 30 = 30, enabled = true) {
   const isLoading = query.isLoading
   const isError = query.isError
 
-  return { isHealthy, isLoading, isError, health: query.data, query }
+  return { isHealthy, isLoading, isError }
 }

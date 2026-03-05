@@ -39,7 +39,6 @@
   - `quick`：僅高風險 AST 點位觸發 LLM（條件式）
   - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
   - `deep`：每檔案單次 LLM 完整掃描（保留宏觀分析）
-  - 工作區掃描需支援檔案級併行與自動降併發（429/503/timeout 連續失敗時下調），兼顧速度與穩定性
   - 引擎模式：`baseline`（既有流程）/`agentic_beta`（Planner→Skills/MCP→Analyst→Critic→Judge）
   - 正式預設引擎為 `agentic_beta`（使用者端不提供手動開關）
   - `agentic_beta` 失敗時，後端需在同一 task 內自動回退 `baseline`
@@ -48,8 +47,7 @@
 - 專家審核流程：
   - 審核狀態變更需按「儲存審核」成功後才生效
   - 僅 `humanStatus = confirmed` 時可顯示/執行修復或忽略操作
-  - 服務可用性文案需依 `/api/health` 動態顯示，不可寫死
-  - 前端可見狀態以二態為主：`正常運行` / `無法運行`（不直接對使用者暴露 `degraded` 字樣）
+  - 分析引擎狀態文案需依 `/api/health` 動態顯示，不可寫死
 
 ## 3. 專案結構（最新）
 
@@ -80,7 +78,7 @@ confession/
 │   ├── src/common/
 │   │   ├── components/
 │   │   │   ├── elements/          # 通用原子元件（cyber-select、cyber-dropdown-menu）
-│   │   │   └── ui/                # shadcn 元件封裝（select、dropdown-menu、tooltip 等）
+│   │   │   └── ui/                # shadcn 元件封裝（select、dropdown-menu 等）
 │   │   ├── hooks/
 │   │   ├── libs/
 │   │   └── utils/
@@ -107,7 +105,6 @@ confession/
 - `web/src/common/components/elements/cyber-select.tsx`：共用 cyber 風格 Select（基於 shadcn Select 樣式覆蓋）
 - `web/src/common/components/elements/cyber-dropdown-menu.tsx`：共用 cyber 風格 DropdownMenu（基於 shadcn DropdownMenu 樣式覆蓋）
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
-- `web/src/common/components/ui/tooltip.tsx`：shadcn/Radix Tooltip 元件封裝（支援碰撞避讓與 Portal）
 - `web/src/common/components/ui/sonner.tsx`：shadcn/sonner Toast 樣式封裝元件
 
 邊界規則：
@@ -172,13 +169,6 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `POST /api/monitoring/generate`
 
 規範：
-- `GET /api/health` 回傳健康評分 V2，至少包含：
-  - `status = ok|degraded|down`
-  - `evaluatedAt`
-  - `score.version = "v2"`、`score.value`、`score.grade`
-  - `score.components.exposure/remediation/quality/reliability`
-  - `engine.latestTaskId/latestStatus/latestEngineMode`
-  - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
 - 所有請求驗證使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式：`{ error: string, details?: unknown }`
 - Prisma client 入口：`web/src/server/db.ts`
@@ -278,7 +268,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
 - Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
 - Ext → Web（貼上 fallback）：`clipboard_paste`
-- Web → Ext：`request_scan`、`focus_sidebar_view`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
+- Web → Ext：`request_scan`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
 - `vulnerabilities_updated` 為變更通知事件，前端不可依賴 payload 完整性，需以 query invalidate/refetch 收斂。
 
 ## 8. 程式碼規範

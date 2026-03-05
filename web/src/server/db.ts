@@ -32,77 +32,62 @@ export interface VulnerabilityInput {
   owaspCategory?: string | null
 }
 
-const UPSERT_CHUNK_SIZE = 50
-
 export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
   const deduped = deduplicateVulnerabilities(vulns)
 
-  for (let start = 0; start < deduped.length; start += UPSERT_CHUNK_SIZE) {
-    const chunk = deduped.slice(start, start + UPSERT_CHUNK_SIZE).map((item) => ({
-      vuln: item,
-      codeHash: createHash('sha256').update(item.codeSnippet).digest('hex'),
-    }))
-
+  for (const v of deduped) {
+    const codeHash = createHash('sha256').update(v.codeSnippet).digest('hex')
     try {
-      await prisma.$transaction(async (tx) => {
-        for (const { vuln, codeHash } of chunk) {
-          await tx.vulnerability.upsert({
-            where: {
-              vuln_idempotent: {
-                filePath: vuln.filePath,
-                line: vuln.line,
-                column: vuln.column,
-                codeHash,
-                type: vuln.type,
-              },
-            },
+      await prisma.vulnerability.upsert({
+        where: {
+          vuln_idempotent: {
+            filePath: v.filePath,
+            line: v.line,
+            column: v.column,
+            codeHash,
+            type: v.type,
+          },
+        },
+        create: {
+          ...v,
+          codeHash,
+          events: {
             create: {
-              ...vuln,
-              codeHash,
-              events: {
-                create: {
-                  eventType: 'scan_detected',
-                  message: '掃描發現新漏洞',
-                  toStatus: 'open',
-                },
-              },
+              eventType: 'scan_detected',
+              message: '掃描發現新漏洞',
+              toStatus: 'open',
             },
-            update: {
-              description: vuln.description,
-              severity: vuln.severity,
-              fixOldCode: vuln.fixOldCode,
-              fixNewCode: vuln.fixNewCode,
-              fixExplanation: vuln.fixExplanation,
-            },
-          })
-        }
+          },
+        },
+        update: {
+          description: v.description,
+          severity: v.severity,
+          fixOldCode: v.fixOldCode,
+          fixNewCode: v.fixNewCode,
+          fixExplanation: v.fixExplanation,
+        },
       })
     } catch (err) {
       // 相容舊 DB：migration 尚未套用時回退舊 upsert，避免掃描全失敗
       if (!isMissingEventsTableError(err)) throw err
-
-      await prisma.$transaction(async (tx) => {
-        for (const { vuln, codeHash } of chunk) {
-          await tx.vulnerability.upsert({
-            where: {
-              vuln_idempotent: {
-                filePath: vuln.filePath,
-                line: vuln.line,
-                column: vuln.column,
-                codeHash,
-                type: vuln.type,
-              },
-            },
-            create: { ...vuln, codeHash },
-            update: {
-              description: vuln.description,
-              severity: vuln.severity,
-              fixOldCode: vuln.fixOldCode,
-              fixNewCode: vuln.fixNewCode,
-              fixExplanation: vuln.fixExplanation,
-            },
-          })
-        }
+      await prisma.vulnerability.upsert({
+        where: {
+          vuln_idempotent: {
+            filePath: v.filePath,
+            line: v.line,
+            column: v.column,
+            codeHash,
+            type: v.type,
+          },
+        },
+        create: { ...v, codeHash },
+        update: {
+          description: v.description,
+          severity: v.severity,
+          fixOldCode: v.fixOldCode,
+          fixNewCode: v.fixNewCode,
+          fixExplanation: v.fixExplanation,
+        },
       })
     }
   }
