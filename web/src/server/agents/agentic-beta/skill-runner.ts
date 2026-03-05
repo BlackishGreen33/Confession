@@ -14,51 +14,77 @@ export async function runSkillPlan(
   bundle: ContextBundle,
   plan: PlannerPlan,
 ): Promise<SkillExecutionRecord[]> {
-  const records: SkillExecutionRecord[] = []
+  const builtinResults = await Promise.all(
+    plan.skills.map(async (skill, index) => ({
+      index,
+      record: await runSkillByName(skill, bundle),
+    })),
+  )
 
-  for (const skill of plan.skills) {
-    switch (skill) {
-      case 'ast_hotspots':
-        records.push(runAstHotspotsSkill(bundle))
-        break
-      case 'context_slice':
-        records.push(runContextSliceSkill(bundle))
-        break
-      case 'sanitizer_check':
-        records.push(runSanitizerCheckSkill(bundle))
-        break
-      case 'history_lookup':
-        records.push(await runHistoryLookupSkill(bundle))
-        break
-      case 'cwe_mapper':
-        records.push(runCweMapperSkill(bundle))
-        break
-      default:
-        break
-    }
+  const mcpResults = await Promise.all(
+    plan.mcpTasks.map(async (task, index) => ({
+      index,
+      record: await runMcpTask(bundle, task.serverName, task.toolName),
+    })),
+  )
+
+  return [
+    ...builtinResults.sort((a, b) => a.index - b.index).map((item) => item.record),
+    ...mcpResults.sort((a, b) => a.index - b.index).map((item) => item.record),
+  ]
+}
+
+async function runSkillByName(
+  skill: PlannerPlan['skills'][number],
+  bundle: ContextBundle,
+): Promise<SkillExecutionRecord> {
+  switch (skill) {
+    case 'ast_hotspots':
+      return runAstHotspotsSkill(bundle)
+    case 'context_slice':
+      return runContextSliceSkill(bundle)
+    case 'sanitizer_check':
+      return runSanitizerCheckSkill(bundle)
+    case 'history_lookup':
+      return runHistoryLookupSkill(bundle)
+    case 'cwe_mapper':
+      return runCweMapperSkill(bundle)
+    default:
+      return {
+        skillName: skill,
+        evidence: [],
+        confidence: 0,
+        cost: 0,
+        latencyMs: 0,
+        traceId: bundle.traceId,
+        success: false,
+        error: `尚未支援的 skill：${skill}`,
+      }
   }
+}
 
-  for (const task of plan.mcpTasks) {
-    const startedAt = Date.now()
-    const mcp = await invokeMcpTool({
-      serverName: task.serverName,
-      toolName: task.toolName,
-      filePath: bundle.filePath,
-      language: bundle.language,
-      code: bundle.content,
-    })
+async function runMcpTask(
+  bundle: ContextBundle,
+  serverName: string,
+  toolName: 'pattern_scan' | 'code_graph_lookup',
+): Promise<SkillExecutionRecord> {
+  const startedAt = Date.now()
+  const mcp = await invokeMcpTool({
+    serverName,
+    toolName,
+    filePath: bundle.filePath,
+    language: bundle.language,
+    code: bundle.content,
+  })
 
-    records.push({
-      skillName: task.toolName === 'pattern_scan' ? 'mcp_pattern_scan' : 'mcp_code_graph_lookup',
-      evidence: mcp.evidence,
-      confidence: mcp.confidence,
-      cost: mcp.evidence.length,
-      latencyMs: Date.now() - startedAt,
-      traceId: bundle.traceId,
-      success: mcp.ok,
-      error: mcp.error,
-    })
+  return {
+    skillName: toolName === 'pattern_scan' ? 'mcp_pattern_scan' : 'mcp_code_graph_lookup',
+    evidence: mcp.evidence,
+    confidence: mcp.confidence,
+    cost: mcp.evidence.length,
+    latencyMs: Date.now() - startedAt,
+    traceId: bundle.traceId,
+    success: mcp.ok,
+    error: mcp.error,
   }
-
-  return records
 }

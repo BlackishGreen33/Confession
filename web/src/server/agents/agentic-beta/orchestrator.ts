@@ -35,6 +35,13 @@ export interface AgenticOrchestrateResult {
   agenticTrace: AgenticTraceSummary[]
 }
 
+const MIN_PARALLEL_FILES = 1
+const MAX_PARALLEL_BY_DEPTH_WORKSPACE: Record<ScanRequest['depth'], number> = {
+  quick: 3,
+  standard: 2,
+  deep: 1,
+}
+
 /**
  * Agentic Beta Orchestrator：
  * AST/關鍵詞 -> ContextBundle -> Planner -> SkillRunner(+MCP) -> Analyst -> Critic -> Judge。
@@ -87,75 +94,101 @@ export async function orchestrateAgenticBeta(
   const llmStats = createEmptyStats()
   const traces: AgenticTraceSummary[] = []
   const finalVulns: VulnerabilityInput[] = []
+  let currentParallel = resolveParallelFiles(request)
+  let transientFailureStreak = 0
 
-  for (const file of changedFiles) {
+  let cursor = 0
+  while (cursor < changedFiles.length) {
     options.assertNotCanceled?.()
-    try {
-      const filePoints = pointsByFile.get(file.path) ?? []
-      const bundle = buildContextBundle(file.path, file.language, file.content, filePoints, request.depth)
-      llmStats.skippedByPolicy += Math.max(0, filePoints.length - bundle.hotspots.length)
-      llmStats.processedFiles += 1
-
-      const plan = planForContext(bundle)
-      options.assertNotCanceled?.()
-      const skillRecords = await runSkillPlan(bundle, plan)
-
-      try {
-        const analyst = await runAnalyst(bundle, plan, skillRecords, {
-          llmConfig: options.llmConfig,
-          depth: request.depth,
-          maxRetryAttempts,
-        })
+    const batch = changedFiles.slice(cursor, cursor + currentParallel)
+    const outcomes = await Promise.all(
+      batch.map(async (file) => {
         options.assertNotCanceled?.()
+        let transientFailure = false
+        try {
+          const filePoints = pointsByFile.get(file.path) ?? []
+          const bundle = buildContextBundle(file.path, file.language, file.content, filePoints, request.depth)
+          llmStats.skippedByPolicy += Math.max(0, filePoints.length - bundle.hotspots.length)
+          llmStats.processedFiles += 1
 
-        if (analyst.cacheHit) {
-          llmStats.cacheHits += 1
-        } else {
-          llmStats.requestCount += 1
-          llmStats.promptTokens += analyst.usage.promptTokens
-          llmStats.completionTokens += analyst.usage.completionTokens
-          llmStats.totalTokens += analyst.usage.totalTokens
+          const plan = planForContext(bundle)
+          options.assertNotCanceled?.()
+          const skillRecords = await runSkillPlan(bundle, plan)
+
+          try {
+            const analyst = await runAnalyst(bundle, plan, skillRecords, {
+              llmConfig: options.llmConfig,
+              depth: request.depth,
+              maxRetryAttempts,
+            })
+            options.assertNotCanceled?.()
+
+            if (analyst.cacheHit) {
+              llmStats.cacheHits += 1
+            } else {
+              llmStats.requestCount += 1
+              llmStats.promptTokens += analyst.usage.promptTokens
+              llmStats.completionTokens += analyst.usage.completionTokens
+              llmStats.totalTokens += analyst.usage.totalTokens
+            }
+
+            if (analyst.parseFailed) {
+              llmStats.parseFailures += 1
+              traces.push({
+                filePath: file.path,
+                hypotheses: plan.hypotheses,
+                skillCount: skillRecords.length,
+                acceptedCount: 0,
+                rejectedCount: 1,
+              })
+              return { transientFailure: false }
+            }
+
+            const critic = runCritic(bundle, analyst.candidates, skillRecords)
+            options.assertNotCanceled?.()
+            const judged = runJudge(bundle, critic)
+
+            llmStats.successfulFiles += 1
+            finalVulns.push(...judged.vulnerabilities)
+            traces.push({
+              filePath: file.path,
+              hypotheses: plan.hypotheses,
+              skillCount: skillRecords.length,
+              acceptedCount: judged.vulnerabilities.length,
+              rejectedCount: judged.rejected.length,
+            })
+            return { transientFailure: false }
+          } catch (err) {
+            llmStats.requestFailures += 1
+            accumulateFailureKind(llmStats, err)
+            transientFailure = isConcurrencyThrottleError(err)
+            traces.push({
+              filePath: file.path,
+              hypotheses: plan.hypotheses,
+              skillCount: skillRecords.length,
+              acceptedCount: 0,
+              rejectedCount: 1,
+            })
+            return { transientFailure }
+          }
+        } finally {
+          await notifyFileCompleted(options.onFileCompleted, file.path)
         }
+      }),
+    )
 
-        if (analyst.parseFailed) {
-          llmStats.parseFailures += 1
-          traces.push({
-            filePath: file.path,
-            hypotheses: plan.hypotheses,
-            skillCount: skillRecords.length,
-            acceptedCount: 0,
-            rejectedCount: 1,
-          })
-          continue
-        }
-
-        const critic = runCritic(bundle, analyst.candidates, skillRecords)
-        options.assertNotCanceled?.()
-        const judged = runJudge(bundle, critic)
-
-        llmStats.successfulFiles += 1
-        finalVulns.push(...judged.vulnerabilities)
-        traces.push({
-          filePath: file.path,
-          hypotheses: plan.hypotheses,
-          skillCount: skillRecords.length,
-          acceptedCount: judged.vulnerabilities.length,
-          rejectedCount: judged.rejected.length,
-        })
-      } catch (err) {
-        llmStats.requestFailures += 1
-        accumulateFailureKind(llmStats, err)
-        traces.push({
-          filePath: file.path,
-          hypotheses: plan.hypotheses,
-          skillCount: skillRecords.length,
-          acceptedCount: 0,
-          rejectedCount: 1,
-        })
+    for (const outcome of outcomes) {
+      if (!outcome.transientFailure) {
+        transientFailureStreak = 0
+        continue
       }
-    } finally {
-      await notifyFileCompleted(options.onFileCompleted, file.path)
+      transientFailureStreak += 1
+      if (transientFailureStreak >= 2 && currentParallel > MIN_PARALLEL_FILES) {
+        currentParallel -= 1
+        transientFailureStreak = 0
+      }
     }
+    cursor += batch.length
   }
 
   options.assertNotCanceled?.()
@@ -253,6 +286,24 @@ function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
   }
 
   stats.failureKinds.other += 1
+}
+
+function isConcurrencyThrottleError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.includes('LLM 呼叫逾時')) return true
+  if (/\b503\b/.test(msg)) return true
+  if (/\b429\b/.test(msg)) return true
+  if (msg.includes('UNAVAILABLE')) return true
+  if (/high demand/i.test(msg)) return true
+  if (/resource_exhausted/i.test(msg)) return true
+  if (/quota exceeded/i.test(msg)) return true
+  return false
+}
+
+function resolveParallelFiles(request: ScanRequest): number {
+  const scope = request.scanScope ?? (request.files.length > 1 ? 'workspace' : 'file')
+  if (scope !== 'workspace') return MIN_PARALLEL_FILES
+  return MAX_PARALLEL_BY_DEPTH_WORKSPACE[request.depth]
 }
 
 async function notifyFilteredFiles(
