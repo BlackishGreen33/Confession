@@ -35,6 +35,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useConfig, useConfigQuery, useSaveConfig, useUpdateConfig } from '@/hooks/use-config'
 import { useExtensionBridge } from '@/hooks/use-extension-bridge'
 import type { PluginConfig } from '@/libs/types'
+import { getSyncPhaseLabel, toMoreInfo } from '@/libs/ui-messages'
 
 // === 兩欄表單列元件 ===
 
@@ -474,7 +475,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase, detail }) => {
     return (
       <div className="flex items-center gap-1.5 text-xs text-cyber-primary">
         <Loader2 className="h-3 w-3 animate-spin" />
-        <span>設定同步中</span>
+        <span>{getSyncPhaseLabel(phase)}</span>
       </div>
     )
   }
@@ -483,7 +484,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase, detail }) => {
     return (
       <div className="flex items-center gap-1.5 text-xs text-safe">
         <span className="h-2 w-2 rounded-full bg-safe animate-pulse-glow" />
-        <span>同步成功</span>
+        <span>{getSyncPhaseLabel(phase)}</span>
       </div>
     )
   }
@@ -492,7 +493,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase, detail }) => {
     return (
       <div className="flex items-center gap-1.5 text-xs text-severity-medium">
         <span className="h-2 w-2 rounded-full bg-severity-medium" />
-        <span>同步失敗</span>
+        <span>{getSyncPhaseLabel(phase)}</span>
         {detail && (
           <InlineHelp
             ariaLabel="查看同步失敗詳情"
@@ -509,7 +510,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ phase, detail }) => {
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className="h-2 w-2 rounded-full bg-muted-foreground/50" />
-      <span>未儲存</span>
+      <span>{getSyncPhaseLabel(phase)}</span>
     </div>
   )
 }
@@ -560,9 +561,9 @@ export const SettingsPanel: React.FC = () => {
       } catch (error) {
         const detail = getErrorDetail(error, '後端服務暫時無回應')
         setSyncPhase('backend_failed')
-        setSyncDetail(`後端同步失敗：${detail}`)
+        setSyncDetail(`後端：${detail}`)
         toast.error('設定同步失敗，請稍後再試', {
-          description: `更多資訊：${detail}`,
+          description: toMoreInfo(detail),
         })
       }
       return
@@ -575,9 +576,9 @@ export const SettingsPanel: React.FC = () => {
       if (!extResult.success) {
         const detail = extResult.message?.trim() || 'Extension 未回覆同步結果'
         setSyncPhase('extension_failed')
-        setSyncDetail(`Extension 套用失敗：${detail}`)
+        setSyncDetail(`Extension：${detail}`)
         toast.error('設定同步失敗，請稍後再試', {
-          description: `更多資訊：${detail}`,
+          description: toMoreInfo(detail),
         })
         return
       }
@@ -585,9 +586,9 @@ export const SettingsPanel: React.FC = () => {
     } catch (err) {
       const msg = getErrorDetail(err, 'Extension 未回覆同步結果')
       setSyncPhase('extension_failed')
-      setSyncDetail(`Extension 套用失敗：${msg}`)
+      setSyncDetail(`Extension：${msg}`)
       toast.error('設定同步失敗，請稍後再試', {
-        description: `更多資訊：${msg}`,
+        description: toMoreInfo(msg),
       })
       return
     }
@@ -605,9 +606,9 @@ export const SettingsPanel: React.FC = () => {
     } catch (error) {
       const detail = getErrorDetail(error, '後端服務暫時無回應')
       setSyncPhase('backend_failed')
-      setSyncDetail(`後端同步失敗：${detail}`)
+      setSyncDetail(`後端：${detail}`)
       toast.warning('設定已套用到編輯器，但完整同步尚未完成', {
-        description: `更多資訊：${detail}`,
+        description: toMoreInfo(detail),
       })
     }
   }, [config, isInVscodeWebview, saveConfig, sendConfigToExtensionAndWait, syncPhase])
