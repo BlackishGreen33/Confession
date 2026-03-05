@@ -22,8 +22,12 @@ export interface AnalysisAgentOptions {
   llmConfig?: LlmClientConfig
   /** 分析深度 */
   depth: ScanRequest['depth']
+  /** 掃描範圍 */
+  scanScope?: ScanRequest['scanScope']
   /** 是否啟用 deep 宏觀掃描 */
   includeMacroScan: boolean
+  /** 檔案級並行上限 */
+  maxParallelFiles?: number
   /** 暫時性失敗的重試次數（不含首次請求） */
   maxRetryAttempts?: number
   /** 每完成一個檔案（含跳過）時通知 */
@@ -60,6 +64,12 @@ export interface AnalyzeWithLlmResult {
 
 const LLM_TIMEOUT_MS = 45_000
 const LLM_RETRY_BASE_DELAY_MS = 1_000
+const MIN_PARALLEL_FILES = 1
+const MAX_PARALLEL_BY_DEPTH_WORKSPACE: Record<ScanRequest['depth'], number> = {
+  quick: 6,
+  standard: 4,
+  deep: 2,
+}
 
 const MAX_POINTS_BY_DEPTH: Record<ScanRequest['depth'], number> = {
   quick: 8,
@@ -100,72 +110,97 @@ export async function analyzeWithLlm(
   const config = options.llmConfig ?? configFromEnv()
   const modelName = config.model ?? resolveDefaultModel(config.provider)
   const maxRetryAttempts = Math.max(0, options.maxRetryAttempts ?? 0)
+  let currentParallel = resolveParallelFiles(options)
+  let transientFailureStreak = 0
   const stats = createEmptyStats()
   const results: VulnerabilityInput[] = []
   const grouped = groupPointsByFile(points)
+  const entries = Array.from(fileContents.entries())
 
-  for (const [filePath, file] of fileContents) {
+  let cursor = 0
+  while (cursor < entries.length) {
     options.assertNotCanceled?.()
-    try {
-      const filePoints = grouped.get(filePath) ?? []
-      const selected = selectPointsForDepth(filePoints, options.depth)
-      stats.skippedByPolicy += filePoints.length - selected.length
-
-      const shouldRunDeepFullScan = options.depth === 'deep' && options.includeMacroScan
-      const shouldRunBatch = selected.length > 0
-
-      if (!shouldRunDeepFullScan && !shouldRunBatch) continue
-
-      const prompt = shouldRunDeepFullScan
-        ? buildDeepFileScanPrompt(
-            filePath,
-            file.content,
-            file.language,
-            options.depth,
-            toPromptPoints(selected),
-          )
-        : buildBatchAnalysisPrompt(
-            filePath,
-            file.language,
-            options.depth,
-            toPromptPoints(selected),
-            buildContextBlocks(file.content, selected, CONTEXT_WINDOW_LINES[options.depth]),
-          )
-
-      stats.processedFiles += 1
-
-      try {
+    const batch = entries.slice(cursor, cursor + currentParallel)
+    const outcomes = await Promise.all(
+      batch.map(async ([filePath, file]) => {
         options.assertNotCanceled?.()
-        const raw = await callLlmWithCache(
-          prompt,
-          config,
-          modelName,
-          options.depth,
-          maxRetryAttempts,
-          stats,
-          options.assertNotCanceled,
-        )
-        options.assertNotCanceled?.()
-        const parsed = parseLlmResponse(raw)
-        if (!parsed) {
-          stats.parseFailures += 1
-          continue
-        }
+        let transientFailure = false
+        try {
+          const filePoints = grouped.get(filePath) ?? []
+          const selected = selectPointsForDepth(filePoints, options.depth)
+          stats.skippedByPolicy += filePoints.length - selected.length
 
-        stats.successfulFiles += 1
+          const shouldRunDeepFullScan = options.depth === 'deep' && options.includeMacroScan
+          const shouldRunBatch = selected.length > 0
 
-        for (const vuln of deduplicateLlmVulns(parsed)) {
-          results.push(llmVulnToInput(vuln, filePath, modelName))
+          if (!shouldRunDeepFullScan && !shouldRunBatch) {
+            return { transientFailure: false }
+          }
+
+          const prompt = shouldRunDeepFullScan
+            ? buildDeepFileScanPrompt(
+                filePath,
+                file.content,
+                file.language,
+                options.depth,
+                toPromptPoints(selected),
+              )
+            : buildBatchAnalysisPrompt(
+                filePath,
+                file.language,
+                options.depth,
+                toPromptPoints(selected),
+                buildContextBlocks(file.content, selected, CONTEXT_WINDOW_LINES[options.depth]),
+              )
+
+          stats.processedFiles += 1
+          options.assertNotCanceled?.()
+
+          const raw = await callLlmWithCache(
+            prompt,
+            config,
+            modelName,
+            options.depth,
+            maxRetryAttempts,
+            stats,
+            options.assertNotCanceled,
+          )
+          options.assertNotCanceled?.()
+          const parsed = parseLlmResponse(raw)
+          if (!parsed) {
+            stats.parseFailures += 1
+            return { transientFailure: false }
+          }
+
+          stats.successfulFiles += 1
+          for (const vuln of deduplicateLlmVulns(parsed)) {
+            results.push(llmVulnToInput(vuln, filePath, modelName))
+          }
+          return { transientFailure: false }
+        } catch (err) {
+          // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
+          stats.requestFailures += 1
+          accumulateFailureKind(stats, err)
+          transientFailure = isConcurrencyThrottleError(err)
+          return { transientFailure }
+        } finally {
+          await notifyFileCompleted(options.onFileCompleted, filePath)
         }
-      } catch (err) {
-        // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
-        stats.requestFailures += 1
-        accumulateFailureKind(stats, err)
+      }),
+    )
+
+    for (const outcome of outcomes) {
+      if (!outcome.transientFailure) {
+        transientFailureStreak = 0
         continue
       }
-    } finally {
-      await notifyFileCompleted(options.onFileCompleted, filePath)
+      transientFailureStreak += 1
+      if (transientFailureStreak >= 2 && currentParallel > MIN_PARALLEL_FILES) {
+        currentParallel -= 1
+        transientFailureStreak = 0
+      }
     }
+    cursor += batch.length
   }
 
   return { vulnerabilities: results, stats }
@@ -333,14 +368,19 @@ async function callLlmWithTimeout(
   prompt: string,
   config: LlmClientConfig,
 ): Promise<LlmCallResult> {
+  const abortController = new globalThis.AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    return await Promise.race([
-      callLlm(prompt, config),
-      new Promise<LlmCallResult>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('LLM 呼叫逾時')), LLM_TIMEOUT_MS)
-      }),
-    ])
+    timer = setTimeout(() => {
+      abortController.abort()
+    }, LLM_TIMEOUT_MS)
+
+    return await callLlm(prompt, config, { signal: abortController.signal })
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('LLM 呼叫逾時')
+    }
+    throw err
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -353,6 +393,27 @@ function isRetryableLlmError(err: unknown): boolean {
   if (msg.includes('UNAVAILABLE')) return true
   if (/high demand/i.test(msg)) return true
   return false
+}
+
+function isConcurrencyThrottleError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.includes('LLM 呼叫逾時')) return true
+  if (/\b503\b/.test(msg)) return true
+  if (/\b429\b/.test(msg)) return true
+  if (msg.includes('UNAVAILABLE')) return true
+  if (/high demand/i.test(msg)) return true
+  if (/resource_exhausted/i.test(msg)) return true
+  if (/quota exceeded/i.test(msg)) return true
+  return false
+}
+
+function isAbortError(err: unknown): boolean {
+  return Boolean(
+    err &&
+      typeof err === 'object' &&
+      'name' in err &&
+      (err as { name?: unknown }).name === 'AbortError',
+  )
 }
 
 function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
@@ -376,6 +437,16 @@ function classifyLlmError(err: unknown): 'quotaExceeded' | 'unavailable' | 'time
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function resolveParallelFiles(options: AnalysisAgentOptions): number {
+  if (options.maxParallelFiles && Number.isFinite(options.maxParallelFiles)) {
+    return Math.max(MIN_PARALLEL_FILES, Math.floor(options.maxParallelFiles))
+  }
+
+  const scope = options.scanScope ?? 'file'
+  if (scope !== 'workspace') return MIN_PARALLEL_FILES
+  return MAX_PARALLEL_BY_DEPTH_WORKSPACE[options.depth]
 }
 
 async function notifyFileCompleted(

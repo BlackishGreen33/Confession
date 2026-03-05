@@ -122,6 +122,55 @@ export interface RecentScanSummary {
   updatedAt: string
 }
 
+export type HealthStatus = 'ok' | 'degraded' | 'down'
+export type HealthGrade = 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D'
+
+export interface HealthScoreExposure {
+  value: number
+  orb: number
+  lev: number
+}
+
+export interface HealthScoreRemediation {
+  value: number
+  mttrHours: number
+  closureRate: number
+}
+
+export interface HealthScoreQuality {
+  value: number
+  efficiency: number
+  coverage: number
+}
+
+export interface HealthScoreReliability {
+  value: number
+  successRate: number
+  fallbackRate: number
+  workspaceP95Ms: number
+}
+
+export interface HealthResponseV2 {
+  status: HealthStatus
+  evaluatedAt: string
+  score: {
+    version: 'v2'
+    value: number
+    grade: HealthGrade
+    components: {
+      exposure: HealthScoreExposure
+      remediation: HealthScoreRemediation
+      quality: HealthScoreQuality
+      reliability: HealthScoreReliability
+    }
+  }
+  engine: {
+    latestTaskId?: string
+    latestStatus?: 'pending' | 'running' | 'completed' | 'failed'
+    latestEngineMode?: ScanEngineMode
+  }
+}
+
 
 // === 通信協議（Extension ↔ Webview） ===
 
@@ -154,6 +203,7 @@ export type ExtToWebMsg =
 
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
+  | { type: 'focus_sidebar_view'; data: { view: 'dashboard' | 'vulnerabilities' } }
   | { type: 'apply_fix'; requestId: string; data: { vulnerabilityId: string } }
   | {
       type: 'ignore_vulnerability'

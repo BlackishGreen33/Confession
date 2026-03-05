@@ -30,6 +30,13 @@ fileMatchPattern: "**/src/server/**/*"
 
 ## 規範
 
+- `GET /api/health` 回應需提供健康評分 V2 結構，至少包含：
+  - `status: ok|degraded|down`
+  - `evaluatedAt`
+  - `score.version = "v2"`、`score.value(0..100)`、`score.grade`
+  - `score.components.exposure/remediation/quality/reliability`
+  - `engine.latestTaskId/latestStatus/latestEngineMode`
+  - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
 - 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式統一：`{ error: string, details?: unknown }`
 - 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]

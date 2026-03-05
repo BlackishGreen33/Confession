@@ -99,6 +99,7 @@ export type ExtToWebMsg =
 // Webview → Extension 訊息
 export type WebToExtMsg =
   | { type: 'request_scan'; data: { scope: 'file' | 'workspace' } }
+  | { type: 'focus_sidebar_view'; data: { view: 'dashboard' | 'vulnerabilities' } }
   | { type: 'apply_fix'; requestId: string; data: { vulnerabilityId: string } }
   | {
       type: 'ignore_vulnerability'

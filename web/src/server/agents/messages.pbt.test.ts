@@ -145,6 +145,12 @@ describe('P4: Agent 消息序列化往返', () => {
       data: fc.record({ scope: fc.constantFrom('file', 'workspace') as fc.Arbitrary<'file' | 'workspace'> }),
     }),
     fc.record({
+      type: fc.constant('focus_sidebar_view') as fc.Arbitrary<'focus_sidebar_view'>,
+      data: fc.record({
+        view: fc.constantFrom('dashboard', 'vulnerabilities') as fc.Arbitrary<'dashboard' | 'vulnerabilities'>,
+      }),
+    }),
+    fc.record({
       type: fc.constant('apply_fix') as fc.Arbitrary<'apply_fix'>,
       requestId: fc.string({ minLength: 1, maxLength: 64 }),
       data: fc.record({ vulnerabilityId: fc.uuid() }),
