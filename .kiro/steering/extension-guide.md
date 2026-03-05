@@ -39,6 +39,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `scanWorkspace` 送出 `/api/scan` 時需同步帶 `workspaceRoots`（目前 workspace folders 的 `fsPath`）
   - 若檔案數達查找上限（目前 5000），`workspaceSnapshotComplete=false`，避免後端誤把未納入快照的檔案漏洞自動關閉
   - 若 `navigate_to_code` 目標檔案不存在，需顯示非阻塞提示並引導使用者重新掃描工作區同步狀態
+- 工作區掃描讀檔建議使用 `workspace.fs.readFile` 搭配併發上限，避免大量 `openTextDocument` 造成額外 IO 與 UI 負擔
 
 ## 指令與設定前綴
 
@@ -69,6 +70,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `operation_result`（回覆需 requestId 的操作成功/失敗與訊息，採跨視圖廣播）
 - **WebToExtMsg**：Webview → 擴充套件
   - `request_scan`（請求掃描 file/workspace）
+  - `focus_sidebar_view`（切換側邊欄 view，支援 dashboard/vulnerabilities）
   - `apply_fix`（套用修復，需 `requestId`）
   - `ignore_vulnerability`（忽略漏洞，需 `requestId`）
   - `refresh_vulnerabilities`（請求全視圖漏洞資料刷新，需 `requestId`）
