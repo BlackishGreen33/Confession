@@ -37,6 +37,12 @@ export interface GeminiCallResult {
   usage: GeminiUsage
 }
 
+type FetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal']
+
+export interface GeminiCallOptions {
+  signal?: FetchSignal
+}
+
 const DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 
@@ -66,7 +72,11 @@ export function configFromEnv(): GeminiClientConfig {
  * 呼叫 Gemini generateContent API，回傳原始文字。
  * 使用 JSON 回應模式 + 低溫度（0.1）以取得穩定的結構化輸出。
  */
-export async function callGemini(prompt: string, config: GeminiClientConfig): Promise<GeminiCallResult> {
+export async function callGemini(
+  prompt: string,
+  config: GeminiClientConfig,
+  options: GeminiCallOptions = {},
+): Promise<GeminiCallResult> {
   const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_GEMINI_MODEL } = config
 
   if (!apiKey) {
@@ -78,6 +88,7 @@ export async function callGemini(prompt: string, config: GeminiClientConfig): Pr
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: options.signal,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {

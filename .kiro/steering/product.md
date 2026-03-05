@@ -43,7 +43,14 @@ inclusion: always
 - `vulnerability-detail` 的專家審核區僅保留「審核狀態（humanStatus）」與審核備註
 - 審核狀態調整屬於草稿，必須按「儲存審核」成功後才視為完成流轉
 - 僅當 `humanStatus = confirmed`（且為已保存狀態）時，才允許顯示/執行忽略、人工修復、AI 自動修復操作
-- 分析引擎狀態文案需由 `/api/health` 動態映射，不可寫死為固定在線狀態
+- 服務可用性文案需由 `/api/health` 動態映射，不可寫死為固定在線狀態
+- 前端可見狀態以二態為主：`正常運行` / `無法運行`（不直接對使用者暴露 `degraded` 字樣）
+
+## 健康評分（Dashboard）
+
+- 健康評分由後端 `/api/health` 統一計算（V2），前端不得自行硬編碼分數公式
+- 評分需同時覆蓋 Exposure、Remediation、Quality、Reliability 四大面向
+- 前端可透過 Tooltip/詳情面板呈現公式、指標定義與理想區間
 
 ## 品質檢查
 
