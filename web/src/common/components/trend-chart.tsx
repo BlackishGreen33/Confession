@@ -1,6 +1,6 @@
 'use client'
 
-import { Shield } from 'lucide-react'
+import { CircleHelp, Shield } from 'lucide-react'
 import React from 'react'
 import {
   Area,
@@ -12,7 +12,14 @@ import {
   YAxis,
 } from 'recharts'
 
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useVulnTrend } from '@/hooks/use-vulnerabilities'
+import {
+  computeTrendInsights,
+  type MetricHelpContent,
+  PRESET_LABELS,
+} from '@/libs/dashboard-insights'
+import type { VulnerabilityFilterPreset } from '@/libs/types'
 
 // === Cyber 風格 tooltip 樣式 ===
 
@@ -34,15 +41,55 @@ const CHART_TOOLTIP_STYLE = {
   },
 }
 
+const metricToneClass = {
+  positive: 'text-emerald-300',
+  warning: 'text-amber-300',
+  negative: 'text-red-300',
+  neutral: 'text-cyber-textmuted',
+} as const
+
 /** 格式化日期標籤（MM/DD） */
 const formatDate = (dateStr: string): string => {
   const parts = dateStr.split('-')
   return `${parts[1]}/${parts[2]}`
 }
 
+const MetricHelp: React.FC<{ content: MetricHelpContent }> = ({ content }) => {
+  return (
+    <UiTooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyber-border text-cyber-textmuted transition-colors hover:border-cyber-primary hover:text-cyber-primary"
+          aria-label="查看趨勢指標說明"
+        >
+          <CircleHelp className="h-3 w-3" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        collisionPadding={12}
+        className="w-[min(18rem,calc(100vw-2rem))] rounded-lg border-cyber-border bg-cyber-surface2 p-3 text-left text-[11px] leading-relaxed text-cyber-text"
+      >
+        <span className="block text-[10px] font-black uppercase tracking-wider text-cyber-primary">怎麼算</span>
+        <span className="mt-1 block font-mono text-cyber-textmuted">{content.formula}</span>
+        <span className="mt-2 block text-[10px] font-black uppercase tracking-wider text-cyber-primary">代表什麼</span>
+        <span className="mt-1 block text-cyber-textmuted">{content.meaning}</span>
+        <span className="mt-2 block text-[10px] font-black uppercase tracking-wider text-cyber-primary">何時警戒</span>
+        <span className="mt-1 block text-cyber-textmuted">{content.ideal}</span>
+      </TooltipContent>
+    </UiTooltip>
+  )
+}
+
+interface TrendChartProps {
+  onNavigatePreset?: (preset: VulnerabilityFilterPreset) => void
+}
+
 // === 安全趨勢面積圖 ===
 
-export const TrendChart: React.FC = () => {
+export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
   const { data: trend, isLoading, isError } = useVulnTrend()
 
   const renderPlaceholder = (message: string) => (
@@ -57,15 +104,21 @@ export const TrendChart: React.FC = () => {
           Security Pulse Engine
         </p>
       </div>
-      <div className="flex-1 flex items-center justify-center text-cyber-textmuted text-sm">
-        {message}
-      </div>
+      <div className="flex-1 flex items-center justify-center text-cyber-textmuted text-sm">{message}</div>
     </div>
   )
 
   if (isLoading) return renderPlaceholder('載入中…')
   if (isError || !trend) return renderPlaceholder('無法載入趨勢資料')
   if (trend.length === 0) return renderPlaceholder('尚無趨勢資料')
+
+  const trendInsights = computeTrendInsights(trend)
+  const suggestedPreset: VulnerabilityFilterPreset =
+    trendInsights.pressureHigh || (trendInsights.openNet7d ?? 0) > 2
+      ? 'critical_open'
+      : (trendInsights.openNet7d ?? 0) > 0
+        ? 'high_open'
+        : 'open_all'
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-cyber-border bg-cyber-surface shadow-lg transition-[border-color,box-shadow] duration-75 hover:duration-300 hover:border-cyber-primary/60 hover:shadow-cyan-900/20 animate-slide-in animate-on-load delay-400 min-h-[440px] flex flex-col">
@@ -100,12 +153,7 @@ export const TrendChart: React.FC = () => {
                 <stop offset="95%" stopColor="#2EA043" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid
-              strokeDasharray="5 5"
-              stroke="#30363D"
-              vertical={false}
-              opacity={0.3}
-            />
+            <CartesianGrid strokeDasharray="5 5" stroke="#30363D" vertical={false} opacity={0.3} />
             <XAxis
               dataKey="date"
               tickFormatter={formatDate}
@@ -171,24 +219,51 @@ export const TrendChart: React.FC = () => {
         </ResponsiveContainer>
       </div>
 
+      <div className="mx-4 mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+        {trendInsights.metrics.map((metric) => (
+          <div
+            key={metric.key}
+            className="rounded-lg border border-cyber-border bg-cyber-bg/40 px-3 py-2 text-[11px]"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-black uppercase tracking-[0.12em] text-cyber-textmuted">
+                {metric.label}
+              </span>
+              <MetricHelp content={metric.help} />
+            </div>
+            <p className={`mt-1 font-mono text-sm font-black ${metricToneClass[metric.tone]}`}>
+              {metric.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
       {/* 狀態頁腳列 */}
-      <div className="mx-4 mb-4 p-4 bg-cyber-bg/50 rounded-xl border border-cyber-border/60 flex justify-between items-center">
+      <div className="mx-4 mt-3 mb-4 rounded-xl border border-cyber-border/60 bg-cyber-bg/50 p-4 flex justify-between items-center gap-3">
         <div className="flex items-center gap-4">
           <Shield className="size-6 text-cyber-accent" />
-          <div>
+          <div className="flex items-center gap-2">
             <span className="text-[11px] font-black text-white uppercase tracking-widest block">
-              AI 分析採手動觸發
+              {trendInsights.pressureHigh ? '壓力升高' : '趨勢可控'}
             </span>
-            <span className="text-[9px] text-cyber-textmuted font-bold">
-              僅在你主動操作時才會呼叫模型
-            </span>
+            <MetricHelp
+              content={{
+                formula: '壓力判讀 = 7 日淨增 + 連續上升檢查',
+                meaning: trendInsights.pressureReason ?? '目前未出現連續上升訊號，可維持既有節奏。',
+                ideal: '若顯示壓力升高，建議先處理嚴重級與高風險待處理項目。',
+              }}
+            />
           </div>
         </div>
-        <div className="text-right">
-          <span className="text-[10px] font-mono text-white opacity-30">
-            最後同步: {new Date().toLocaleTimeString()}
-          </span>
-        </div>
+        {onNavigatePreset && (
+          <button
+            type="button"
+            onClick={() => onNavigatePreset(suggestedPreset)}
+            className="inline-flex items-center rounded border border-cyber-primary/50 bg-cyber-primary/10 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-cyber-primary transition-colors hover:border-cyber-primary hover:bg-cyber-primary/20"
+          >
+            前往 {PRESET_LABELS[suggestedPreset]}
+          </button>
+        )}
       </div>
     </div>
   )
