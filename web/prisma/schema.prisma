@@ -86,6 +86,49 @@ model ScanTask {
   @@map("scan_tasks")
 }
 
+model AdviceSnapshot {
+  id                 String   @id @default(cuid())
+  summary            String
+  confidence         Float
+  triggerScore       Float
+  triggerReason      String
+  sourceEvent        String
+  metricsFingerprint String
+  actionItems        String
+  rawResponse        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  decisions AdviceDecision[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("advice_snapshots")
+}
+
+model AdviceDecision {
+  id                    String   @id @default(cuid())
+  sourceEvent           String
+  sourceTaskId          String?
+  sourceVulnerabilityId String?
+  triggerScore          Float
+  triggerReason         String
+  metricsFingerprint    String
+  shouldCallAi          Boolean  @default(false)
+  calledAi              Boolean  @default(false)
+  blockedReason         String?
+  llmError              String?
+  metricSnapshot        String
+  adviceSnapshotId      String?
+  createdAt             DateTime @default(now())
+
+  adviceSnapshot AdviceSnapshot? @relation(fields: [adviceSnapshotId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([calledAi, createdAt(sort: Desc)])
+  @@index([sourceEvent, createdAt(sort: Desc)])
+  @@map("advice_decisions")
+}
+
 /// 單列配置表（singleton），id 固定為 "default"
 model Config {
   id        String   @id @default("default")
