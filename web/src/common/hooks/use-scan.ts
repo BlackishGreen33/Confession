@@ -1,64 +1,77 @@
-'use client'
+'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AxiosError } from 'axios'
-import { useSetAtom } from 'jotai'
-import { useEffect } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AxiosError } from 'axios';
+import { useSetAtom } from 'jotai';
+import { useEffect } from 'react';
 
-import { api } from '@/libs/api-client'
-import { scanStatusAtom } from '@/libs/atoms'
-import type { RecentScanSummary, ScanEngineMode, ScanErrorCode, ScanRequest } from '@/libs/types'
+import { api } from '@/libs/api-client';
+import { scanStatusAtom } from '@/libs/atoms';
+import type {
+  RecentScanSummary,
+  ScanEngineMode,
+  ScanErrorCode,
+  ScanRequest,
+} from '@/libs/types';
 
 // 從 atoms.ts 重新匯出，保持同檔共置慣例
-export { scanStatusAtom } from '@/libs/atoms'
+export { scanStatusAtom } from '@/libs/atoms';
 
 // === 回應型別 ===
 
 interface ScanTriggerResponse {
-  taskId: string
-  status: string
+  taskId: string;
+  status: string;
 }
 
 export interface ScanStatusResponse {
-  id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  progress: number
-  totalFiles: number
-  scannedFiles: number
-  engineMode: ScanEngineMode
-  fallbackUsed: boolean
-  fallbackFrom?: 'agentic_beta'
-  fallbackTo?: 'baseline'
-  fallbackReason?: string
-  errorMessage: string | null
-  errorCode: ScanErrorCode | null
-  createdAt: string
-  updatedAt: string
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  totalFiles: number;
+  scannedFiles: number;
+  engineMode: ScanEngineMode;
+  fallbackUsed: boolean;
+  fallbackFrom?: 'agentic_beta';
+  fallbackTo?: 'baseline';
+  fallbackReason?: string;
+  errorMessage: string | null;
+  errorCode: ScanErrorCode | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // === Hooks ===
 
 /** 觸發掃描（POST /api/scan） */
 export function useScan() {
-  const qc = useQueryClient()
-  const setScanStatus = useSetAtom(scanStatusAtom)
+  const qc = useQueryClient();
+  const setScanStatus = useSetAtom(scanStatusAtom);
 
   return useMutation<ScanTriggerResponse, Error, ScanRequest>({
     mutationFn: (request) => api.post('/api/scan', request).then((r) => r.data),
     onMutate: () => {
-      setScanStatus({ isScanning: true, progress: 0, message: '掃描啟動中…' })
+      setScanStatus({ isScanning: true, progress: 0, message: '掃描啟動中…' });
     },
     onSuccess: () => {
-      setScanStatus({ isScanning: true, progress: 0.1, message: '掃描進行中…' })
+      setScanStatus({
+        isScanning: true,
+        progress: 0.1,
+        message: '掃描進行中…',
+      });
     },
     onError: (error) => {
-      setScanStatus({ isScanning: false, progress: 0, message: error.message })
+      setScanStatus({ isScanning: false, progress: 0, message: error.message });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['vulnerabilities'] })
-      qc.invalidateQueries({ queryKey: ['vuln-stats'] })
+      qc.invalidateQueries({ queryKey: ['vulnerabilities'] });
+      qc.invalidateQueries({ queryKey: ['vuln-stats'] });
+      qc.invalidateQueries({ queryKey: ['vuln-trend'] });
+      qc.invalidateQueries({ queryKey: ['health'] });
+      qc.invalidateQueries({ queryKey: ['advice-latest'] });
+      qc.invalidateQueries({ queryKey: ['scan-recent'] });
     },
-  })
+  });
 }
 
 /** 查詢掃描進度（GET /api/scan/status/:id） */
@@ -68,139 +81,139 @@ export function useScanStatus(taskId: string | null) {
     queryFn: () => api.get(`/api/scan/status/${taskId}`).then((r) => r.data),
     enabled: !!taskId,
     refetchInterval: (query) => {
-      const status = query.state.data?.status
+      const status = query.state.data?.status;
       // 掃描完成或失敗後停止輪詢
-      if (status === 'completed' || status === 'failed') return false
-      return 1000
+      if (status === 'completed' || status === 'failed') return false;
+      return 1000;
     },
-  })
+  });
 }
 
 /** 查詢最近一次掃描摘要（GET /api/scan/recent） */
 export function useRecentScanSummary() {
-  const qc = useQueryClient()
+  const qc = useQueryClient();
   const query = useQuery<RecentScanSummary | null>({
     queryKey: ['scan-recent'],
     queryFn: async () => {
       try {
-        const res = await api.get<RecentScanSummary>('/api/scan/recent')
-        return res.data
+        const res = await api.get<RecentScanSummary>('/api/scan/recent');
+        return res.data;
       } catch (err) {
         if (err instanceof AxiosError && err.response?.status === 404) {
-          return null
+          return null;
         }
-        throw err
+        throw err;
       }
     },
     retry: false,
     staleTime: 800,
     refetchInterval: (query) => {
-      const status = query.state.data?.status
-      if (status === 'running' || status === 'pending') return 1_000
-      return 3_000
+      const status = query.state.data?.status;
+      if (status === 'running' || status === 'pending') return 1_000;
+      return false;
     },
-  })
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.EventSource) {
-      return
+      return;
     }
 
-    const taskId = query.data?.id
-    const status = query.data?.status
+    const taskId = query.data?.id;
+    const status = query.data?.status;
     if (!taskId || status === 'completed' || status === 'failed') {
-      return
+      return;
     }
 
-    let source: { close: () => void } | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    let disposed = false
-    let retryCount = 0
+    let source: { close: () => void } | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    let retryCount = 0;
 
     const closeSource = () => {
-      if (!source) return
-      source.close()
-      source = null
-    }
+      if (!source) return;
+      source.close();
+      source = null;
+    };
 
     const clearReconnectTimer = () => {
-      if (!reconnectTimer) return
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
+      if (!reconnectTimer) return;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    };
 
     const isTerminal = (value: RecentScanSummary | null | undefined): boolean =>
-      value?.status === 'completed' || value?.status === 'failed'
+      value?.status === 'completed' || value?.status === 'failed';
 
     const getLatestSnapshot = (): RecentScanSummary | null | undefined =>
-      qc.getQueryData<RecentScanSummary | null>(['scan-recent'])
+      qc.getQueryData<RecentScanSummary | null>(['scan-recent']);
 
     const connect = () => {
-      if (disposed) return
+      if (disposed) return;
 
-      const latest = getLatestSnapshot()
+      const latest = getLatestSnapshot();
       if (!latest || latest.id !== taskId || isTerminal(latest)) {
-        return
+        return;
       }
 
-      closeSource()
-      const eventSource = new window.EventSource(`/api/scan/stream/${taskId}`)
-      source = eventSource
+      closeSource();
+      const eventSource = new window.EventSource(`/api/scan/stream/${taskId}`);
+      source = eventSource;
 
       eventSource.onmessage = (event) => {
-        retryCount = 0
-        clearReconnectTimer()
-        handleMessage(event)
-      }
+        retryCount = 0;
+        clearReconnectTimer();
+        handleMessage(event);
+      };
 
       eventSource.onerror = () => {
-        closeSource()
-        scheduleReconnect()
-      }
-    }
+        closeSource();
+        scheduleReconnect();
+      };
+    };
 
     const scheduleReconnect = () => {
-      if (disposed) return
+      if (disposed) return;
 
-      const latest = getLatestSnapshot()
+      const latest = getLatestSnapshot();
       if (!latest || latest.id !== taskId || isTerminal(latest)) {
-        return
+        return;
       }
 
-      clearReconnectTimer()
-      const cappedRetry = Math.min(retryCount, 5)
-      const delayMs = Math.min(10_000, 500 * 2 ** cappedRetry)
-      retryCount += 1
+      clearReconnectTimer();
+      const cappedRetry = Math.min(retryCount, 5);
+      const delayMs = Math.min(10_000, 500 * 2 ** cappedRetry);
+      retryCount += 1;
 
       reconnectTimer = setTimeout(() => {
-        connect()
-      }, delayMs)
-    }
+        connect();
+      }, delayMs);
+    };
 
     const handleMessage = (event: { data: string }) => {
       try {
-        const next = JSON.parse(event.data) as RecentScanSummary
+        const next = JSON.parse(event.data) as RecentScanSummary;
         if (next.id !== taskId) {
-          return
+          return;
         }
-        qc.setQueryData<RecentScanSummary | null>(['scan-recent'], next)
+        qc.setQueryData<RecentScanSummary | null>(['scan-recent'], next);
         if (next.status === 'completed' || next.status === 'failed') {
-          clearReconnectTimer()
-          closeSource()
+          clearReconnectTimer();
+          closeSource();
         }
       } catch {
         // ignore malformed payload
       }
-    }
+    };
 
-    connect()
+    connect();
 
     return () => {
-      disposed = true
-      clearReconnectTimer()
-      closeSource()
-    }
-  }, [qc, query.data?.id, query.data?.status])
+      disposed = true;
+      clearReconnectTimer();
+      closeSource();
+    };
+  }, [qc, query.data?.id, query.data?.status]);
 
-  return query
+  return query;
 }

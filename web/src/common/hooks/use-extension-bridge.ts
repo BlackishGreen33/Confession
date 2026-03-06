@@ -1,9 +1,9 @@
-'use client'
+'use client';
 
-import { type QueryClient, useQueryClient } from '@tanstack/react-query'
-import { useSetAtom } from 'jotai'
-import { useRouter } from 'next/navigation'
-import React, { useCallback, useEffect, useRef } from 'react'
+import { type QueryClient, useQueryClient } from '@tanstack/react-query';
+import { useSetAtom } from 'jotai';
+import { useRouter } from 'next/navigation';
+import React, { useCallback, useEffect, useRef } from 'react';
 
 import {
   configAtom,
@@ -11,71 +11,81 @@ import {
   vulnerabilityDetailAtom,
   vulnerabilityPresetAtom,
   vulnFiltersAtom,
-} from '@/libs/atoms'
-import { presetToFilters } from '@/libs/dashboard-insights'
+} from '@/libs/atoms';
+import { presetToFilters } from '@/libs/dashboard-insights';
 import type {
   ExtToWebMsg,
   PluginConfig,
   Vulnerability,
   VulnerabilityFilterPreset,
   WebToExtMsg,
-} from '@/libs/types'
+} from '@/libs/types';
 
-type OperationResult = Extract<ExtToWebMsg, { type: 'operation_result' }>['data']
+type OperationResult = Extract<
+  ExtToWebMsg,
+  { type: 'operation_result' }
+>['data'];
 type RequestMessage =
   | Extract<WebToExtMsg, { requestId: string }>
-  | (Extract<WebToExtMsg, { type: 'focus_sidebar_view' }> & { requestId: string })
+  | (Extract<WebToExtMsg, { type: 'focus_sidebar_view' }> & {
+      requestId: string;
+    });
 
 interface PendingOperation {
-  resolve: (value: OperationResult) => void
-  reject: (reason?: unknown) => void
-  timer: ReturnType<typeof setTimeout>
+  resolve: (value: OperationResult) => void;
+  reject: (reason?: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
-const pendingOperations = new Map<string, PendingOperation>()
+const pendingOperations = new Map<string, PendingOperation>();
+const EVENT_FOLLOW_UP_DELAYS_MS = [900, 2_400] as const;
+
 type EditableInputTarget = {
-  tagName?: string
-  value: string
-  selectionStart?: number | null
-  selectionEnd?: number | null
-  setSelectionRange: (start: number, end: number) => void
-  dispatchEvent: (event: Event) => boolean
-}
+  tagName?: string;
+  value: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  setSelectionRange: (start: number, end: number) => void;
+  dispatchEvent: (event: Event) => boolean;
+};
 
-let lastRequestedPasteTarget: EditableInputTarget | null = null
+let lastRequestedPasteTarget: EditableInputTarget | null = null;
 
 /** 判斷是否在 VS Code Webview iframe 內 */
 function isInVscodeWebview(): boolean {
   try {
-    return typeof window !== 'undefined' && window.parent !== window
+    return typeof window !== 'undefined' && window.parent !== window;
   } catch {
-    return false
+    return false;
   }
 }
 
 /** 產生請求 ID，供 request/ack 對應使用 */
 export function createRequestId(prefix = 'req'): string {
-  const rand = Math.random().toString(36).slice(2, 10)
-  return `${prefix}-${Date.now()}-${rand}`
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now()}-${rand}`;
 }
 
-function registerPendingOperation(requestId: string, timeoutMs: number): Promise<OperationResult> {
+function registerPendingOperation(
+  requestId: string,
+  timeoutMs: number
+): Promise<OperationResult> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingOperations.delete(requestId)
-      reject(new Error('等待 Extension 回執逾時'))
-    }, timeoutMs)
+      pendingOperations.delete(requestId);
+      reject(new Error('等待 Extension 回執逾時'));
+    }, timeoutMs);
 
-    pendingOperations.set(requestId, { resolve, reject, timer })
-  })
+    pendingOperations.set(requestId, { resolve, reject, timer });
+  });
 }
 
 function resolvePendingOperation(result: OperationResult): void {
-  const pending = pendingOperations.get(result.requestId)
-  if (!pending) return
-  clearTimeout(pending.timer)
-  pendingOperations.delete(result.requestId)
-  pending.resolve(result)
+  const pending = pendingOperations.get(result.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingOperations.delete(result.requestId);
+  pending.resolve(result);
 }
 
 /** 向擴充套件發送訊息（透過 parent window 轉發） */
@@ -86,32 +96,32 @@ export function postToExtension(msg: WebToExtMsg): void {
         ...msg,
         __confessionBridge: 'iframe',
       },
-      '*',
-    )
+      '*'
+    );
   }
 }
 
 function toEditableInputTarget(value: unknown): EditableInputTarget | null {
   if (!value || typeof value !== 'object') {
-    return null
+    return null;
   }
 
   const candidate = value as {
-    tagName?: string
-    value?: string
-    selectionStart?: number | null
-    selectionEnd?: number | null
-    setSelectionRange?: (start: number, end: number) => void
-    dispatchEvent?: (event: Event) => boolean
-  }
+    tagName?: string;
+    value?: string;
+    selectionStart?: number | null;
+    selectionEnd?: number | null;
+    setSelectionRange?: (start: number, end: number) => void;
+    dispatchEvent?: (event: Event) => boolean;
+  };
 
   if (typeof candidate.tagName !== 'string') {
-    return null
+    return null;
   }
 
-  const tag = candidate.tagName.toLowerCase()
+  const tag = candidate.tagName.toLowerCase();
   if (tag !== 'input' && tag !== 'textarea') {
-    return null
+    return null;
   }
 
   if (
@@ -119,60 +129,73 @@ function toEditableInputTarget(value: unknown): EditableInputTarget | null {
     typeof candidate.setSelectionRange !== 'function' ||
     typeof candidate.dispatchEvent !== 'function'
   ) {
-    return null
+    return null;
   }
 
   return candidate as {
-    value: string
-    selectionStart?: number | null
-    selectionEnd?: number | null
-    setSelectionRange: (start: number, end: number) => void
-    dispatchEvent: (event: Event) => boolean
-  }
+    value: string;
+    selectionStart?: number | null;
+    selectionEnd?: number | null;
+    setSelectionRange: (start: number, end: number) => void;
+    dispatchEvent: (event: Event) => boolean;
+  };
 }
 
 function insertClipboardTextToFocusedInput(text: string): boolean {
-  const activeTarget = toEditableInputTarget(document.activeElement)
-  const target = activeTarget ?? lastRequestedPasteTarget
+  const activeTarget = toEditableInputTarget(document.activeElement);
+  const target = activeTarget ?? lastRequestedPasteTarget;
   if (!target) {
-    return false
+    return false;
   }
 
-  const start = target.selectionStart ?? target.value.length
-  const end = target.selectionEnd ?? target.value.length
-  const next = `${target.value.slice(0, start)}${text}${target.value.slice(end)}`
+  const start = target.selectionStart ?? target.value.length;
+  const end = target.selectionEnd ?? target.value.length;
+  const next = `${target.value.slice(0, start)}${text}${target.value.slice(end)}`;
 
-  const tag = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : ''
+  const tag =
+    typeof target.tagName === 'string' ? target.tagName.toLowerCase() : '';
   const valueSetter =
     tag === 'textarea'
-      ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
-      : Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+      ? Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          'value'
+        )?.set
+      : Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        )?.set;
 
   if (typeof valueSetter === 'function') {
-    valueSetter.call(target, next)
+    valueSetter.call(target, next);
   } else {
-    target.value = next
+    target.value = next;
   }
 
-  target.setSelectionRange(start + text.length, start + text.length)
-  target.dispatchEvent(new window.Event('input', { bubbles: true }))
-  target.dispatchEvent(new window.Event('change', { bubbles: true }))
-  lastRequestedPasteTarget = target
-  return true
+  target.setSelectionRange(start + text.length, start + text.length);
+  target.dispatchEvent(new window.Event('input', { bubbles: true }));
+  target.dispatchEvent(new window.Event('change', { bubbles: true }));
+  lastRequestedPasteTarget = target;
+  return true;
 }
 
 function isEditablePasteTarget(target: unknown): boolean {
-  if (toEditableInputTarget(target)) return true
-  if (!target || typeof target !== 'object') return false
+  if (toEditableInputTarget(target)) return true;
+  if (!target || typeof target !== 'object') return false;
 
-  const candidate = target as { isContentEditable?: boolean; getAttribute?: (name: string) => string | null }
+  const candidate = target as {
+    isContentEditable?: boolean;
+    getAttribute?: (name: string) => string | null;
+  };
 
   if (candidate.isContentEditable) {
-    return true
+    return true;
   }
 
-  const role = typeof candidate.getAttribute === 'function' ? candidate.getAttribute('role') : null
-  return role === 'textbox'
+  const role =
+    typeof candidate.getAttribute === 'function'
+      ? candidate.getAttribute('role')
+      : null;
+  return role === 'textbox';
 }
 
 /**
@@ -181,65 +204,113 @@ function isEditablePasteTarget(target: unknown): boolean {
  */
 export async function sendRequestToExtension(
   msg: RequestMessage,
-  timeoutMs = 20_000,
+  timeoutMs = 20_000
 ): Promise<OperationResult> {
   if (!isInVscodeWebview()) {
-    throw new Error('目前不在 VS Code Webview 環境')
+    throw new Error('目前不在 VS Code Webview 環境');
   }
-  const pending = registerPendingOperation(msg.requestId, timeoutMs)
-  postToExtension(msg)
-  return pending
+  const pending = registerPendingOperation(msg.requestId, timeoutMs);
+  postToExtension(msg);
+  return pending;
 }
 
 /** 請求 Extension 聚焦側邊欄 view，並等待回執。 */
 export function sendFocusSidebarViewAndWait(
   view: 'dashboard' | 'vulnerabilities',
   preset?: VulnerabilityFilterPreset,
-  timeoutMs = 8_000,
+  timeoutMs = 8_000
 ): Promise<OperationResult> {
-  const requestId = createRequestId('focus-view')
+  const requestId = createRequestId('focus-view');
   return sendRequestToExtension(
     { type: 'focus_sidebar_view', requestId, data: { view, preset } },
-    timeoutMs,
-  )
+    timeoutMs
+  );
 }
 
 /** 向擴充套件發送開啟漏洞詳情請求 */
 export function sendOpenVulnerabilityDetail(vulnId: string): void {
-  postToExtension({ type: 'open_vulnerability_detail', data: { vulnerabilityId: vulnId } })
+  postToExtension({
+    type: 'open_vulnerability_detail',
+    data: { vulnerabilityId: vulnId },
+  });
 }
 
 function syncUpdatedVulnerabilityCache(
   queryClient: QueryClient,
-  updated: Vulnerability,
+  updated: Vulnerability
 ): void {
-  queryClient.setQueryData<Vulnerability>(['vulnerability', updated.id], updated)
+  queryClient.setQueryData<Vulnerability>(
+    ['vulnerability', updated.id],
+    updated
+  );
   queryClient.setQueriesData<{
-    items: Vulnerability[]
-    total: number
-    page: number
-    pageSize: number
-    totalPages: number
+    items: Vulnerability[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
   }>({ queryKey: ['vulnerabilities'] }, (old) => {
-    if (!old) return old
+    if (!old) return old;
     return {
       ...old,
       items: old.items.map((item) => (item.id === updated.id ? updated : item)),
-    }
-  })
+    };
+  });
 }
 
 function refreshVulnerabilityQueries(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] })
-  void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] })
-  void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] })
-  void queryClient.invalidateQueries({ queryKey: ['vulnerability'] })
-  void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] })
+  void queryClient.invalidateQueries({ queryKey: ['vulnerabilities'] });
+  void queryClient.invalidateQueries({ queryKey: ['vuln-stats'] });
+  void queryClient.invalidateQueries({ queryKey: ['vuln-trend'] });
+  void queryClient.invalidateQueries({ queryKey: ['vulnerability'] });
+  void queryClient.invalidateQueries({ queryKey: ['vulnerability-events'] });
 
   // 立即觸發活躍查詢重抓，避免卡片數據停留在舊快取。
-  void queryClient.refetchQueries({ queryKey: ['vulnerabilities'], type: 'active' })
-  void queryClient.refetchQueries({ queryKey: ['vuln-stats'], type: 'active' })
-  void queryClient.refetchQueries({ queryKey: ['vuln-trend'], type: 'active' })
+  void queryClient.refetchQueries({
+    queryKey: ['vulnerabilities'],
+    type: 'active',
+  });
+  void queryClient.refetchQueries({ queryKey: ['vuln-stats'], type: 'active' });
+  void queryClient.refetchQueries({ queryKey: ['vuln-trend'], type: 'active' });
+}
+
+function refreshDashboardQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ['health'] });
+  void queryClient.invalidateQueries({ queryKey: ['advice-latest'] });
+  void queryClient.invalidateQueries({ queryKey: ['scan-recent'] });
+
+  void queryClient.refetchQueries({ queryKey: ['health'], type: 'active' });
+  void queryClient.refetchQueries({
+    queryKey: ['advice-latest'],
+    type: 'active',
+  });
+  void queryClient.refetchQueries({
+    queryKey: ['scan-recent'],
+    type: 'active',
+  });
+}
+
+function scheduleEventFollowUpRefreshes(
+  queryClient: QueryClient,
+  timers: Set<ReturnType<typeof setTimeout>>
+): void {
+  for (const delayMs of EVENT_FOLLOW_UP_DELAYS_MS) {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      refreshVulnerabilityQueries(queryClient);
+      refreshDashboardQueries(queryClient);
+    }, delayMs);
+    timers.add(timer);
+  }
+}
+
+function clearEventFollowUpTimers(
+  timers: Set<ReturnType<typeof setTimeout>>
+): void {
+  for (const timer of timers) {
+    clearTimeout(timer);
+  }
+  timers.clear();
 }
 
 /**
@@ -254,54 +325,68 @@ function refreshVulnerabilityQueries(queryClient: QueryClient): void {
  * - 啟動時向擴充套件請求目前配置
  */
 interface UseExtensionBridgeOptions {
-  passive?: boolean
+  passive?: boolean;
 }
 
 export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
-  const passive = options?.passive ?? false
-  const setConfig = useSetAtom(configAtom)
-  const setScanStatus = useSetAtom(scanStatusAtom)
-  const setVulnDetail = useSetAtom(vulnerabilityDetailAtom)
-  const setVulnFilters = useSetAtom(vulnFiltersAtom)
-  const setVulnPreset = useSetAtom(vulnerabilityPresetAtom)
-  const queryClient = useQueryClient()
-  const router = useRouter()
-  const initializedRef = useRef(false)
+  const passive = options?.passive ?? false;
+  const setConfig = useSetAtom(configAtom);
+  const setScanStatus = useSetAtom(scanStatusAtom);
+  const setVulnDetail = useSetAtom(vulnerabilityDetailAtom);
+  const setVulnFilters = useSetAtom(vulnFiltersAtom);
+  const setVulnPreset = useSetAtom(vulnerabilityPresetAtom);
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const initializedRef = useRef(false);
+  const eventFollowUpTimersRef = useRef(
+    new Set<ReturnType<typeof setTimeout>>()
+  );
 
   useEffect(() => {
     if (passive) {
-      return
+      clearEventFollowUpTimers(eventFollowUpTimersRef.current);
+      return;
     }
 
+    const refreshAfterMutationLikeEvent = () => {
+      refreshVulnerabilityQueries(queryClient);
+      refreshDashboardQueries(queryClient);
+      clearEventFollowUpTimers(eventFollowUpTimersRef.current);
+      scheduleEventFollowUpRefreshes(
+        queryClient,
+        eventFollowUpTimersRef.current
+      );
+    };
+
     const handler = (event: MessageEvent<ExtToWebMsg>) => {
-      const msg = event.data
-      if (!msg?.type) return
+      const msg = event.data;
+      if (!msg?.type) return;
 
       switch (msg.type) {
         case 'config_updated':
-          setConfig(msg.data)
-          queryClient.setQueryData(['config'], msg.data)
-          break
+          setConfig(msg.data);
+          queryClient.setQueryData(['config'], msg.data);
+          break;
         case 'clipboard_paste':
-          insertClipboardTextToFocusedInput(msg.data.text)
-          break
+          insertClipboardTextToFocusedInput(msg.data.text);
+          break;
         case 'navigate_to_view':
-          router.push(msg.data.route)
-          break
+          router.push(msg.data.route);
+          break;
         case 'apply_vulnerability_preset':
           setVulnFilters((prev) => ({
             ...prev,
             ...presetToFilters(msg.data.preset),
-          }))
+          }));
           setVulnPreset({
             preset: msg.data.preset,
             sourceRequestId: msg.data.sourceRequestId,
             appliedAt: new Date().toISOString(),
-          })
-          break
+          });
+          break;
         case 'vulnerability_detail_data':
-          setVulnDetail(msg.data)
-          break
+          setVulnDetail(msg.data);
+          break;
         case 'scan_progress':
           setScanStatus({
             isScanning: msg.data.status === 'running',
@@ -312,30 +397,37 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
                 : msg.data.status === 'failed'
                   ? '掃描失敗'
                   : '掃描進行中…',
-          })
-          void queryClient.invalidateQueries({ queryKey: ['scan-recent'] })
+          });
+          void queryClient.invalidateQueries({ queryKey: ['scan-recent'] });
           if (msg.data.status === 'completed' || msg.data.status === 'failed') {
-            refreshVulnerabilityQueries(queryClient)
+            refreshAfterMutationLikeEvent();
           }
-          break
+          break;
         case 'vulnerabilities_updated':
-          refreshVulnerabilityQueries(queryClient)
-          break
+          refreshAfterMutationLikeEvent();
+          break;
         case 'operation_result':
-          resolvePendingOperation(msg.data)
+          resolvePendingOperation(msg.data);
 
-          if (!msg.data.success) break
+          if (!msg.data.success) break;
 
           if (msg.data.payload?.updatedVulnerability) {
-            syncUpdatedVulnerabilityCache(queryClient, msg.data.payload.updatedVulnerability)
+            syncUpdatedVulnerabilityCache(
+              queryClient,
+              msg.data.payload.updatedVulnerability
+            );
             void queryClient.invalidateQueries({
-              queryKey: ['vulnerability-events', msg.data.payload.updatedVulnerability.id],
-            })
+              queryKey: [
+                'vulnerability-events',
+                msg.data.payload.updatedVulnerability.id,
+              ],
+            });
+            refreshAfterMutationLikeEvent();
           }
 
           if (msg.data.payload?.config) {
-            setConfig(msg.data.payload.config)
-            queryClient.setQueryData(['config'], msg.data.payload.config)
+            setConfig(msg.data.payload.config);
+            queryClient.setQueryData(['config'], msg.data.payload.config);
           }
 
           if (
@@ -343,21 +435,24 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
             msg.data.operation === 'ignore_vulnerability' ||
             msg.data.operation === 'refresh_vulnerabilities'
           ) {
-            refreshVulnerabilityQueries(queryClient)
+            refreshAfterMutationLikeEvent();
           }
-          break
+          break;
       }
-    }
+    };
 
-    window.addEventListener('message', handler)
+    window.addEventListener('message', handler);
 
     // 首次掛載時向擴充套件請求目前配置
     if (!initializedRef.current && isInVscodeWebview()) {
-      initializedRef.current = true
-      postToExtension({ type: 'request_config' })
+      initializedRef.current = true;
+      postToExtension({ type: 'request_config' });
     }
 
-    return () => window.removeEventListener('message', handler)
+    return () => {
+      clearEventFollowUpTimers(eventFollowUpTimersRef.current);
+      window.removeEventListener('message', handler);
+    };
   }, [
     passive,
     queryClient,
@@ -367,68 +462,72 @@ export function useExtensionBridge(options?: UseExtensionBridgeOptions) {
     setVulnDetail,
     setVulnFilters,
     setVulnPreset,
-  ])
+  ]);
 
   useEffect(() => {
     if (passive || !isInVscodeWebview()) {
-      return
+      return;
     }
 
     const onKeydown = (event: {
-      metaKey?: boolean
-      ctrlKey?: boolean
-      key?: string
-      target?: unknown
-      preventDefault?: () => void
+      metaKey?: boolean;
+      ctrlKey?: boolean;
+      key?: string;
+      target?: unknown;
+      preventDefault?: () => void;
     }) => {
       const isPaste =
         (event.metaKey || event.ctrlKey) &&
         typeof event.key === 'string' &&
-        event.key.toLowerCase() === 'v'
-      if (!isPaste) return
-      if (!isEditablePasteTarget(event.target)) return
-      lastRequestedPasteTarget = toEditableInputTarget(event.target)
+        event.key.toLowerCase() === 'v';
+      if (!isPaste) return;
+      if (!isEditablePasteTarget(event.target)) return;
+      lastRequestedPasteTarget = toEditableInputTarget(event.target);
 
       // VS Code Webview + iframe 環境下，快捷鍵貼上可能被 Host 吞掉；
       // 這裡改由 Extension 主動讀取剪貼簿後回填。
-      event.preventDefault?.()
-      postToExtension({ type: 'paste_clipboard' })
-    }
+      event.preventDefault?.();
+      postToExtension({ type: 'paste_clipboard' });
+    };
 
-    window.addEventListener('keydown', onKeydown, true)
-    return () => window.removeEventListener('keydown', onKeydown, true)
-  }, [passive])
+    window.addEventListener('keydown', onKeydown, true);
+    return () => window.removeEventListener('keydown', onKeydown, true);
+  }, [passive]);
 
   const sendConfigToExtension = useCallback((config: PluginConfig) => {
-    const requestId = createRequestId('config')
-    postToExtension({ type: 'update_config', requestId, data: config })
-    return requestId
-  }, [])
+    const requestId = createRequestId('config');
+    postToExtension({ type: 'update_config', requestId, data: config });
+    return requestId;
+  }, []);
 
   const sendConfigToExtensionAndWait = useCallback((config: PluginConfig) => {
-    const requestId = createRequestId('config')
-    return sendRequestToExtension({ type: 'update_config', requestId, data: config })
-  }, [])
+    const requestId = createRequestId('config');
+    return sendRequestToExtension({
+      type: 'update_config',
+      requestId,
+      data: config,
+    });
+  }, []);
 
   const sendFocusSidebarViewRequest = useCallback(
     (
       view: 'dashboard' | 'vulnerabilities',
       preset?: VulnerabilityFilterPreset,
-      timeoutMs = 8_000,
+      timeoutMs = 8_000
     ) => sendFocusSidebarViewAndWait(view, preset, timeoutMs),
-    [],
-  )
+    []
+  );
 
   return {
     sendConfigToExtension,
     sendConfigToExtensionAndWait,
     sendFocusSidebarViewRequest,
     isInVscodeWebview: isInVscodeWebview(),
-  }
+  };
 }
 
 /** 無 UI 初始化元件，掛載於 Providers 內以啟動橋接監聽 */
 export const ExtensionBridgeInit: React.FC = () => {
-  useExtensionBridge()
-  return null
-}
+  useExtensionBridge();
+  return null;
+};

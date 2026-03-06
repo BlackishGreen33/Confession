@@ -37,6 +37,22 @@ export interface SecuritySummaryAction {
   label: string
   preset: VulnerabilityFilterPreset
   reason: string
+  focusCount: number | null
+  kpi: {
+    label: string
+    current: string
+    target: string
+  }
+}
+
+export type SecurityMissionStage = 'stop-bleed' | 'converge' | 'stabilize'
+
+export interface SecuritySummaryProgress {
+  score: number
+  statusLabel: string
+  stage: SecurityMissionStage
+  stageIndex: number
+  stageReason: string
 }
 
 export interface SecuritySummary {
@@ -44,6 +60,9 @@ export interface SecuritySummary {
   tone: 'safe' | 'warning' | 'danger'
   coreMessage: string
   solutionMessage: string
+  dataTime: string | null
+  dataSourceLabel: string
+  progress: SecuritySummaryProgress
   action: SecuritySummaryAction | null
   rationale: string[]
 }
@@ -259,6 +278,120 @@ function toReliabilitySignal(health?: HealthResponseV2 | null): SecuritySignal {
   }
 }
 
+function formatPercent(value: number, digits = 0): string {
+  return `${round(value * 100, digits)}%`
+}
+
+function toReliabilityPressure(health?: HealthResponseV2 | null): number {
+  const reliability = health?.score.components.reliability.value
+  const fallbackRate = health?.score.components.reliability.fallbackRate
+
+  if (typeof reliability !== 'number' || typeof fallbackRate !== 'number') {
+    return 0.35
+  }
+
+  const reliabilityPenalty = clamp((80 - reliability) / 80, 0, 1)
+  const fallbackPenalty = clamp((fallbackRate - 0.05) / 0.35, 0, 1)
+  return clamp(reliabilityPenalty * 0.7 + fallbackPenalty * 0.3, 0, 1)
+}
+
+function toTrendPressure(params: {
+  openNet7d: number | null
+  openCount: number
+}): number {
+  const { openNet7d, openCount } = params
+  if (openNet7d === null || openNet7d <= 0) return 0
+  const tolerance = Math.max(1, Math.ceil(openCount * 0.3))
+  return clamp(openNet7d / tolerance, 0, 1)
+}
+
+function toMissionProgress(params: {
+  openCount: number
+  riskPressure: number
+  pendingReviewPressure: number
+  trendPressure: number
+  reliabilityPressure: number
+}): SecuritySummaryProgress {
+  const {
+    openCount,
+    riskPressure,
+    pendingReviewPressure,
+    trendPressure,
+    reliabilityPressure,
+  } = params
+
+  if (openCount <= 0) {
+    return {
+      score: 100,
+      statusLabel: '穩定巡航',
+      stage: 'stabilize',
+      stageIndex: 2,
+      stageReason: '目前沒有待處理風險，維持固定掃描與審核節奏即可。',
+    }
+  }
+
+  const pressure =
+    riskPressure * 0.45 +
+    pendingReviewPressure * 0.2 +
+    trendPressure * 0.2 +
+    reliabilityPressure * 0.15
+  const score = round(clamp((1 - pressure) * 100, 0, 100), 1)
+
+  const pressureBreakdown = [
+    {
+      key: 'risk',
+      value: riskPressure,
+      reason: '高風險庫存占比偏高，優先止血可最快降壓。',
+    },
+    {
+      key: 'review',
+      value: pendingReviewPressure,
+      reason: '待審核比例偏高，修復決策流被阻塞。',
+    },
+    {
+      key: 'trend',
+      value: trendPressure,
+      reason: '7 日待處理淨增偏高，壓力仍在升高。',
+    },
+    {
+      key: 'reliability',
+      value: reliabilityPressure,
+      reason: '掃描可靠度偏弱，建議先穩定引擎輸出。',
+    },
+  ]
+    .sort((a, b) => b.value - a.value)
+    .filter((item) => item.value > 0.08)
+
+  const stageReason =
+    pressureBreakdown[0]?.reason ?? '主要壓力已緩解，可持續批次收斂。'
+
+  if (score < 45) {
+    return {
+      score,
+      statusLabel: '高壓警戒',
+      stage: 'stop-bleed',
+      stageIndex: 0,
+      stageReason,
+    }
+  }
+  if (score < 80) {
+    return {
+      score,
+      statusLabel: '正在收斂',
+      stage: 'converge',
+      stageIndex: 1,
+      stageReason,
+    }
+  }
+  return {
+    score,
+    statusLabel: '穩定巡航',
+    stage: 'stabilize',
+    stageIndex: 2,
+    stageReason,
+  }
+}
+
 export function computeTrendInsights(trend?: TrendSnapshotPoint[] | null): TrendInsights {
   if (!trend || trend.length < 2) {
     return {
@@ -468,9 +601,30 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
   const reliabilitySignal = toReliabilitySignal(input.health)
   const pendingReview = Math.max(0, input.byHumanStatus?.pending ?? 0)
   const pendingReviewPressure = input.openCount > 0 ? pendingReview / input.openCount : 0
+  const riskPressure = computeRiskPressureScore({ openBySeverity })
+  const trendPressure = toTrendPressure({
+    openNet7d: trendInsights.openNet7d,
+    openCount: input.openCount,
+  })
+  const reliabilityPressure = toReliabilityPressure(input.health)
+  const progress = toMissionProgress({
+    openCount: input.openCount,
+    riskPressure,
+    pendingReviewPressure,
+    trendPressure,
+    reliabilityPressure,
+  })
 
   const criticalOpen = openBySeverity.critical
   const highOpen = openBySeverity.high
+  const highRiskOpen = criticalOpen + highOpen
+  const highRiskRatio = input.openCount > 0 ? highRiskOpen / input.openCount : 0
+  const reliabilityValue = input.health?.score.components.reliability.value
+  const fallbackRate = input.health?.score.components.reliability.fallbackRate
+  const dataTime = input.health?.evaluatedAt ?? input.trend?.at(-1)?.date ?? null
+  const dataSourceLabel = input.health
+    ? '規則推導（health + stats + trend）'
+    : '規則推導（stats + trend）'
 
   let headline = '目前風險趨勢穩定，可持續按節奏處理。'
   let tone: SecuritySummary['tone'] = 'safe'
@@ -493,6 +647,12 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
       label: '立即處理嚴重級',
       preset: 'critical_open',
       reason: '先壓低最高風險面，最快降低暴露上限。',
+      focusCount: criticalOpen,
+      kpi: {
+        label: '嚴重級待處理',
+        current: `${criticalOpen} 筆`,
+        target: '0 筆',
+      },
     }
   } else if (highOpen > 0) {
     headline = `高風險待處理 ${highOpen} 筆，建議優先收斂。`
@@ -503,6 +663,12 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
       label: '優先清理高風險',
       preset: 'high_open',
       reason: '先穩住中高風險，避免待處理持續堆積。',
+      focusCount: highOpen,
+      kpi: {
+        label: '高風險待處理',
+        current: `${highOpen} 筆`,
+        target: '0 筆',
+      },
     }
   } else if (pendingReviewPressure >= 0.35) {
     headline = `待審核堆積 ${pendingReview} 筆，修復決策受阻。`
@@ -513,6 +679,12 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
       label: '先清待審核',
       preset: 'open_all',
       reason: '先解除審核瓶頸，才能穩定提升修復吞吐。',
+      focusCount: pendingReview,
+      kpi: {
+        label: '待審核壓力',
+        current: `${formatPercent(pendingReviewPressure)} (${pendingReview}/${input.openCount})`,
+        target: '< 20%',
+      },
     }
   } else if (reliabilitySignal.tone === 'negative') {
     headline = '掃描可靠度偏弱，建議先穩定引擎再加速修復。'
@@ -523,6 +695,15 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
       label: '查看待處理清單',
       preset: 'open_all',
       reason: '先穩定掃描流程，避免修復決策建立在不穩定輸出上。',
+      focusCount: input.openCount,
+      kpi: {
+        label: '掃描可靠度',
+        current:
+          typeof reliabilityValue === 'number' && typeof fallbackRate === 'number'
+            ? `${reliabilityValue.toFixed(1)} / fallback ${(fallbackRate * 100).toFixed(1)}%`
+            : '資料不足',
+        target: '>= 80 且 fallback <= 10%',
+      },
     }
   } else {
     headline = '目前仍有待處理項目，建議以批次方式快速清庫存。'
@@ -533,19 +714,37 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
       label: '查看待處理清單',
       preset: 'open_all',
       reason: '已無高風險堵點，適合進入批次清理階段。',
+      focusCount: input.openCount,
+      kpi: {
+        label: '7日待處理淨變化',
+        current: trendInsights.openNet7d === null ? '樣本不足' : formatDelta(trendInsights.openNet7d),
+        target: '<= 0',
+      },
     }
   }
 
-  if (trendInsights.pressureHigh && input.openCount > 0) {
-    tone = tone === 'danger' ? 'danger' : 'warning'
+  if (input.openCount > 0) {
+    if (progress.stage === 'stop-bleed') {
+      tone = 'danger'
+    } else if (progress.stage === 'converge' && tone === 'safe') {
+      tone = 'warning'
+    }
   }
 
+  const trendLabel =
+    trendInsights.openNet7d === null ? '7日趨勢樣本不足' : `7日待處理淨變化 ${formatDelta(trendInsights.openNet7d)}`
+  const reliabilityLabel =
+    typeof reliabilityValue === 'number' && typeof fallbackRate === 'number'
+      ? `可靠度 ${reliabilityValue.toFixed(1)} / fallback ${(fallbackRate * 100).toFixed(1)}%`
+      : '可靠度資料不足'
+  const pressureMixLabel =
+    input.openCount > 0
+      ? `高風險佔比：${formatPercent(highRiskRatio)}（${highRiskOpen}/${input.openCount}）・待審核壓力：${formatPercent(pendingReviewPressure)}（${pendingReview}/${input.openCount}）`
+      : '目前無待處理項目，壓力來源已清空。'
   const rationale = [
-    `風險壓力分數：${Math.round(
-      computeRiskPressureScore({ openBySeverity }) * 100,
-    )} / 100（依 severity 權重估算）`,
-    trendInsights.pressureReason ?? '近期趨勢未觸發上升壓力警戒。',
-    reliabilitySignal.description,
+    `任務推進分數：${progress.score.toFixed(1)} / 100（45%風險壓力 + 20%待審核 + 20%趨勢 + 15%可靠度）`,
+    pressureMixLabel,
+    `${trendLabel}；${reliabilityLabel}`,
   ]
 
   return {
@@ -553,6 +752,9 @@ export function buildSecuritySummary(input: DashboardInsightInput): SecuritySumm
     tone,
     coreMessage,
     solutionMessage,
+    dataTime,
+    dataSourceLabel,
+    progress,
     action,
     rationale,
   }
