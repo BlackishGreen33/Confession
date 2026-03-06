@@ -294,7 +294,7 @@ const CyberStatCard: React.FC<CyberStatCardProps> = ({
 
   return (
     <div
-      className={`group relative min-h-[140px] overflow-hidden rounded-xl border border-cyber-border bg-cyber-surface shadow-lg transition-[border-color,box-shadow] duration-75 hover:duration-300 animate-slide-in animate-on-load ${cardClickable ? 'cursor-pointer' : 'cursor-default'} ${hoverBorderColor} ${delay}`}
+      className={`group relative min-h-[140px] overflow-hidden rounded-xl border border-cyber-border/40 glass-panel shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_4px_20px_rgba(88,166,255,0.15)] animate-slide-in animate-on-load ${cardClickable ? 'cursor-pointer' : 'cursor-default'} ${hoverBorderColor} ${delay}`}
       onClick={cardClickable ? onClick : undefined}
       role={cardClickable ? 'button' : undefined}
       tabIndex={cardClickable ? 0 : undefined}
@@ -309,8 +309,12 @@ const CyberStatCard: React.FC<CyberStatCardProps> = ({
           : undefined
       }
     >
-      {/* 頂部漸層線 */}
-      <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-cyber-primary/30 to-transparent" />
+      {/* 頂部漸層線與掃描線效果 */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-xl">
+        <div className="h-12 w-full bg-linear-to-b from-transparent via-cyber-primary/5 to-transparent animate-scanline" />
+      </div>
+      <div className="absolute inset-0 opacity-20 mix-blend-overlay cyber-grid-bg pointer-events-none" />
+      <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-cyber-primary/40 to-transparent shadow-[0_0_8px_rgba(88,166,255,0.3)]" />
 
       <div className="h-full p-5 flex flex-col justify-between relative z-10">
         <div className="space-y-1">
@@ -327,7 +331,7 @@ const CyberStatCard: React.FC<CyberStatCardProps> = ({
           <div className="flex items-baseline gap-2">
             <div className="flex items-center gap-1">
               <div className="flex items-end gap-0.5">
-                <span className="text-3xl font-black text-white font-mono tracking-tighter">
+                <span className="text-3xl font-black text-white font-mono tracking-tighter transition-all group-hover:animate-glow-text">
                   {value}
                 </span>
                 {valueSuffix && (
@@ -436,8 +440,8 @@ const SeverityChart: React.FC<{ bySeverity: Record<string, number>; total: numbe
             />
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-4xl font-black text-white font-mono tracking-tighter">
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none group">
+          <span className="text-4xl font-black text-white font-mono tracking-tighter drop-shadow-[0_0_12px_rgba(88,166,255,0.4)] transition-all animate-pulse-glow">
             {total}
           </span>
           <span className="text-[9px] text-cyber-textmuted uppercase font-black tracking-[0.2em] mt-1">
@@ -670,19 +674,20 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onOpenExport }) => {
   }, [])
 
   return (
-    <header className="relative z-20 flex flex-col sm:flex-row sm:items-end justify-between gap-4 animate-fade-in animate-on-load">
-      <div className="space-y-2">
+    <header className="relative z-20 flex flex-col sm:flex-row sm:items-end justify-between gap-4 animate-slide-in animate-on-load mb-4">
+      <div className="flex flex-col items-start gap-2">
         <Badge
           variant="outline"
-          className={`gap-2 ${statusColor} text-[10px] font-black uppercase tracking-[0.2em]`}
+          className={`gap-2 whitespace-nowrap ${statusColor} text-[10px] font-black uppercase tracking-[0.2em] drop-shadow-[0_0_8px_rgba(88,166,255,0.1)]`}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
           系統狀態：{statusLabel}
         </Badge>
-        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tighter">
-          安全態勢核心{' '}
-          <span className="text-cyber-primary/50 text-base font-mono ml-2 uppercase opacity-40">
+        <h1 className="group relative inline-flex flex-nowrap items-end gap-2 whitespace-nowrap text-[clamp(1.25rem,4.2vw,2rem)] font-black leading-none tracking-tighter text-white cursor-default sm:text-3xl">
+          <span className="whitespace-nowrap">安全態勢核心</span>
+          <span className="relative whitespace-nowrap text-[clamp(0.85rem,2.4vw,1rem)] font-mono uppercase tracking-[0.18em] text-cyber-primary/70">
             Dashboard
+            <span className="absolute -bottom-1 left-0 w-full h-px bg-cyber-primary/50 group-hover:bg-cyber-primary group-hover:shadow-[0_0_12px_rgba(88,166,255,0.8)] transition-all duration-300"></span>
           </span>
         </h1>
       </div>
@@ -742,10 +747,12 @@ interface CyberCardProps {
 const CyberCard: React.FC<CyberCardProps> = ({ title, subtitle, children, className, delay }) => {
   return (
     <div
-      className={`relative overflow-hidden rounded-xl border border-cyber-border bg-cyber-surface shadow-lg transition-[border-color,box-shadow] duration-75 hover:duration-300 hover:border-cyber-primary/60 hover:shadow-cyan-900/20 animate-slide-in animate-on-load ${delay ?? ''} ${className ?? ''}`}
+      className={`group relative overflow-hidden rounded-xl border border-cyber-border/40 glass-panel shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:border-cyber-primary/50 hover:shadow-[0_4px_30px_rgba(88,166,255,0.12)] animate-slide-up animate-on-load ${delay ?? ''} ${className ?? ''}`}
     >
-      <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-cyber-primary/30 to-transparent" />
-      <div className="p-4 pb-2">
+      <div className="absolute inset-0 bg-linear-to-b from-cyber-primary/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-10 pointer-events-none" />
+      <div className="absolute inset-0 opacity-[0.05] mix-blend-overlay cyber-grid-bg pointer-events-none" />
+      <div className="absolute top-0 left-0 w-full h-px bg-linear-to-r from-transparent via-cyber-primary/50 to-transparent" />
+      <div className="p-4 pb-2 relative z-10">
         <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
           <span className="w-1 h-4 bg-cyber-primary rounded-full shadow-[0_0_10px_rgba(88,166,255,0.8)]" />
           {title}
@@ -1057,12 +1064,15 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({ summary, onAc
   const action = summary.action
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-cyber-border bg-linear-to-br from-cyber-surface to-cyber-bg/85 px-5 py-5 shadow-lg transition-[border-color,box-shadow] duration-200 hover:border-cyber-primary/45 hover:shadow-cyber-primary/10">
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-linear-to-b from-transparent via-cyber-primary/35 to-transparent" />
+    <div className="group relative overflow-hidden rounded-xl border border-cyber-border/50 glass-panel px-5 py-5 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-cyber-primary/60 hover:shadow-[0_0_25px_rgba(88,166,255,0.15)] animate-slide-up animate-on-load delay-100">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="h-16 w-full bg-linear-to-b from-transparent via-cyber-primary/5 to-transparent animate-scanline opacity-0 group-hover:opacity-100 transition-opacity duration-500 delay-300" />
+      </div>
+      <div className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-linear-to-b from-transparent via-cyber-primary/45 to-transparent" />
       <div
         className={`pointer-events-none absolute left-0 top-8 h-12 w-1 rounded-r ${summaryToneStripeClass[summary.tone]}`}
       />
-      <div className="pointer-events-none absolute top-0 left-0 h-px w-full bg-linear-to-r from-transparent via-cyber-primary/35 to-transparent" />
+      <div className="pointer-events-none absolute top-0 left-0 h-px w-full bg-linear-to-r from-transparent via-cyber-primary/40 to-transparent shadow-[0_0_8px_rgba(88,166,255,0.2)]" />
 
       <div className="relative">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1779,9 +1789,13 @@ export const Dashboard: React.FC = () => {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="space-y-8">
-        {/* 標題區塊 */}
-        <DashboardHeader onOpenExport={handleOpenExportDialog} />
+      <div className="space-y-8 relative">
+        {/* 整體網格與發光背景 */}
+        <div className="pointer-events-none absolute -inset-4 z-0 cyber-grid-bg opacity-15 [mask-image:radial-gradient(ellipse_at_top,black_20%,transparent_70%)]" />
+        <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-cyber-primary/10 blur-[100px] rounded-full" />
+        <div className="relative z-10 space-y-8">
+          {/* 標題區塊 */}
+          <DashboardHeader onOpenExport={handleOpenExportDialog} />
 
         <SecuritySummaryCard
           summary={summaryCard}
@@ -1943,6 +1957,7 @@ export const Dashboard: React.FC = () => {
           open={isHealthDrawerOpen}
           onClose={() => setIsHealthDrawerOpen(false)}
         />
+        </div>
       </div>
     </TooltipProvider>
   )
