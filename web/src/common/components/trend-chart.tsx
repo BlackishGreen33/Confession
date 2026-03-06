@@ -92,10 +92,10 @@ interface TrendChartProps {
 type TrendSeriesKey = 'total' | 'open' | 'fixed' | 'ignored'
 
 const SERIES_META: Record<TrendSeriesKey, { label: string; color: string }> = {
-  total: { label: '總計', color: 'var(--state-low)' },
-  open: { label: '待處理', color: 'var(--state-high)' },
-  fixed: { label: '已修復', color: 'var(--state-safe)' },
-  ignored: { label: '已忽略', color: 'var(--state-info)' },
+  total: { label: '總計', color: '#4C8DFF' },
+  open: { label: '待處理', color: '#F3B34C' },
+  fixed: { label: '已修復', color: '#2FBF8F' },
+  ignored: { label: '已忽略', color: '#9FB0C7' },
 }
 
 // === 安全趨勢面積圖 ===
@@ -188,19 +188,24 @@ export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
           <AreaChart data={trend} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
             <defs>
               <linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--state-low)" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="var(--state-low)" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES_META.total.color} stopOpacity={0.56} />
+                <stop offset="95%" stopColor={SERIES_META.total.color} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradOpen" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--state-high)" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="var(--state-high)" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES_META.open.color} stopOpacity={0.44} />
+                <stop offset="95%" stopColor={SERIES_META.open.color} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradFixed" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--state-safe)" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="var(--state-safe)" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES_META.fixed.color} stopOpacity={0.44} />
+                <stop offset="95%" stopColor={SERIES_META.fixed.color} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="5 5" stroke="var(--cyber-border)" vertical={false} opacity={0.4} />
+            <CartesianGrid
+              strokeDasharray="5 5"
+              stroke="var(--cyber-border)"
+              vertical={false}
+              opacity={0.35}
+            />
             <XAxis
               dataKey="date"
               tickFormatter={formatDate}
@@ -235,16 +240,21 @@ export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
               type="monotone"
               dataKey="total"
               name="總計"
-              stroke="var(--state-low)"
+              stroke={SERIES_META.total.color}
               fill="url(#gradTotal)"
               strokeWidth={activeSeries === 'total' ? 3.6 : 3}
               strokeOpacity={getStrokeOpacity('total')}
               fillOpacity={getFillOpacity('total')}
-              dot={{ r: 3, fill: 'var(--cyber-bg)', strokeWidth: 2, stroke: 'var(--state-low)' }}
+              dot={{
+                r: 3,
+                fill: 'var(--cyber-surface)',
+                strokeWidth: 2,
+                stroke: SERIES_META.total.color,
+              }}
               activeDot={{
                 r: 5,
-                fill: 'var(--cyber-bg)',
-                stroke: 'var(--state-low)',
+                fill: 'var(--cyber-surface)',
+                stroke: SERIES_META.total.color,
                 strokeWidth: 2,
               }}
               onMouseEnter={() => setHoverSeries('total')}
@@ -258,7 +268,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
               type="monotone"
               dataKey="open"
               name="待處理"
-              stroke="var(--state-high)"
+              stroke={SERIES_META.open.color}
               fill="url(#gradOpen)"
               strokeWidth={activeSeries === 'open' ? 2.8 : 2}
               strokeOpacity={getStrokeOpacity('open')}
@@ -275,7 +285,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
               type="monotone"
               dataKey="fixed"
               name="已修復"
-              stroke="var(--state-safe)"
+              stroke={SERIES_META.fixed.color}
               fill="url(#gradFixed)"
               strokeWidth={activeSeries === 'fixed' ? 2.8 : 2}
               strokeOpacity={getStrokeOpacity('fixed')}
@@ -292,7 +302,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ onNavigatePreset }) => {
               type="monotone"
               dataKey="ignored"
               name="已忽略"
-              stroke="var(--state-info)"
+              stroke={SERIES_META.ignored.color}
               fill="none"
               strokeWidth={activeSeries === 'ignored' ? 2 : 1.5}
               strokeOpacity={getStrokeOpacity('ignored')}

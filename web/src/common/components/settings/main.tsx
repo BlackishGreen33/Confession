@@ -701,7 +701,7 @@ export const SettingsPanel: React.FC = () => {
             <div className="mb-4 rounded-lg border border-cyber-border bg-cyber-bg/35 px-4">
               <FormRow
                 label="主題模式"
-                description="切換介面外觀；不需要再額外進到子分頁"
+                description="選擇跟隨系統、淺色或深色"
                 htmlFor="theme-mode"
               >
                 <div className="space-y-2">
