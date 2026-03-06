@@ -8,7 +8,7 @@ inclusion: always
 |------|------|
 | 套件管理 | pnpm 9.x + Turborepo |
 | 語言 | TypeScript strict mode |
-| 前端 | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes |
+| 前端 | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes + framer-motion + next/font |
 | 狀態管理 | Jotai（主要）+ Bunshi（保留於依賴） |
 | 資料取得 | React Query + Axios |
 | 圖表 | Recharts |

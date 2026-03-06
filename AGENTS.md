@@ -78,17 +78,31 @@ confession/
 ├── web/                    # Next.js App Router + Hono
 │   ├── src/generated/       # Prisma 產生型別與 client
 │   ├── src/app/
+│   │   ├── layout.tsx
+│   │   ├── globals.css
 │   │   ├── page.tsx
+│   │   ├── loading.tsx
 │   │   ├── vulnerabilities/page.tsx
+│   │   ├── vulnerabilities/loading.tsx
 │   │   ├── settings/page.tsx
+│   │   ├── settings/loading.tsx
 │   │   ├── vulnerability-detail/page.tsx
+│   │   ├── vulnerability-detail/loading.tsx
 │   │   └── api/[...route]/route.ts
 │   ├── src/common/
 │   │   ├── components/
+│   │   │   ├── dashboard/main.tsx
+│   │   │   ├── vulnerability-list/main.tsx
+│   │   │   ├── vulnerability-detail/main.tsx
+│   │   │   ├── settings/main.tsx
+│   │   │   ├── loading/page-loading.tsx
+│   │   │   ├── theme-toggle.tsx
 │   │   │   ├── elements/          # 通用原子元件（cyber-select、cyber-dropdown-menu）
-│   │   │   └── ui/                # shadcn 元件封裝（select、dropdown-menu、tooltip 等）
+│   │   │   └── ui/                # shadcn 元件封裝（accordion/sheet/skeleton/select/dropdown/tooltip/sonner 等）
 │   │   ├── hooks/
+│   │   ├── motion/                # Framer Motion token、variants、provider、reveal
 │   │   ├── libs/
+│   │   ├── providers.tsx          # Theme + Motion + Query + Jotai provider
 │   │   └── utils/
 │   └── src/server/
 │       ├── agents/
@@ -115,6 +129,10 @@ confession/
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
 - `web/src/common/components/ui/tooltip.tsx`：shadcn/Radix Tooltip 元件封裝（支援碰撞避讓與 Portal）
 - `web/src/common/components/ui/sonner.tsx`：shadcn/sonner Toast 樣式封裝元件
+- `web/src/common/components/ui/accordion.tsx`、`web/src/common/components/ui/sheet.tsx`、`web/src/common/components/ui/skeleton.tsx`：shadcn primitives 擴充封裝
+- `web/src/common/components/loading/page-loading.tsx`：各 route 共用 loading skeleton + motion
+- `web/src/common/components/theme-toggle.tsx`：`light/dark/system` 主題切換入口
+- `web/src/common/motion/*`：Framer Motion 統一 token、variants、provider 與 reduced-motion 適配
 - `web/src/common/libs/dashboard-insights.ts`：Dashboard 洞察計算（摘要卡、Priority Lanes、Trend Insights、preset 導流）
 
 邊界規則：
@@ -133,7 +151,7 @@ confession/
 
 - 套件管理：pnpm 9.x + Turborepo
 - 語言：TypeScript strict mode
-- 前端：Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes
+- 前端：Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes + framer-motion + next/font
 - 狀態管理：Jotai（主要）+ Bunshi（保留於依賴）
 - 資料取得：React Query + Axios
 - 後端：Hono（掛載於 Next.js `/api/[...route]`）

@@ -3,12 +3,15 @@
 import React from 'react'
 
 import { Dashboard } from '@/components/dashboard'
+import { MotionReveal } from '@/motion/reveal'
 
 const Home: React.FC = () => {
   return (
     <main className="h-full overflow-y-auto custom-scrollbar bg-cyber-bg pb-20">
-      <div className="p-4 md:p-8 max-w-[1600px] mx-auto w-full">
-        <Dashboard />
+      <div className="mx-auto w-full max-w-[1320px] p-6 md:p-8">
+        <MotionReveal>
+          <Dashboard />
+        </MotionReveal>
       </div>
     </main>
   )

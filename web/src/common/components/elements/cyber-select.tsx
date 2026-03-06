@@ -45,7 +45,7 @@ export const CyberSelect: React.FC<CyberSelectProps> = ({
     <SelectTrigger
       id={id}
       className={cn(
-        'w-full border-cyber-border bg-cyber-bg text-xs font-bold text-white transition-all hover:border-cyber-primary/50 focus:border-cyber-primary',
+        'w-full border-cyber-border bg-cyber-bg text-xs font-bold text-cyber-text transition-[border-color,box-shadow,background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-cyber-primary/50 focus:border-cyber-primary',
         triggerClassName,
       )}
     >

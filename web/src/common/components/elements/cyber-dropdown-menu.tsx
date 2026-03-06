@@ -49,7 +49,7 @@ export const CyberDropdownMenu: React.FC<CyberDropdownMenuProps> = ({
           disabled={item.disabled}
           onSelect={item.onSelect}
           className={cn(
-            'cursor-pointer rounded-none px-4 py-3 text-[11px] font-bold text-white transition-all hover:bg-cyber-primary/10 hover:text-cyber-primary focus:bg-cyber-primary/10 focus:text-cyber-primary',
+            'cursor-pointer rounded-none px-4 py-3 text-xs font-bold text-cyber-text transition-[background-color,color,border-color,transform,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-cyber-primary/10 hover:text-cyber-primary focus:bg-cyber-primary/10 focus:text-cyber-primary',
             index < items.length - 1 && 'border-b border-cyber-border/50',
             item.className,
           )}
