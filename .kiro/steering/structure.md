@@ -47,14 +47,15 @@ confession/
 │   │   │   ├── theme-toggle.tsx
 │   │   │   ├── elements/   # 通用原子元件（cyber-select.tsx、cyber-dropdown-menu.tsx）
 │   │   │   └── ui/         # shadcn 元件（含 accordion/sheet/skeleton/select/dropdown/tooltip/sonner）
-│   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
+│   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接，事件驅動補抓）
 │   │   ├── motion/         # Framer Motion token、variants、provider、reveal
 │   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts, ui-messages.ts, dashboard-insights.ts
 │   │   ├── providers.tsx   # Theme + Motion + Query + Jotai 統一 provider
 │   │   └── utils/          # cn() 等工具函數
-│   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, mcp/, db.ts, cache.ts, monitoring.ts
-│       ├── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts + health-score.ts）
+│   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, mcp/, db.ts, cache.ts, monitoring.ts, advice-gate.ts
+│       ├── routes/         # Hono 路由模組：config.ts, advice.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts + health-score.ts）
 │       ├── health-score.ts # 健康評分 V2 計算（Exposure/Remediation/Quality/Reliability）
+│       ├── advice-gate.ts  # AI 下一步建議 Gate（事件觸發 + 門檻/冷卻/去重/日上限）
 │       ├── agents/agentic-beta/ # Beta 多代理：planner/skills/analyst/critic/judge/context-bundle
 │       └── mcp/            # MCP broker + policy（白名單與能力管制）
 ├── go-analyzer/            # Go AST → WASM
@@ -69,13 +70,17 @@ confession/
 ```
 
 補充（近期資料模型變更）：
+
 - `web/prisma/schema.prisma` 的 `ScanTask` 新增 `fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`，用於記錄 agentic 自動回退 baseline 的執行情況。
 
 補充（近期前端架構變更）：
+
 - 新增 route 級 `loading.tsx`（首頁/漏洞列表/設定/漏洞詳情），統一使用 skeleton + motion。
 - 新增 `web/src/common/motion/*`，統一 Framer Motion token 與 reduced-motion 行為。
 - `dashboard`、`vulnerability-list`、`vulnerability-detail`、`settings` 改為 feature folder 入口（`main.tsx`），原檔案改 thin re-export。
 - 新增 `web/src/common/components/theme-toggle.tsx`，提供 `light/dark/system` 主題切換。
+- 新增 `web/src/common/hooks/use-advice.ts`，提供 `GET /api/advice/latest` 查詢（事件驅動刷新）。
+- Dashboard 新增 AI 下一步建議卡，並保留規則摘要 fallback。
 
 ## 邊界規則
 

@@ -36,6 +36,10 @@
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
+- AI 下一步建議策略：
+  - 僅在 `scan_completed` / `scan_failed` / `review_saved` / `status_changed` 事件後評估
+  - 必須通過公式門檻才可呼叫 AI，未達標只保留決策紀錄
+  - 必須套用 cooldown、指標去重與日上限，避免短時間重複消耗
 - AI 掃描策略（成本優先）：
   - `quick`：僅高風險 AST 點位觸發 LLM（條件式）
   - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
@@ -56,6 +60,7 @@
   - Dashboard 四卡上方需提供「一句總結 + 3 信號 + 1 主行動」摘要卡，支援一鍵導流漏洞列表
   - `風險資源分配` 需提供 Priority Lanes（優先序 + 建議投入比例 + 一鍵導流）
   - `安全威脅演進` 需提供 Trend Insights（7 日淨變化、修復速度、清空估算 ETA）與壓力警示
+  - Dashboard 需提供「AI 下一步建議卡」：顯示更新時間、觸發原因、信心分數、3 條建議行動；無 AI 建議時回退規則摘要
 
 ## 3. 專案結構（最新）
 
@@ -99,7 +104,7 @@ confession/
 │   │   │   ├── theme-toggle.tsx
 │   │   │   ├── elements/          # 通用原子元件（cyber-select、cyber-dropdown-menu）
 │   │   │   └── ui/                # shadcn 元件封裝（accordion/sheet/skeleton/select/dropdown/tooltip/sonner 等）
-│   │   ├── hooks/
+│   │   ├── hooks/                  # 含 use-advice.ts（AI 建議查詢）與 use-extension-bridge.ts（事件驅動補抓）
 │   │   ├── motion/                # Framer Motion token、variants、provider、reveal
 │   │   ├── libs/
 │   │   ├── providers.tsx          # Theme + Motion + Query + Jotai provider
@@ -110,7 +115,9 @@ confession/
 │       ├── analyzers/
 │       ├── llm/
 │       ├── mcp/                    # MCP broker + policy（白名單/能力管制）
+│       ├── advice-gate.ts          # AI 建議 Gate（事件觸發 + 門檻/冷卻/去重/日上限）
 │       ├── routes/
+│       │   └── advice.ts           # GET /api/advice/latest
 │       ├── cache.ts
 │       ├── db.ts
 │       ├── index.ts
@@ -124,6 +131,7 @@ confession/
 ```
 
 補充（近期新增）：
+
 - `web/src/common/components/elements/cyber-select.tsx`：共用 cyber 風格 Select（基於 shadcn Select 樣式覆蓋）
 - `web/src/common/components/elements/cyber-dropdown-menu.tsx`：共用 cyber 風格 DropdownMenu（基於 shadcn DropdownMenu 樣式覆蓋）
 - `web/src/common/components/ui/dropdown-menu.tsx`：shadcn/Radix Portal 下拉元件
@@ -134,8 +142,12 @@ confession/
 - `web/src/common/components/theme-toggle.tsx`：`light/dark/system` 主題切換入口
 - `web/src/common/motion/*`：Framer Motion 統一 token、variants、provider 與 reduced-motion 適配
 - `web/src/common/libs/dashboard-insights.ts`：Dashboard 洞察計算（摘要卡、Priority Lanes、Trend Insights、preset 導流）
+- `web/src/common/hooks/use-advice.ts`：AI 下一步建議查詢 hook（事件驅動刷新）
+- `web/src/server/advice-gate.ts`：Advice Gate 評估、決策記錄與建議快照持久化
+- `web/src/server/routes/advice.ts`：`GET /api/advice/latest` 路由
 
 邊界規則：
+
 - 前端程式碼僅在 `web/`
 - 擴充套件程式碼僅在 `extension/`
 - 共用型別優先集中於 `web/src/common/libs/types.ts`
@@ -179,7 +191,9 @@ confession/
 Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 
 目前路由：
+
 - `GET /api/health`
+- `GET /api/advice/latest`
 - `GET /api/config`
 - `PUT /api/config`（局部更新後合併）
 - `POST /api/scan`
@@ -197,6 +211,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `POST /api/monitoring/generate`
 
 規範：
+
 - `GET /api/health` 回傳健康評分 V2，至少包含：
   - `status = ok|degraded|down`
   - `evaluatedAt`
@@ -205,6 +220,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - `score.topFactors`（Top 3 影響因素，含 `label/direction/valueText/reason/impactScore`）
   - `engine.latestTaskId/latestStatus/latestEngineMode`
   - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
+- `GET /api/advice/latest` 回傳最新 AI 建議與中繼資料，至少包含：
+  - `available/evaluatedAt/triggerScore/triggerReason/sourceEvent/stale/blockedReason`
+  - `advice.summary/confidence/actions(3項)`
+  - 若未達門檻，`advice` 可為 `null`，但需保留 decision metadata 供 Dashboard fallback
 - 所有請求驗證使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式：`{ error: string, details?: unknown }`
 - Prisma client 入口：`web/src/server/db.ts`
@@ -228,6 +247,12 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 任務不存在回 `404`
   - 任務已結束（`completed/failed`）回 `200` 且 `canceling=false`
   - 任務進行中（`pending/running`）需立刻標記 `failed`，填寫可追蹤 `errorMessage`，並推送 SSE 事件，回 `202` 且 `canceling=true`
+- Advice Gate 規範：
+  - 一律事件驅動，禁止背景輪詢
+  - 觸發事件固定為 `scan_completed` / `scan_failed` / `review_saved` / `status_changed`
+  - Gate 需具備 `triggerScore` 門檻 + `cooldown 6h` + `fingerprint 去重` + `每日上限`
+  - 未達門檻只記錄 decision，不呼叫模型
+  - 解析失敗或 LLM 失敗不得覆蓋既有建議，僅記錄錯誤
 - `web/src/app/api/[...route]/route.ts` 需設定 `runtime = "nodejs"`、`dynamic = "force-dynamic"`、`maxDuration = 300` 以支援 SSE（最終可用時長仍受 Vercel 方案限制）
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
   - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
@@ -288,12 +313,14 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 一旦前端輪詢逾時，Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務，避免殘留 `running` 任務
 - 即時同步策略：
   - 單檔/增量掃描完成後，Extension 需拉取全域開放漏洞並廣播 `vulnerabilities_updated`
-  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`
+  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`、`health`、`advice-latest`
+  - 前端刷新策略需以事件驅動為主，不可依賴固定高頻輪詢；事件後僅可做有限次延遲補抓
   - 工作區掃描完成後，需先清空再重建 diagnostics，避免已刪除/已修復檔案殘留舊標記
   - `navigate_to_code` 若檔案不存在，需顯示非阻塞提示並引導重掃工作區
   - `scanWorkspace` 需附帶 `workspaceRoots` 與 `workspaceSnapshotComplete`，供後端安全收斂舊漏洞
 
 現行指令：
+
 - `codeVuln.scanFile`
 - `codeVuln.scanWorkspace`
 - `codeVuln.openDashboard`
@@ -303,6 +330,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `codeVuln.ignoreVulnerability`
 
 通訊訊息（依 `web/src/common/libs/types.ts` / `extension/src/types.ts`）：
+
 - Ext → Web（含回執，跨視圖廣播）：`config_updated`、`navigate_to_view`、`vulnerability_detail_data`、`scan_progress`、`vulnerabilities_updated`、`operation_result`
 - Ext → Web（導流/貼上）：`apply_vulnerability_preset`、`clipboard_paste`
 - Web → Ext：`request_scan`、`focus_sidebar_view(requestId?, preset?)`、`apply_fix(requestId)`、`ignore_vulnerability(requestId)`、`refresh_vulnerabilities(requestId)`、`navigate_to_code`、`open_vulnerability_detail`、`update_config(requestId)`、`export_pdf(requestId)`、`request_config`、`paste_clipboard`
@@ -337,6 +365,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 命名：
   - 單元測試：`<name>.test.ts`
   - 屬性測試：`<name>.pbt.test.ts`
+- Advice Gate 測試覆蓋至少包含：
+  - 公式/門檻/冷卻/去重/日上限
+  - `GET /api/advice/latest` 路由（有資料/無資料/過期）
+  - scan/review 事件觸發 Gate 的整合情境
 - 指令：
   - 全部測試（根層級）：`pnpm test`
   - 全部測試：`pnpm --filter web test && pnpm --filter confession-extension test`
@@ -354,6 +386,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 ## 11. Steering 同步責任
 
 以下任一變更發生時，必須同步更新 `.kiro/steering` 與 `AGENTS.md`：
+
 - 目錄結構變動
 - 路徑別名變動
 - 依賴增減或版本策略調整
@@ -362,6 +395,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - API 路由或行為調整
 
 完成定義：
+
 - steering 與 `AGENTS.md` 內容一致
 - 與當前程式碼一致
 - `pnpm lint`、`pnpm build` 通過

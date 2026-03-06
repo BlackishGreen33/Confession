@@ -20,6 +20,10 @@ inclusion: always
 - AI/LLM 分析一律採被動觸發
 - 僅允許由使用者操作或明確事件（如手動掃描、檔案儲存）啟動
 - 禁止在背景主動輪詢、主動防禦或自動連續呼叫模型 API
+- AI「下一步建議」採事件驅動 Gate：
+  - 僅在 `scan_completed` / `scan_failed` / `review_saved` / `status_changed` 事件後評估
+  - 需通過 triggerScore 門檻才可呼叫模型，未達門檻只記錄決策
+  - 需同時套用 cooldown、fingerprint 去重與每日上限，避免短時間重複消耗
 
 ## AI 掃描策略
 
@@ -62,6 +66,7 @@ inclusion: always
 - `風險資源分配` 卡需提供 Priority Lanes（優先序 + 建議投入比例 + 一鍵導流）
 - `安全威脅演進` 卡需提供 Trend Insights（7 日淨變化、修復速度、清空估算 ETA）與風險上升提示
 - 洞察行動需支援一鍵切換至漏洞列表並套用預設篩選（critical/high/open_all）
+- 「AI 下一步建議卡」需顯示更新時間、觸發原因、信心分數與 3 條行動；若無可用 AI 建議，需回退規則摘要（fallback）
 
 ## 品質檢查
 

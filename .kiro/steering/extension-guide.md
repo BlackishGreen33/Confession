@@ -1,6 +1,6 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: "extension/**/*"
+fileMatchPattern: 'extension/**/*'
 ---
 
 # 擴充套件開發指南
@@ -32,7 +32,8 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - 輪詢逾時後 Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務，避免任務殘留為 `running`
 - 即時同步策略：
   - 單檔/增量掃描完成後，Extension 需同步拉取「全域開放漏洞」並廣播 `vulnerabilities_updated`
-  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`
+  - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`、`health`、`advice-latest`
+  - Web 端刷新策略以事件驅動為主，不使用固定高頻輪詢；事件後僅允許有限次延遲補抓（短暫重試）確保資料收斂
   - 工作區掃描完成後，需先清空再重建 diagnostics，避免已刪除/已修復檔案殘留舊標記
 - 工作區快照一致性：
   - `scanWorkspace` 送出 `/api/scan` 時需帶 `workspaceSnapshotComplete`
@@ -83,6 +84,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `paste_clipboard`（請求 Extension 讀取剪貼簿）
 
 補充語義：
+
 - `vulnerabilities_updated` 為「變更通知 + 可選資料」，Web 端需以 invalidate / refetch 為主，不依賴 payload 完整性。
 - `focus_sidebar_view + preset` 需在切 view 成功後廣播 `apply_vulnerability_preset`，並採短暫重試避免 view 尚未 ready 時丟失訊息。
 
