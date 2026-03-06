@@ -23,17 +23,34 @@ confession/
 ├── web/                    # Next.js (App Router) + Hono 後端
 │   ├── src/generated/       # Prisma 產生型別與 client
 │   ├── src/app/            # 頁面路由
-│   │   ├── page.tsx        # / 儀表盤首頁
-│   │   ├── vulnerabilities/page.tsx  # /vulnerabilities 漏洞列表
-│   │   ├── settings/page.tsx         # /settings 設定頁
-│   │   ├── vulnerability-detail/page.tsx  # /vulnerability-detail 漏洞詳情（Editor_Panel）
+│   │   ├── layout.tsx
+│   │   ├── globals.css
+│   │   ├── page.tsx               # / 儀表盤首頁
+│   │   ├── loading.tsx
+│   │   ├── vulnerabilities/
+│   │   │   ├── page.tsx           # /vulnerabilities 漏洞列表
+│   │   │   └── loading.tsx
+│   │   ├── settings/
+│   │   │   ├── page.tsx           # /settings 設定頁
+│   │   │   └── loading.tsx
+│   │   ├── vulnerability-detail/
+│   │   │   ├── page.tsx           # /vulnerability-detail 漏洞詳情（Editor_Panel）
+│   │   │   └── loading.tsx
 │   │   └── api/[...route]/ # Hono catch-all
 │   ├── src/common/         # @/ 別名目標
-│   │   ├── components/     # UI 元件
+│   │   ├── components/     # UI 元件（feature folders + shadcn 包裝）
+│   │   │   ├── dashboard/main.tsx
+│   │   │   ├── vulnerability-list/main.tsx
+│   │   │   ├── vulnerability-detail/main.tsx
+│   │   │   ├── settings/main.tsx
+│   │   │   ├── loading/page-loading.tsx
+│   │   │   ├── theme-toggle.tsx
 │   │   │   ├── elements/   # 通用原子元件（cyber-select.tsx、cyber-dropdown-menu.tsx）
-│   │   │   └── ui/         # shadcn 元件（含 dropdown-menu.tsx、select.tsx、tooltip.tsx、sonner.tsx）
+│   │   │   └── ui/         # shadcn 元件（含 accordion/sheet/skeleton/select/dropdown/tooltip/sonner）
 │   │   ├── hooks/          # React Query hooks + Jotai atoms（同檔共置）+ use-extension-bridge.ts（擴充套件橋接）
+│   │   ├── motion/         # Framer Motion token、variants、provider、reveal
 │   │   ├── libs/           # types.ts, atoms.ts, api-client.ts, debounce.ts, ui-messages.ts, dashboard-insights.ts
+│   │   ├── providers.tsx   # Theme + Motion + Query + Jotai 統一 provider
 │   │   └── utils/          # cn() 等工具函數
 │   └── src/server/         # @server/ 別名目標 — Hono app, routes/, agents/, analyzers/, llm/, mcp/, db.ts, cache.ts, monitoring.ts
 │       ├── routes/         # Hono 路由模組：config.ts, scan.ts, vulnerabilities.ts, export.ts, monitoring.ts（health 由 index.ts + health-score.ts）
@@ -53,6 +70,12 @@ confession/
 
 補充（近期資料模型變更）：
 - `web/prisma/schema.prisma` 的 `ScanTask` 新增 `fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`，用於記錄 agentic 自動回退 baseline 的執行情況。
+
+補充（近期前端架構變更）：
+- 新增 route 級 `loading.tsx`（首頁/漏洞列表/設定/漏洞詳情），統一使用 skeleton + motion。
+- 新增 `web/src/common/motion/*`，統一 Framer Motion token 與 reduced-motion 行為。
+- `dashboard`、`vulnerability-list`、`vulnerability-detail`、`settings` 改為 feature folder 入口（`main.tsx`），原檔案改 thin re-export。
+- 新增 `web/src/common/components/theme-toggle.tsx`，提供 `light/dark/system` 主題切換。
 
 ## 邊界規則
 

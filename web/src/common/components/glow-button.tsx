@@ -18,10 +18,10 @@ export const GlowButton: React.FC<ButtonProps> = ({ className, ...props }) => {
   return (
     <Button
       className={cn(
-        'bg-cyber-primary text-cyber-bg font-black',
-        'shadow-[0_0_30px_rgba(88,166,255,0.4)]',
-        'hover:shadow-[0_0_40px_rgba(88,166,255,0.6)]',
-        'animate-pulse-glow',
+        'bg-cyber-primary text-cyber-bg font-bold',
+        'shadow-[0_8px_22px_rgba(76,141,255,0.28)]',
+        'motion-emphasis hover:-translate-y-[1px] hover:shadow-[0_12px_28px_rgba(76,141,255,0.34)]',
+        'active:translate-y-0 active:scale-[0.99]',
         className,
       )}
       {...props}

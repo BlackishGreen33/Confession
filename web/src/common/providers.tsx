@@ -7,6 +7,7 @@ import React, { type ReactNode, useState } from 'react';
 
 import { SonnerToaster } from '@/components/ui/sonner';
 import { ExtensionBridgeInit } from '@/hooks/use-extension-bridge';
+import { MotionProvider } from '@/motion/provider';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -27,14 +28,16 @@ export const Providers: React.FC<ProvidersProps> = ({ children }) => {
   );
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-      <JotaiProvider>
-        <QueryClientProvider client={queryClient}>
-          <ExtensionBridgeInit />
-          {children}
-          <SonnerToaster position="top-right" />
-        </QueryClientProvider>
-      </JotaiProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <MotionProvider>
+        <JotaiProvider>
+          <QueryClientProvider client={queryClient}>
+            <ExtensionBridgeInit />
+            {children}
+            <SonnerToaster position="top-right" />
+          </QueryClientProvider>
+        </JotaiProvider>
+      </MotionProvider>
     </ThemeProvider>
   );
 };

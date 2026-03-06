@@ -5,6 +5,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: var(--font-sans-ui);
+  --font-serif: var(--font-serif-display);
+  --font-mono: var(--font-mono-data);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -62,36 +66,97 @@
   --color-cyber-textmuted: var(--cyber-textmuted);
   --color-cyber-accent: var(--cyber-accent);
 
+  --color-bg-canvas: var(--bg-canvas);
+  --color-bg-panel: var(--bg-panel);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-accent: var(--brand-accent);
+  --color-state-critical: var(--state-critical);
+  --color-state-high: var(--state-high);
+  --color-state-medium: var(--state-medium);
+  --color-state-low: var(--state-low);
+  --color-state-info: var(--state-info);
+  --color-state-safe: var(--state-safe);
+
   /* 動畫 */
-  --animate-slide-in: slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  --animate-slide-up: slide-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  --animate-fade-in: fade-in 0.8s lg ease-out forwards;
-  --animate-pulse-glow: pulse-glow 2.5s ease-in-out infinite;
-  --animate-gradient-border: gradient-border 3s linear infinite;
+  --animate-slide-in: slide-in var(--motion-base) var(--ease-enter) forwards;
+  --animate-slide-up: slide-up var(--motion-base) var(--ease-enter) forwards;
+  --animate-fade-in: fade-in var(--motion-slow) ease-out forwards;
+  --animate-pulse-glow: pulse-glow 1.2s ease-in-out 1 both;
+  --animate-gradient-border: gradient-border 8s linear infinite;
   --animate-float: float 6s ease-in-out infinite;
-  --animate-scanline: scanline 4s linear infinite;
-  --animate-glow-text: glow-text 2s ease-in-out infinite alternate;
+  --animate-scanline: scanline 1.2s linear 1;
+  --animate-glow-text: glow-text 1.2s var(--ease-enter) 1 both;
 }
 
 /*
- * Cyber 暗色主題 — 強制為預設
- * 基調：深藍黑賽博風格，源自 sample-new-fe-design
- * 所有 cyber 自訂屬性映射至 shadcn/ui CSS 變數
+ * Dark Precision 主題（雙模式）
+ * 核心方向：資訊優先、光效克制、可讀性優先
  */
 :root {
   --radius: 0.625rem;
 
-  /* Cyber 主題自訂屬性 */
-  --cyber-bg: #0A0C10;
-  --cyber-surface: #161B22;
-  --cyber-surface2: #21262D;
-  --cyber-border: #30363D;
-  --cyber-primary: #58A6FF;
-  --cyber-text: #E6EDF3;
-  --cyber-textmuted: #8B949E;
-  --cyber-accent: #2EA043;
+  /* 字體 */
+  --font-sans-ui: var(--font-noto-sans-tc), 'Noto Sans TC', 'PingFang TC',
+    'Microsoft JhengHei', sans-serif;
+  --font-serif-display: var(--font-noto-serif-tc), 'Noto Serif TC', serif;
+  --font-mono-data: var(--font-jetbrains-mono), 'JetBrains Mono', 'SFMono-Regular',
+    'Roboto Mono', monospace;
 
-  /* 映射至 shadcn/ui 變數 — 預設即為 cyber 暗色 */
+  /* 間距與排版 token（4px 基準） */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --layout-max: 82.5rem; /* 1320px */
+  --measure-readable: 68ch;
+
+  /* Motion token */
+  --motion-fast: 180ms;
+  --motion-base: 240ms;
+  --motion-slow: 320ms;
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-move: cubic-bezier(0.25, 1, 0.5, 1);
+  --stagger: 40ms;
+
+  /* Light token */
+  --bg-canvas: #f4f7fb;
+  --bg-panel: #ffffff;
+  --bg-elevated: #edf2f8;
+  --surface-strong: #e6edf7;
+  --border-strong: #c9d5e6;
+  --text-primary: #0f1b2d;
+  --text-secondary: #4d617c;
+  --brand-primary: #2f6fe4;
+  --brand-primary-strong: #255bc0;
+  --brand-accent: #1f9d72;
+  --brand-warn: #c68a2e;
+  --brand-danger: #d45555;
+  --state-critical: var(--brand-danger);
+  --state-high: #c66d21;
+  --state-medium: var(--brand-warn);
+  --state-low: var(--brand-primary);
+  --state-info: #5f7fa9;
+  --state-safe: var(--brand-accent);
+
+  /* 相容既有 cyber 變數 */
+  --cyber-bg: var(--bg-canvas);
+  --cyber-surface: var(--bg-panel);
+  --cyber-surface2: var(--bg-elevated);
+  --cyber-border: var(--border-strong);
+  --cyber-primary: var(--brand-primary);
+  --cyber-text: var(--text-primary);
+  --cyber-textmuted: var(--text-secondary);
+  --cyber-accent: var(--brand-accent);
+
+  /* 映射至 shadcn/ui */
   --background: var(--cyber-bg);
   --foreground: var(--cyber-text);
 
@@ -102,9 +167,9 @@
   --popover-foreground: var(--cyber-text);
 
   --primary: var(--cyber-primary);
-  --primary-foreground: var(--cyber-bg);
+  --primary-foreground: #ffffff;
 
-  --secondary: var(--cyber-surface2);
+  --secondary: var(--surface-strong);
   --secondary-foreground: var(--cyber-text);
 
   --muted: var(--cyber-surface2);
@@ -113,73 +178,91 @@
   --accent: var(--cyber-accent);
   --accent-foreground: #ffffff;
 
-  --destructive: #F85149;
+  --destructive: var(--brand-danger);
 
   --border: var(--cyber-border);
   --input: var(--cyber-border);
   --ring: var(--cyber-primary);
 
   /* 圖表色 — 對應嚴重等級 */
-  --chart-1: #F85149;
-  --chart-2: #D29922;
-  --chart-3: #E3B341;
-  --chart-4: var(--cyber-primary);
-  --chart-5: var(--cyber-accent);
+  --chart-1: var(--state-critical);
+  --chart-2: var(--state-high);
+  --chart-3: var(--state-medium);
+  --chart-4: var(--state-low);
+  --chart-5: var(--state-safe);
 
-  /* 側邊欄 */
+  /* 側邊欄（保持與主題一致） */
   --sidebar: var(--cyber-surface);
   --sidebar-foreground: var(--cyber-text);
   --sidebar-primary: var(--cyber-primary);
-  --sidebar-primary-foreground: var(--cyber-bg);
+  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: var(--cyber-surface2);
   --sidebar-accent-foreground: var(--cyber-text);
   --sidebar-border: var(--cyber-border);
   --sidebar-ring: var(--cyber-primary);
 
   /* 嚴重等級語義色 */
-  --severity-critical: #F85149;
-  --severity-high: #D29922;
-  --severity-medium: #E3B341;
-  --severity-low: var(--cyber-primary);
-  --severity-info: var(--cyber-textmuted);
-  --safe: var(--cyber-accent);
+  --severity-critical: var(--state-critical);
+  --severity-high: var(--state-high);
+  --severity-medium: var(--state-medium);
+  --severity-low: var(--state-low);
+  --severity-info: var(--state-info);
+  --safe: var(--state-safe);
 }
 
-/* .dark 類別保持相同值，確保 shadcn/ui dark mode 一致 */
+/* 深色模式覆寫 */
 .dark {
+  --bg-canvas: #090c12;
+  --bg-panel: #121923;
+  --bg-elevated: #1a2330;
+  --surface-strong: #1d2937;
+  --border-strong: #2a3647;
+  --text-primary: #e7eef8;
+  --text-secondary: #9fb0c7;
+  --brand-primary: #4c8dff;
+  --brand-primary-strong: #356fd9;
+  --brand-accent: #2fbf8f;
+  --brand-warn: #f3b34c;
+  --brand-danger: #f36d6d;
+  --state-critical: var(--brand-danger);
+  --state-high: #d29922;
+  --state-medium: var(--brand-warn);
+  --state-low: var(--brand-primary);
+  --state-info: var(--text-secondary);
+  --state-safe: var(--brand-accent);
+
+  --cyber-bg: var(--bg-canvas);
+  --cyber-surface: var(--bg-panel);
+  --cyber-surface2: var(--bg-elevated);
+  --cyber-border: var(--border-strong);
+  --cyber-primary: var(--brand-primary);
+  --cyber-text: var(--text-primary);
+  --cyber-textmuted: var(--text-secondary);
+  --cyber-accent: var(--brand-accent);
+
   --background: var(--cyber-bg);
   --foreground: var(--cyber-text);
-
   --card: var(--cyber-surface);
   --card-foreground: var(--cyber-text);
-
   --popover: var(--cyber-surface);
   --popover-foreground: var(--cyber-text);
-
   --primary: var(--cyber-primary);
-  --primary-foreground: var(--cyber-bg);
-
-  --secondary: var(--cyber-surface2);
+  --primary-foreground: #050911;
+  --secondary: var(--surface-strong);
   --secondary-foreground: var(--cyber-text);
-
   --muted: var(--cyber-surface2);
   --muted-foreground: var(--cyber-textmuted);
-
   --accent: var(--cyber-accent);
-  --accent-foreground: #ffffff;
-
-  --destructive: #F85149;
-
+  --accent-foreground: #03140d;
+  --destructive: var(--brand-danger);
   --border: var(--cyber-border);
   --input: var(--cyber-border);
   --ring: var(--cyber-primary);
-
-  --chart-1: #F85149;
-  --chart-2: #D29922;
-  --chart-3: #E3B341;
-  --chart-4: var(--cyber-primary);
-  --chart-5: var(--cyber-accent);
-
+  --chart-1: var(--state-critical);
+  --chart-2: var(--state-high);
+  --chart-3: var(--state-medium);
+  --chart-4: var(--state-low);
+  --chart-5: var(--state-safe);
   --sidebar: var(--cyber-surface);
   --sidebar-foreground: var(--cyber-text);
   --sidebar-primary: var(--cyber-primary);
@@ -188,13 +271,12 @@
   --sidebar-accent-foreground: var(--cyber-text);
   --sidebar-border: var(--cyber-border);
   --sidebar-ring: var(--cyber-primary);
-
-  --severity-critical: #F85149;
-  --severity-high: #D29922;
-  --severity-medium: #E3B341;
-  --severity-low: var(--cyber-primary);
-  --severity-info: var(--cyber-textmuted);
-  --safe: var(--cyber-accent);
+  --severity-critical: var(--state-critical);
+  --severity-high: var(--state-high);
+  --severity-medium: var(--state-medium);
+  --severity-low: var(--state-low);
+  --severity-info: var(--state-info);
+  --safe: var(--state-safe);
 }
 
 @layer base {
@@ -203,6 +285,26 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans-ui);
+    font-size: 1rem;
+    line-height: 1.625;
+    letter-spacing: 0.01em;
+    text-rendering: optimizelegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif-display);
+    letter-spacing: -0.01em;
+  }
+
+  code,
+  pre,
+  samp,
+  kbd,
+  .font-data {
+    font-family: var(--font-mono-data);
   }
 
   /* 全域互動手感：可點擊元素需明確呈現 pointer。 */
@@ -223,7 +325,7 @@
     button:not(:disabled),
     summary,
     [role='button']:not([aria-disabled='true']) {
-      transition: transform 120ms ease;
+      transition: transform var(--motion-fast) var(--ease-enter);
     }
 
     a[href]:active,
@@ -231,6 +333,23 @@
     summary:active,
     [role='button']:not([aria-disabled='true']):active {
       transform: translateY(1px) scale(0.99);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-delay: 0ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    .animate-on-load {
+      opacity: 1 !important;
     }
   }
 }
@@ -241,15 +360,15 @@
 .glass-panel {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  background: rgba(10, 12, 16, 0.65);
-  border: 1px solid rgba(88, 166, 255, 0.15);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 16%, transparent);
+  box-shadow: 0 10px 30px rgba(7, 12, 18, 0.4);
 }
 
 .glass-panel:hover {
-  background: rgba(16, 21, 28, 0.75);
-  border: 1px solid rgba(88, 166, 255, 0.3);
-  box-shadow: 0 4px 30px rgba(88, 166, 255, 0.15);
+  background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 36%, transparent);
+  box-shadow: 0 12px 28px rgba(26, 69, 140, 0.25);
 }
 
 /* 自訂捲軸 */
@@ -273,53 +392,165 @@
   opacity: 0;
 }
 
+/* 統一動效工具類別 */
+.motion-enter-up {
+  animation: ui-enter-up var(--motion-base) var(--ease-enter) both;
+}
+
+.motion-fade {
+  transition: opacity var(--motion-fast) ease;
+}
+
+.motion-emphasis {
+  transition:
+    transform var(--motion-fast) var(--ease-enter),
+    opacity var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
+}
+
+.motion-stagger-1 {
+  animation-delay: calc(var(--stagger) * 1);
+}
+
+.motion-stagger-2 {
+  animation-delay: calc(var(--stagger) * 2);
+}
+
+.motion-stagger-3 {
+  animation-delay: calc(var(--stagger) * 3);
+}
+
+.motion-stagger-4 {
+  animation-delay: calc(var(--stagger) * 4);
+}
+
+.motion-stagger-5 {
+  animation-delay: calc(var(--stagger) * 5);
+}
+
+.motion-stagger-6 {
+  animation-delay: calc(var(--stagger) * 6);
+}
+
 /* 動畫 keyframes */
+@keyframes ui-enter-up {
+  0% {
+    transform: translate3d(0, 10px, 0);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
 @keyframes slide-in {
-  0% { transform: translateY(20px) scale(0.97); opacity: 0; filter: blur(4px); }
-  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+  0% {
+    transform: translate3d(0, 20px, 0) scale(0.985);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
 }
 
 @keyframes slide-up {
-  0% { transform: translateY(30px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
+  0% {
+    transform: translate3d(0, 30px, 0);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
 }
 
 @keyframes fade-in {
-  0% { opacity: 0; filter: blur(5px); }
-  100% { opacity: 1; filter: blur(0); }
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.9; filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.5)); }
-  50% { opacity: 1; filter: drop-shadow(0 0 20px rgba(88, 166, 255, 0.9)); }
+  0%,
+  100% {
+    opacity: 0.88;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes gradient-border {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -8px, 0);
+  }
 }
 
 @keyframes scanline {
-  0% { transform: translateY(-100%); opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { transform: translateY(100%); opacity: 0; }
+  0% {
+    transform: translate3d(0, -100%, 0);
+    opacity: 0;
+  }
+
+  15% {
+    opacity: 1;
+  }
+
+  85% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate3d(0, 100%, 0);
+    opacity: 0;
+  }
 }
 
 @keyframes glow-text {
-  0% { text-shadow: 0 0 5px rgba(88,166,255,0.2); }
-  100% { text-shadow: 0 0 20px rgba(88,166,255,0.8), 0 0 30px rgba(88,166,255,0.6); }
+  0% {
+    opacity: 0.84;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 /* 發光陰影 */
 .glow-shadow {
-  box-shadow: 0 0 15px rgba(88, 166, 255, 0.15), 0 0 30px rgba(88, 166, 255, 0.05);
+  box-shadow:
+    0 0 12px rgba(76, 141, 255, 0.16),
+    0 0 24px rgba(76, 141, 255, 0.06);
 }
 
 /* 動畫漸層邊框 */
@@ -335,7 +566,7 @@
   border-radius: inherit;
   background: linear-gradient(135deg, var(--cyber-primary), var(--cyber-accent), var(--cyber-primary));
   background-size: 200% 200%;
-  animation: gradient-border 3s linear infinite;
+  animation: gradient-border 8s linear infinite;
   z-index: -1;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
@@ -355,8 +586,8 @@
 
 /* 網格背景 */
 .cyber-grid-bg {
-  background-image: 
-    linear-gradient(to right, rgba(88, 166, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(88, 166, 255, 0.05) 1px, transparent 1px);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--brand-primary) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--brand-primary) 6%, transparent) 1px, transparent 1px);
   background-size: 24px 24px;
 }
