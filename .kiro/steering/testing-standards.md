@@ -1,6 +1,6 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: "**/*.test.*"
+fileMatchPattern: '**/*.test.*'
 ---
 
 # 測試規範
@@ -20,3 +20,7 @@ fileMatchPattern: "**/*.test.*"
 - Beta 能力需補齊：
   - Agentic Planner/Skill/MCP policy 單元測試
   - `engineMode` 與 `errorCode` API 回傳測試
+- Advice Gate 需補齊：
+  - triggerScore/guard（threshold、cooldown、fingerprint、daily limit）單元測試
+  - `GET /api/advice/latest` 路由測試（有資料/無資料）
+  - 掃描與審核事件觸發 Advice Gate 的整合測試

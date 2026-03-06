@@ -1,6 +1,6 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: "**/src/server/**/*"
+fileMatchPattern: '**/src/server/**/*'
 ---
 
 # API 標準
@@ -9,24 +9,25 @@ fileMatchPattern: "**/src/server/**/*"
 
 ## 路由表
 
-| 路由 | 方法 | 用途 |
-|------|------|------|
-| `/api/health` | GET | 健康檢查 |
-| `/api/config` | GET | 取得目前配置 |
-| `/api/config` | PUT | 儲存配置（局部更新後合併） |
-| `/api/scan` | POST | 觸發掃描 |
-| `/api/scan/status/:id` | GET | 掃描進度 |
-| `/api/scan/stream/:id` | GET | 掃描進度 SSE 即時推送 |
-| `/api/scan/recent` | GET | 最近一次掃描摘要 |
-| `/api/scan/cancel/:id` | POST | 取消進行中的掃描任務 |
-| `/api/vulnerabilities` | GET | 列表（篩選/排序/分頁） |
-| `/api/vulnerabilities/trend` | GET | 歷史趨勢（事件驅動，依日期聚合後累計；無事件時回退舊聚合） |
-| `/api/vulnerabilities/stats` | GET | 統計資料 |
-| `/api/vulnerabilities/:id` | GET | 單筆漏洞詳情 |
-| `/api/vulnerabilities/:id/events` | GET | 單筆漏洞事件流（新到舊） |
-| `/api/vulnerabilities/:id` | PATCH | 更新狀態/歸因 |
-| `/api/export` | POST | 匯出報告（JSON/CSV/Markdown/PDF） |
-| `/api/monitoring/generate` | POST | 產生嵌入式監測代碼 |
+| 路由                              | 方法  | 用途                                                       |
+| --------------------------------- | ----- | ---------------------------------------------------------- |
+| `/api/health`                     | GET   | 健康檢查                                                   |
+| `/api/advice/latest`              | GET   | 取得最新 AI 下一步建議（含 Gate 中繼資料）                 |
+| `/api/config`                     | GET   | 取得目前配置                                               |
+| `/api/config`                     | PUT   | 儲存配置（局部更新後合併）                                 |
+| `/api/scan`                       | POST  | 觸發掃描                                                   |
+| `/api/scan/status/:id`            | GET   | 掃描進度                                                   |
+| `/api/scan/stream/:id`            | GET   | 掃描進度 SSE 即時推送                                      |
+| `/api/scan/recent`                | GET   | 最近一次掃描摘要                                           |
+| `/api/scan/cancel/:id`            | POST  | 取消進行中的掃描任務                                       |
+| `/api/vulnerabilities`            | GET   | 列表（篩選/排序/分頁）                                     |
+| `/api/vulnerabilities/trend`      | GET   | 歷史趨勢（事件驅動，依日期聚合後累計；無事件時回退舊聚合） |
+| `/api/vulnerabilities/stats`      | GET   | 統計資料                                                   |
+| `/api/vulnerabilities/:id`        | GET   | 單筆漏洞詳情                                               |
+| `/api/vulnerabilities/:id/events` | GET   | 單筆漏洞事件流（新到舊）                                   |
+| `/api/vulnerabilities/:id`        | PATCH | 更新狀態/歸因                                              |
+| `/api/export`                     | POST  | 匯出報告（JSON/CSV/Markdown/PDF）                          |
+| `/api/monitoring/generate`        | POST  | 產生嵌入式監測代碼                                         |
 
 ## 規範
 
@@ -38,6 +39,10 @@ fileMatchPattern: "**/src/server/**/*"
   - `score.topFactors`（Top 3 影響因素，含 `label/direction/valueText/reason/impactScore`）
   - `engine.latestTaskId/latestStatus/latestEngineMode`
   - 支援 `windowDays=7|30` query（預設 30），供 Dashboard 詳情切換時間窗
+- `GET /api/advice/latest` 回應需提供：
+  - `available`、`evaluatedAt`、`triggerScore`、`triggerReason`、`sourceEvent`、`stale`、`blockedReason`
+  - `advice.summary`、`advice.confidence(0..1)`、`advice.actions[3]`
+  - 若最新評估未觸發 AI，`advice` 可為 `null`，但需保留決策中繼資料供 Dashboard fallback 顯示
 - 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式統一：`{ error: string, details?: unknown }`
 - 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]
@@ -64,6 +69,12 @@ fileMatchPattern: "**/src/server/**/*"
   - 任務不存在回 `404`
   - 任務已結束（`completed/failed`）回 `200` 並 `canceling=false`
   - 任務進行中（`pending/running`）需立刻標記為 `failed`，並寫入可追蹤錯誤訊息（例如 `使用者已取消掃描`），同時觸發 SSE 進度事件，回 `202` 與 `canceling=true`
+- AI Advice Gate 規範：
+  - 僅允許事件驅動評估，不得背景輪詢
+  - 觸發事件固定為：`scan_completed`、`scan_failed`、`review_saved`、`status_changed`
+  - Gate 需具備：`triggerScore` 門檻、6 小時 cooldown、metrics fingerprint 去重、每日呼叫上限
+  - 達門檻才可呼叫 LLM；未達門檻需記錄決策（含阻擋原因與指標快照）
+  - Advice 生成失敗或解析失敗不得覆蓋既有建議，僅記錄 `llmError`
 - `GET /api/scan/recent` 回傳最近一次掃描摘要；若尚無掃描記錄回 `404 { error: "尚無掃描記錄" }`
 - Vercel 部署的 API catch-all route 需設定 Node runtime 與動態回應（避免快取中斷 SSE）：
   - `runtime = "nodejs"`
