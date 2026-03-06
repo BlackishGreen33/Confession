@@ -135,4 +135,91 @@ describe('dashboard-insights', () => {
     expect(summary.action?.preset).toBeDefined()
     expect(summary.rationale.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('任務推進分數應由實際壓力指標計算，不是固定常數', () => {
+    const highPressure = buildSecuritySummary(
+      buildInput({
+        openCount: 12,
+        bySeverityOpen: {
+          critical: 5,
+          high: 4,
+          medium: 2,
+          low: 1,
+          info: 0,
+        },
+        byHumanStatus: { pending: 5, confirmed: 1, rejected: 0, false_positive: 0 },
+      }),
+    )
+
+    const lowPressure = buildSecuritySummary(
+      buildInput({
+        openCount: 4,
+        bySeverityOpen: {
+          critical: 0,
+          high: 0,
+          medium: 2,
+          low: 1,
+          info: 1,
+        },
+        byHumanStatus: { pending: 0, confirmed: 2, rejected: 0, false_positive: 0 },
+      }),
+    )
+
+    expect(highPressure.progress.score).toBeLessThan(lowPressure.progress.score)
+    expect(highPressure.progress.score).not.toBe(34)
+    expect(lowPressure.progress.score).not.toBe(67)
+  })
+
+  it('主行動應包含可驗證 KPI 與焦點數量，不依賴標題抽數字', () => {
+    const summary = buildSecuritySummary(
+      buildInput({
+        openCount: 8,
+        bySeverityOpen: {
+          critical: 3,
+          high: 2,
+          medium: 2,
+          low: 1,
+          info: 0,
+        },
+      }),
+    )
+
+    expect(summary.action).not.toBeNull()
+    expect(summary.action?.focusCount).toBe(3)
+    expect(summary.action?.kpi.label).toBe('嚴重級待處理')
+    expect(summary.action?.kpi.current).toBe('3 筆')
+    expect(summary.action?.kpi.target).toBe('0 筆')
+  })
+
+  it('總結卡需帶資料來源與時間，供 UI 顯示精簡 metadata', () => {
+    const summary = buildSecuritySummary(
+      buildInput({
+        health: {
+          status: 'ok',
+          evaluatedAt: '2026-03-06T12:34:56.000Z',
+          score: {
+            version: 'v2',
+            value: 88,
+            grade: 'A',
+            components: {
+              exposure: { value: 80, orb: 0.2, lev: 0.3 },
+              remediation: { value: 82, mttrHours: 12, closureRate: 0.7 },
+              quality: { value: 86, efficiency: 0.78, coverage: 0.81 },
+              reliability: {
+                value: 90,
+                successRate: 0.96,
+                fallbackRate: 0.03,
+                workspaceP95Ms: 18000,
+              },
+            },
+            topFactors: [],
+          },
+          engine: {},
+        },
+      }),
+    )
+
+    expect(summary.dataSourceLabel).toContain('規則推導')
+    expect(summary.dataTime).toBe('2026-03-06T12:34:56.000Z')
+  })
 })
