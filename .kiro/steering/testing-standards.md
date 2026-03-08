@@ -24,3 +24,10 @@ fileMatchPattern: '**/*.test.*'
   - triggerScore/guard（threshold、cooldown、fingerprint、daily limit）單元測試
   - `GET /api/advice/latest` 路由測試（有資料/無資料）
   - 掃描與審核事件觸發 Advice Gate 的整合測試
+- FileStore 需補齊：
+  - `.confession/*.json` 讀寫與原子寫入測試
+  - `prisma` 外觀相容層（find/update/upsert/transaction）測試
+- CLI MVP 需補齊：
+  - `init` 建檔
+  - `scan` 任務建立與輪詢
+  - `list` / `status` 輸出與檔案資料一致

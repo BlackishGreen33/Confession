@@ -7,7 +7,7 @@ inclusion: always
 ## 通用
 
 - ESLint flat config + Prettier（根層級）
-- 列舉以 `String` 儲存 + Zod 驗證（SQLite 不支援原生 enum）
+- 列舉以 `string` 儲存 + Zod 驗證（FileStore JSON 契約）
 - 不要引入新的 runtime 依賴而不說明理由
 - 避免 `@ts-ignore`，用正確的型別解決問題
 - 所有可點擊 UI 元素需有明確互動游標：
