@@ -15,6 +15,7 @@ import * as fc from 'fast-check'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as vscode from 'vscode'
 
+import * as ignoreFile from './ignore-file'
 import {
   fetchAllOpenVulnerabilities,
   fetchVulnerabilityById,
@@ -327,6 +328,8 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
   let openTextDocumentSpy: ReturnType<typeof vi.fn>
   /** 模擬 vscode.workspace.getConfiguration 的 spy */
   let getConfigurationSpy: ReturnType<typeof vi.fn>
+  /** 模擬專案設定檔同步函式 */
+  let writeScopedProjectConfigSpy: ReturnType<typeof vi.spyOn>
   /** 測試用的 PluginConfig */
   const mockConfig: PluginConfig = {
     llm: { provider: 'gemini', apiKey: 'test-key' },
@@ -356,6 +359,14 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
     vi.spyOn(vscode.window, 'showTextDocument').mockImplementation(showTextDocumentSpy)
     vi.spyOn(vscode.workspace, 'openTextDocument').mockImplementation(openTextDocumentSpy)
     vi.spyOn(vscode.workspace, 'getConfiguration').mockImplementation(getConfigurationSpy)
+    writeScopedProjectConfigSpy = vi
+      .spyOn(ignoreFile, 'writeScopedProjectConfig')
+      .mockImplementation(async (config) => ({
+        written: true,
+        config,
+        rootPath: '/mock-workspace',
+        filePath: '/mock-workspace/.confession/config.json',
+      }))
 
     // 攔截 registerWebviewViewProvider，捕獲 provider 並觸發 resolveWebviewView
     vi.spyOn(vscode.window, 'registerWebviewViewProvider').mockImplementation(
@@ -411,6 +422,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
         openTextDocumentSpy.mockClear()
         getConfigurationSpy.mockClear()
         postMessageSpy.mockClear()
+        writeScopedProjectConfigSpy.mockClear()
 
         // 透過捕獲的回呼觸發訊息處理
         messageHandler(msg)
@@ -473,6 +485,15 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
           case 'update_config':
             // writeConfigToSettings 會呼叫 getConfiguration('confession')
             expect(getConfigurationSpy).toHaveBeenCalledWith('confession')
+            expect(writeScopedProjectConfigSpy).toHaveBeenCalledWith(
+              expect.objectContaining({
+                ...msg.data,
+                ignore: {
+                  paths: ignoreFile.normalizeIgnorePaths(msg.data.ignore.paths),
+                  types: ignoreFile.normalizeIgnoreTypes(msg.data.ignore.types),
+                },
+              }),
+            )
             break
 
           case 'request_config':
