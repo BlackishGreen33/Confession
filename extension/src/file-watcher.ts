@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 
 import { updateDiagnostics } from './diagnostics'
+import { isFilePathIgnored, resolveIgnorePathsForFile } from './ignore-file'
 import {
   cancelScanTask,
   fetchAllOpenVulnerabilities,
@@ -46,13 +47,6 @@ type ConfigGetter = () => PluginConfig
 /** 輸出頻道參考 */
 let log: vscode.OutputChannel | undefined
 const ONSAVE_SCAN_TIMEOUT_MS = 4 * 60 * 1000
-
-/**
- * 檢查檔案路徑是否在忽略清單中
- */
-function isIgnored(filePath: string, ignorePaths: string[]): boolean {
-  return ignorePaths.some((pattern) => filePath.includes(pattern))
-}
 
 /**
  * 對單一檔案觸發增量掃描
@@ -133,8 +127,15 @@ export function createFileWatcher(
     // 僅處理支援的語言
     if (!SUPPORTED_LANGUAGE_IDS.has(document.languageId)) return
 
-    // 檢查忽略路徑
-    if (isIgnored(document.fileName, config.ignore.paths)) return
+    // 檢查忽略路徑（依檔案所屬 root 套用對應 .confession/config.json）
+    let ignorePaths = config.ignore.paths
+    try {
+      ignorePaths = resolveIgnorePathsForFile(document.fileName, config.ignore.paths)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '未知錯誤'
+      log?.appendLine(`[ignore] 讀取 .confession/config.json 失敗，改用 settings.ignore.paths：${msg}`)
+    }
+    if (isFilePathIgnored(document.fileName, ignorePaths)) return
 
     // Debounce：取消同一檔案的前一次計時器
     const existing = debounceTimers.get(document.fileName)

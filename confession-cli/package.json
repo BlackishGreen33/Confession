@@ -1,0 +1,13 @@
+{
+  "name": "confession-cli",
+  "version": "0.1.0",
+  "description": "Confession CLI",
+  "license": "MIT",
+  "bin": {
+    "confession": "bin/confession.js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "build": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('bin/confession.js','dist/confession.js')\""
+  }
+}

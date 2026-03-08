@@ -18,7 +18,10 @@ import {
   type LlmClientConfig,
   resolveDefaultModel,
 } from './llm/client';
-import { deduplicateVulnerabilities } from './vulnerability-dedupe';
+import {
+  deduplicateVulnerabilities,
+  type VulnerabilityDedupCandidate,
+} from './vulnerability-dedupe';
 
 export const ADVICE_SOURCE_EVENTS = [
   'scan_completed',
@@ -492,7 +495,9 @@ async function collectAdviceMetricContext(
     loadTrendPointsFromEvents(),
   ]);
 
-  const deduped = deduplicateVulnerabilities(vulnerabilityRows);
+  const deduped = deduplicateVulnerabilities(
+    vulnerabilityRows as VulnerabilityDedupCandidate[]
+  );
   const open = deduped.filter((item) => item.status === 'open');
   const criticalOpen = open.filter(
     (item) => item.severity === 'critical'

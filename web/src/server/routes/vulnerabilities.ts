@@ -1,7 +1,10 @@
 import { zValidator } from '@hono/zod-validator';
 import { triggerAdviceEvaluation } from '@server/advice-gate';
 import { prisma } from '@server/db';
-import { deduplicateVulnerabilities } from '@server/vulnerability-dedupe';
+import {
+  deduplicateVulnerabilities,
+  type VulnerabilityDedupCandidate,
+} from '@server/vulnerability-dedupe';
 import { Hono } from 'hono';
 import { z } from 'zod/v4';
 
@@ -60,6 +63,17 @@ interface VulnerabilityTrendDelta {
   ignored: number;
 }
 
+type DedupedVulnerabilityRow = VulnerabilityDedupCandidate & {
+  filePath: string;
+  line: number;
+  severity: string;
+  status: string;
+  humanStatus: string;
+  humanReviewedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 export const vulnerabilityRoutes = new Hono();
 
 /**
@@ -97,14 +111,16 @@ vulnerabilityRoutes.get(
     }
 
     const rows = await prisma.vulnerability.findMany({ where });
-    const deduped = deduplicateVulnerabilities(rows);
+    const deduped = deduplicateVulnerabilities(rows as DedupedVulnerabilityRow[]);
     const sorted = sortVulnerabilities(deduped, sortBy, sortOrder);
     const total = sorted.length;
     const offset = (page - 1) * pageSize;
     const items = sorted.slice(offset, offset + pageSize);
 
     return c.json({
-      items: items.map(serializeVuln),
+      items: items.map((item) =>
+        serializeVuln(item as unknown as Record<string, unknown>)
+      ),
       total,
       page,
       pageSize,
@@ -135,7 +151,14 @@ vulnerabilityRoutes.get('/trend', async (c) => {
       return c.json(trend);
     }
 
-    const dailyDeltas = aggregateDailyTrendDeltas(rows);
+    const dailyDeltas = aggregateDailyTrendDeltas(
+      rows as Array<{
+        createdAt: Date;
+        eventType: string;
+        fromStatus: string | null;
+        toStatus: string | null;
+      }>
+    );
     const trend = toCumulativeTrend(dailyDeltas);
     return c.json(trend);
   } catch (err) {
@@ -169,7 +192,7 @@ vulnerabilityRoutes.get('/stats', async (c) => {
       updatedAt: true,
     },
   });
-  const deduped = deduplicateVulnerabilities(rows);
+  const deduped = deduplicateVulnerabilities(rows as DedupedVulnerabilityRow[]);
 
   const total = deduped.length;
   const bySeverity = countBy(deduped, (item) => item.severity);
@@ -218,7 +241,9 @@ vulnerabilityRoutes.get(
         take: limit,
       });
 
-      return c.json(events.map(serializeEvent));
+      return c.json(
+        events.map((event) => serializeEvent(event as { createdAt: Date }))
+      );
     } catch (err) {
       // 相容舊 DB：事件表不存在時先回空陣列，避免詳情頁報錯
       if (!isMissingEventsTableError(err)) throw err;
@@ -236,7 +261,7 @@ vulnerabilityRoutes.get('/:id', async (c) => {
   if (!vuln) {
     return c.json({ error: '漏洞不存在' }, 404);
   }
-  return c.json(serializeVuln(vuln));
+  return c.json(serializeVuln(vuln as unknown as Record<string, unknown>));
 });
 
 /**
@@ -260,10 +285,20 @@ vulnerabilityRoutes.patch(
       return c.json({ error: '漏洞不存在' }, 404);
     }
 
-    const { data, events, hasChanges } = buildPatchDelta(existing, body);
+    const { data, events, hasChanges } = buildPatchDelta(
+      existing as {
+        status: string;
+        humanStatus: string;
+        humanComment: string | null;
+        owaspCategory: string | null;
+      },
+      body
+    );
 
     if (!hasChanges) {
-      return c.json(serializeVuln(existing));
+      return c.json(
+        serializeVuln(existing as unknown as Record<string, unknown>)
+      );
     }
 
     const updated = await (async () => {
@@ -308,29 +343,47 @@ vulnerabilityRoutes.patch(
       });
     }
 
-    return c.json(serializeVuln(updated));
+    return c.json(serializeVuln(updated as unknown as Record<string, unknown>));
   }
 );
 
-/** 將 Prisma 記錄序列化為 API 回應格式（日期轉 ISO 字串） */
-function serializeVuln(v: {
-  createdAt: Date;
-  updatedAt: Date;
-  humanReviewedAt: Date | null;
-  [key: string]: unknown;
-}) {
+/** 將儲存層記錄序列化為 API 回應格式（日期轉 ISO 字串） */
+function toIsoString(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return new Date(0).toISOString();
+}
+
+function toOptionalIsoString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return null;
+}
+
+function serializeVuln(v: Record<string, unknown>) {
   return {
     ...v,
-    createdAt: v.createdAt.toISOString(),
-    updatedAt: v.updatedAt.toISOString(),
-    humanReviewedAt: v.humanReviewedAt?.toISOString() ?? null,
+    createdAt: toIsoString(v.createdAt),
+    updatedAt: toIsoString(v.updatedAt),
+    humanReviewedAt: toOptionalIsoString(v.humanReviewedAt),
   };
 }
 
-function serializeEvent(v: { createdAt: Date; [key: string]: unknown }) {
+function serializeEvent(v: Record<string, unknown>) {
   return {
     ...v,
-    createdAt: v.createdAt.toISOString(),
+    createdAt: toIsoString(v.createdAt),
   };
 }
 

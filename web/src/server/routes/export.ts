@@ -844,7 +844,7 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
     orderBy: { createdAt: 'desc' },
   })
 
-  const items = vulns.map(serializeVuln)
+  const items = vulns.map((item) => serializeVuln(item as Parameters<typeof serializeVuln>[0]))
   const report = buildReportV2(items, filters)
 
   if (format === 'csv') {

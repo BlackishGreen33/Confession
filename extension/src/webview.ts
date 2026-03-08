@@ -3,6 +3,11 @@ import os from 'os'
 import path from 'path'
 import * as vscode from 'vscode'
 
+import {
+  normalizeIgnorePaths,
+  normalizeIgnoreTypes,
+  writeScopedProjectConfig,
+} from './ignore-file'
 import { generateMonitoringCode } from './monitoring'
 import {
   fetchAllOpenVulnerabilities,
@@ -432,7 +437,7 @@ async function handleUpdateConfigRequest(
       'update_config',
       result.success,
       result.message,
-      result.success ? { config } : undefined,
+      result.success ? { config: result.config ?? config } : undefined,
     ),
   )
 }
@@ -561,9 +566,20 @@ async function handleExportPdfRequest(
 
 async function writeConfigToSettings(
   config: PluginConfig,
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; config?: PluginConfig }> {
   const cfg = vscode.workspace.getConfiguration('confession')
   try {
+    const normalizedIgnorePaths = normalizeIgnorePaths(config.ignore.paths)
+    const normalizedIgnoreTypes = normalizeIgnoreTypes(config.ignore.types)
+    const normalizedConfig: PluginConfig = {
+      ...config,
+      ignore: {
+        ...config.ignore,
+        paths: normalizedIgnorePaths,
+        types: normalizedIgnoreTypes,
+      },
+    }
+
     await cfg.update('llm.provider', config.llm.provider, vscode.ConfigurationTarget.Global)
     await cfg.update('llm.apiKey', config.llm.apiKey, vscode.ConfigurationTarget.Global)
     await cfg.update('llm.endpoint', config.llm.endpoint || '', vscode.ConfigurationTarget.Global)
@@ -571,12 +587,23 @@ async function writeConfigToSettings(
     await cfg.update('analysis.triggerMode', config.analysis.triggerMode, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.depth', config.analysis.depth, vscode.ConfigurationTarget.Global)
     await cfg.update('analysis.debounceMs', config.analysis.debounceMs, vscode.ConfigurationTarget.Global)
-    await cfg.update('ignore.paths', config.ignore.paths, vscode.ConfigurationTarget.Global)
-    await cfg.update('ignore.types', config.ignore.types, vscode.ConfigurationTarget.Global)
+    await cfg.update('ignore.paths', normalizedIgnorePaths, vscode.ConfigurationTarget.Global)
+    await cfg.update('ignore.types', normalizedIgnoreTypes, vscode.ConfigurationTarget.Global)
     await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
     await cfg.update('api.mode', config.api.mode, vscode.ConfigurationTarget.Global)
-    sendConfigUpdate(config)
-    return { success: true, message: 'Extension 設定已套用' }
+
+    const projectConfigSync = await writeScopedProjectConfig(normalizedConfig)
+    const warningSuffix =
+      projectConfigSync.written || projectConfigSync.reason !== 'no_workspace_root'
+        ? ''
+        : '（未同步 .confession/config.json：目前沒有可用工作區）'
+
+    sendConfigUpdate(normalizedConfig)
+    return {
+      success: true,
+      message: `Extension 設定已套用${warningSuffix}`,
+      config: normalizedConfig,
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
     vscode.window.showErrorMessage(`Confession: 儲存設定失敗 — ${msg}`)
