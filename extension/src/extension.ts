@@ -6,6 +6,13 @@ import * as vscode from 'vscode'
 import { clearAllDiagnostics, registerDiagnostics, updateDiagnostics } from './diagnostics'
 import { createFileWatcher } from './file-watcher'
 import {
+  buildWorkspaceRootIgnoreMap,
+  CONFESSION_CONFIG_RELATIVE_PATH,
+  isFilePathIgnored,
+  readScopedProjectConfig,
+  resolveIgnorePathsFromRootMap,
+} from './ignore-file'
+import {
   cancelScanTask,
   fetchAllOpenVulnerabilities,
   fetchFileVulnerabilities,
@@ -37,7 +44,7 @@ const WORKSPACE_READ_CONCURRENCY = 16
  */
 function getPluginConfig(): PluginConfig {
   const config = vscode.workspace.getConfiguration('confession')
-  return {
+  const settingsConfig: PluginConfig = {
     llm: {
       provider: config.get<'gemini' | 'nvidia'>('llm.provider', 'nvidia'),
       apiKey: config.get<string>('llm.apiKey', ''),
@@ -57,6 +64,35 @@ function getPluginConfig(): PluginConfig {
       baseUrl: config.get<string>('api.baseUrl', 'http://localhost:3000'),
       mode: config.get<'local' | 'remote'>('api.mode', 'local'),
     },
+  }
+
+  try {
+    const scopedConfig = readScopedProjectConfig()
+    if (!scopedConfig.exists) return settingsConfig
+
+    return {
+      ...settingsConfig,
+      ...scopedConfig.config,
+      llm: {
+        ...settingsConfig.llm,
+        ...scopedConfig.config.llm,
+      },
+      analysis: {
+        ...settingsConfig.analysis,
+        ...scopedConfig.config.analysis,
+      },
+      ignore: {
+        ...settingsConfig.ignore,
+        ...scopedConfig.config.ignore,
+      },
+      api: {
+        ...settingsConfig.api,
+        ...scopedConfig.config.api,
+      },
+    }
+  } catch {
+    // 讀檔異常時回退 VS Code settings，避免阻斷插件主流程。
+    return settingsConfig
   }
 }
 
@@ -135,6 +171,21 @@ export function activate(context: vscode.ExtensionContext) {
 
   // --- 檔案儲存監聽 + debounce 增量分析 ---
   context.subscriptions.push(createFileWatcher(getPluginConfig, outputChannel))
+
+  // --- 監聽 .confession/config.json 變更，主動同步設定頁 ---
+  const configFileWatcher = vscode.workspace.createFileSystemWatcher(
+    `**/${CONFESSION_CONFIG_RELATIVE_PATH}`,
+  )
+  const handleConfigFileEvent = (eventName: 'create' | 'change' | 'delete') => (uri: vscode.Uri) => {
+    outputChannel.appendLine(`[project-config] ${eventName}: ${uri.fsPath}`)
+    sendConfigUpdate(getPluginConfig())
+  }
+  context.subscriptions.push(
+    configFileWatcher,
+    configFileWatcher.onDidCreate(handleConfigFileEvent('create')),
+    configFileWatcher.onDidChange(handleConfigFileEvent('change')),
+    configFileWatcher.onDidDelete(handleConfigFileEvent('delete')),
+  )
 
   // --- 監聽配置變更 ---
   context.subscriptions.push(
@@ -352,7 +403,23 @@ async function scanWorkspaceFiles(getConfig: () => PluginConfig): Promise<void> 
     }
 
     // 讀取檔案內容（workspace.fs + 併發限制，避免大量 openTextDocument 造成額外負擔）
-    const candidateUris = uris.filter((uri) => !config.ignore.paths.some((p) => uri.fsPath.includes(p)))
+    let ignorePathsByRoot = new Map<string, string[]>()
+    try {
+      ignorePathsByRoot = buildWorkspaceRootIgnoreMap(config.ignore.paths)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '未知錯誤'
+      outputChannel.appendLine(
+        `[ignore] 讀取 .confession/config.json 失敗，改用 settings.ignore.paths：${msg}`,
+      )
+    }
+    const candidateUris = uris.filter((uri) => {
+      const ignorePaths = resolveIgnorePathsFromRootMap(uri.fsPath, ignorePathsByRoot, config.ignore.paths)
+      return !isFilePathIgnored(uri.fsPath, ignorePaths)
+    })
+    const ignoredCount = uris.length - candidateUris.length
+    if (ignoredCount > 0) {
+      outputChannel.appendLine(`依忽略規則略過 ${ignoredCount} 個檔案`)
+    }
     const files = await mapWithConcurrency(candidateUris, WORKSPACE_READ_CONCURRENCY, async (uri) => {
       const language = inferApiLanguage('', uri.fsPath)
       if (!language) return null

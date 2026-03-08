@@ -1046,56 +1046,73 @@ function normalizeWorkspaceRoots(roots: string[] | undefined): string[] {
 }
 
 interface ScanTaskRecordLike {
-  id: string;
-  status: string;
-  progress: number;
-  totalFiles: number;
-  scannedFiles: number;
-  engineMode: string;
-  fallbackUsed?: boolean | null;
-  fallbackFrom?: string | null;
-  fallbackTo?: string | null;
-  fallbackReason?: string | null;
-  errorMessage: string | null;
-  errorCode: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  id?: unknown;
+  status?: unknown;
+  progress?: unknown;
+  totalFiles?: unknown;
+  scannedFiles?: unknown;
+  engineMode?: unknown;
+  fallbackUsed?: unknown;
+  fallbackFrom?: unknown;
+  fallbackTo?: unknown;
+  fallbackReason?: unknown;
+  errorMessage?: unknown;
+  errorCode?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 function toScanProgressEvent(task: ScanTaskRecordLike): ScanProgressEvent {
   const fallbackUsed = Boolean(task.fallbackUsed);
+  const createdAt = toDateOrNow(task.createdAt);
+  const updatedAt = toDateOrNow(task.updatedAt);
   return {
-    id: task.id,
+    id: typeof task.id === 'string' ? task.id : '',
     status: normalizeTaskStatus(task.status),
-    progress: task.progress,
-    totalFiles: task.totalFiles,
-    scannedFiles: task.scannedFiles,
+    progress: typeof task.progress === 'number' ? task.progress : 0,
+    totalFiles: typeof task.totalFiles === 'number' ? task.totalFiles : 0,
+    scannedFiles: typeof task.scannedFiles === 'number' ? task.scannedFiles : 0,
     engineMode: normalizeEngineMode(task.engineMode),
     fallbackUsed,
     fallbackFrom: fallbackUsed
-      ? normalizeFallbackFrom(task.fallbackFrom ?? null)
+      ? normalizeFallbackFrom(
+          typeof task.fallbackFrom === 'string' ? task.fallbackFrom : null
+        )
       : undefined,
     fallbackTo: fallbackUsed
-      ? normalizeFallbackTo(task.fallbackTo ?? null)
+      ? normalizeFallbackTo(typeof task.fallbackTo === 'string' ? task.fallbackTo : null)
       : undefined,
     fallbackReason: fallbackUsed
-      ? normalizeFallbackReason(task.fallbackReason ?? null)
+      ? normalizeFallbackReason(
+          typeof task.fallbackReason === 'string' ? task.fallbackReason : null
+        )
       : undefined,
-    errorMessage: task.errorMessage,
-    errorCode: normalizeErrorCode(task.errorCode),
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
+    errorMessage: typeof task.errorMessage === 'string' ? task.errorMessage : null,
+    errorCode: normalizeErrorCode(
+      typeof task.errorCode === 'string' ? task.errorCode : null
+    ),
+    createdAt: createdAt.toISOString(),
+    updatedAt: updatedAt.toISOString(),
   };
 }
 
-function normalizeTaskStatus(value: string): ScanProgressEvent['status'] {
+function normalizeTaskStatus(value: unknown): ScanProgressEvent['status'] {
   if (value === 'running' || value === 'completed' || value === 'failed')
     return value;
   return 'pending';
 }
 
-function normalizeEngineMode(value: string): ScanEngineMode {
+function normalizeEngineMode(value: unknown): ScanEngineMode {
   return value === 'agentic_beta' ? 'agentic_beta' : 'baseline';
+}
+
+function toDateOrNow(value: unknown): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
 }
 
 function normalizeErrorCode(value: string | null): ScanErrorCode | null {

@@ -136,9 +136,9 @@ export async function buildHealthResponse(
   ])
 
   return calculateHealthScore({
-    vulnerabilities,
-    scanTasks,
-    latestTask,
+    vulnerabilities: vulnerabilities as HealthScoreInputVulnerability[],
+    scanTasks: scanTasks as HealthScoreInputTask[],
+    latestTask: (latestTask as HealthScoreInputTask | null) ?? null,
     now,
   }, { riskWindowDays })
 }
