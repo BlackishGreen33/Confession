@@ -9,6 +9,8 @@ inclusion: always
 - 介面目標環境：VS Code Webview（桌面場景優先），不以行動端體驗為需求邊界
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 不執行使用者程式碼，僅透過 AST 解析與 LLM 分析揭露潛在風險
+- 專案資料持久化採本地 `.confession/`（不依賴 SQLite/Prisma）
+- 提供 npm 全域 CLI（`confession`）支援 `init/scan/list/status`
 
 ## 語言偏好
 

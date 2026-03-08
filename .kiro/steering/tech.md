@@ -7,14 +7,15 @@ inclusion: always
 | 層級 | 選擇 |
 |------|------|
 | 套件管理 | pnpm 9.x + Turborepo |
-| 語言 | TypeScript strict mode |
+| 語言 | TypeScript strict mode（CLI 為 Node.js 腳本） |
 | 前端 | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes + framer-motion + next/font |
 | 狀態管理 | Jotai（主要）+ Bunshi（保留於依賴） |
 | 資料取得 | React Query + Axios |
 | 圖表 | Recharts |
 | 後端 | Hono（透過 Next.js catch-all `/api/[...route]`） |
 | 驗證 | zod/v4 + @hono/zod-validator |
-| 資料庫 | Prisma + SQLite（PostgreSQL 相容 schema） |
+| 儲存層 | 專案本地 FileStore（`.confession/*.json`） |
+| 舊資料遷移 | `better-sqlite3`（僅一次性 SQLite → FileStore 遷移） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
 | Agentic Engine | Planner/Skill/Analyst/Critic/Judge 多代理管線（正式預設，失敗自動回退 baseline） |
@@ -44,7 +45,5 @@ inclusion: always
 - 格式檢查：`pnpm format:check`
 - CI 檢查彙總：`pnpm check:ci`
 - Commit 訊息檢查（最近一筆）：`pnpm commitlint --from HEAD~1 --to HEAD`
-- 資料庫遷移：`pnpm --filter web exec prisma migrate dev`
-- 產生 Prisma Client：`pnpm --filter web exec prisma generate`
-- 開啟 Prisma Studio：`pnpm --filter web db:studio`
 - Extension 打包 VSIX：`pnpm --filter confession-extension package`
+- CLI 執行（本地）：`pnpm --filter confession-cli build && node confession-cli/bin/confession.js --help`

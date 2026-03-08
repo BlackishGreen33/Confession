@@ -36,7 +36,7 @@ confession/
 | 圖表 | Recharts |
 | 後端 | Hono（Next.js catch-all `/api/[...route]`） |
 | 驗證 | zod/v4 + @hono/zod-validator |
-| 資料庫 | Prisma + SQLite（PostgreSQL 相容） |
+| 儲存層 | 專案本地 FileStore（`.confession/*.json`） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容） |
 | 測試 | Vitest + fast-check（PBT） |
@@ -53,9 +53,11 @@ confession/
 # 安裝依賴
 pnpm install
 
-# 資料庫初始化
-pnpm --filter web exec prisma generate
-pnpm --filter web exec prisma migrate dev
+# 安裝全域 CLI（可選）
+npm i -g confession-cli
+
+# 初始化專案儲存（可選）
+confession init
 
 # 啟動開發伺服器
 pnpm dev
@@ -66,7 +68,6 @@ pnpm dev
 在 `web/.env.local` 中設定（至少提供其中一個 LLM 金鑰）：
 
 ```env
-DATABASE_URL="file:./dev.db"
 GEMINI_API_KEY="your-gemini-api-key"
 NVIDIA_API_KEY="your-nvidia-api-key"
 ```
@@ -92,10 +93,17 @@ pnpm test
 # CI 檢查（lint + build + test）
 pnpm check:ci
 
-# Prisma
-pnpm --filter web db:migrate
-pnpm --filter web db:generate
-pnpm --filter web db:studio
+# CLI
+confession init
+confession scan
+confession list --status open
+confession status
+
+# CLI（未全域安裝時）
+node confession-cli/bin/confession.js init
+node confession-cli/bin/confession.js scan
+node confession-cli/bin/confession.js list --status open
+node confession-cli/bin/confession.js status
 
 # Commit 訊息檢查（最近一筆）
 pnpm commitlint --from HEAD~1 --to HEAD

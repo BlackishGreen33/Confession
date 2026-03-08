@@ -45,8 +45,9 @@ fileMatchPattern: '**/src/server/**/*'
   - 若最新評估未觸發 AI，`advice` 可為 `null`，但需保留決策中繼資料供 Dashboard fallback 顯示
 - 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式統一：`{ error: string, details?: unknown }`
-- 資料庫操作透過 Prisma Client，定義於 #[[file:web/src/server/db.ts]]
-- Schema 定義：#[[file:web/prisma/schema.prisma]]
+- 資料存取透過 FileStore 相容層（`prisma` 介面外觀），定義於 #[[file:web/src/server/db.ts]]
+- 實際持久化為專案根目錄 `.confession/*.json`
+- 專案根目錄解析規則：`CONFESSION_PROJECT_ROOT`（有值時）否則 `process.cwd()`
 - 掃描任務需支援請求去重（fingerprint）與背景執行，不阻塞回應
 - `POST /api/scan` 支援 `forceRescan?: boolean`：
   - `true`：忽略未變更檔案快取，強制重掃
