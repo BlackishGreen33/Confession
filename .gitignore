@@ -26,9 +26,10 @@ Thumbs.db
 # Turbo
 .turbo/
 
-# Prisma
-web/prisma/*.db
-web/prisma/*.db-journal
+# Confession local storage
+.confession/
+
+# Legacy SQLite artifacts
 web/*.db
 web/*.db-journal
 web/src/generated/
