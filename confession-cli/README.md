@@ -25,6 +25,11 @@ confession status
 - `confession list --severity <critical|high|medium|low|info>`
 - `confession list --search <keyword>`
 
+## 行為說明
+
+- 未知旗標或非法列舉值會直接失敗（非 0 exit code）
+- `confession scan` 輪詢逾時或收到 `SIGINT`（Ctrl+C）時，會先送出 `/api/scan/cancel/:id` 取消請求
+
 ## 專案根目錄解析
 
 - 優先使用 `CONFESSION_PROJECT_ROOT`

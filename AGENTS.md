@@ -55,7 +55,9 @@ confession/
 ├── .github/
 ├── .husky/
 ├── confession-cli/
-│   └── bin/confession.js
+│   └── bin/
+│       ├── confession.js
+│       └── confession.test.js
 ├── extension/
 │   ├── src/extension.ts
 │   ├── src/diagnostics.ts
@@ -114,18 +116,22 @@ confession/
 - 驗證：`zod/v4` + `@hono/zod-validator`
 - 儲存層：專案本地 FileStore（`.confession/*.json`）
 - 舊資料遷移：`better-sqlite3`（僅一次性 SQLite → FileStore）
-- 測試：Vitest + fast-check（PBT）
-- CI/CD：GitHub Actions（`quality` + `commit-check`）
+- 測試：Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI）
+- CI/CD：GitHub Actions（`lint`/`build`/`test` 並行 + `quality` 聚合 + `commit-check`）
 - Commit 檢查：commitlint + husky（`commit-msg` hook）
 
 ## 5.1 工作流程與常用指令
 
 - 全專案本地開發：`pnpm dev`
 - 品質檢查彙總（lint + build + test）：`pnpm check:ci`
+- CI lint 檢查：`pnpm check:lint`
+- CI build 檢查：`pnpm check:build`
+- CI test 檢查：`pnpm check:test`
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - Extension 打包 VSIX：`pnpm --filter confession-extension package`
 - CLI 本地執行：`node confession-cli/bin/confession.js --help`
+- CLI 測試：`pnpm --filter confession-cli test`
 - Commit range 檢查：`pnpm commitlint:range --from <from> --to <to>`
 
 ## 6. API 規範
@@ -196,22 +202,32 @@ ignore / config 同步規範：
 
 ## 9. 測試規範
 
-- 測試框架：Vitest
+- 測試框架：Vitest（web/extension）+ Node.js `node:test`（CLI）
 - 屬性測試：fast-check
 - 命名：
   - 單元測試：`<name>.test.ts`
   - 屬性測試：`<name>.pbt.test.ts`
+  - CLI 測試：`<name>.test.js`
 - 全部測試（根層級）：`pnpm test`
 - web 測試：`pnpm --filter web test`
 - extension 測試：`pnpm --filter confession-extension test`
+- CLI 測試：`pnpm --filter confession-cli test`
 - FileStore 需覆蓋讀寫、transaction 一致性與 upsert 冪等
-- CLI 需覆蓋 `init/scan/list/status` 基本流程
+- CLI 需覆蓋：
+  - `init` 建檔與重跑冪等
+  - `scan` 成功 / 失敗 / 逾時 cancel / SIGINT cancel
+  - `list` 篩選與空結果輸出
+  - `status` 最新任務與 fallback 摘要
+  - 參數驗證（未知旗標與非法列舉值）
 
 ## 10. CI 與 Commit 檢查
 
 - CI workflow：`.github/workflows/ci.yml`
 - CI 觸發：`pull_request(main)`、`push(main)`
-- `quality` job：`pnpm install --frozen-lockfile` + `pnpm check:ci`
+- `lint` job：`pnpm install --frozen-lockfile` + `pnpm check:lint`
+- `build` job：`pnpm install --frozen-lockfile` + `pnpm check:build`
+- `test` job：`pnpm install --frozen-lockfile` + `pnpm check:test`
+- `quality` job：聚合 gate（`needs: lint/build/test`），保留 required check 名稱
 - `commit-check` job：`pnpm commitlint:range --from <from> --to <to>`
 - 本機 hook：`.husky/commit-msg` 執行 `pnpm commitlint --edit "$1"`
 

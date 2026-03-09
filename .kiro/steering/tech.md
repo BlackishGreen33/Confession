@@ -20,8 +20,8 @@ inclusion: always
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
 | Agentic Engine | Planner/Skill/Analyst/Critic/Judge 多代理管線（正式預設，失敗自動回退 baseline） |
 | MCP | 內建 broker + policy（白名單 server、僅允許安全能力） |
-| 測試 | Vitest + fast-check（PBT） |
-| CI/CD | GitHub Actions（`quality` + `commit-check`） |
+| 測試 | Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI） |
+| CI/CD | GitHub Actions（`lint`/`build`/`test` 並行 + `quality` 聚合 + `commit-check`） |
 | Commit 檢查 | commitlint + husky（`commit-msg` hook） |
 
 ## 部署備註（Vercel）
@@ -39,8 +39,12 @@ inclusion: always
 - 型別檢查與 lint：`pnpm lint`
 - 建置：`pnpm build`
 - 全部測試：`pnpm test`
+- CI lint 檢查：`pnpm check:lint`
+- CI build 檢查：`pnpm check:build`
+- CI test 檢查：`pnpm check:test`
 - 測試（web）：`pnpm --filter web test`
 - 測試（extension）：`pnpm --filter confession-extension test`
+- 測試（CLI）：`pnpm --filter confession-cli test`
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - CI 檢查彙總：`pnpm check:ci`

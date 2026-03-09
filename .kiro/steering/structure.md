@@ -8,11 +8,13 @@ inclusion: always
 confession/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml         # GitHub Actions：quality + commit-check
+│       └── ci.yml         # GitHub Actions：lint/build/test + quality + commit-check
 ├── .husky/
 │   └── commit-msg         # 本機 commit 訊息檢查 hook
 ├── confession-cli/        # npm 全域 CLI（bin: confession）
-│   └── bin/confession.js  # init / scan / list / status
+│   └── bin/
+│       ├── confession.js       # init / scan / list / status
+│       └── confession.test.js  # Node node:test 覆蓋 CLI 主流程
 ├── extension/             # VSCode 擴充套件（esbuild → CommonJS）
 │   ├── src/extension.ts
 │   ├── src/diagnostics.ts
