@@ -7,8 +7,19 @@ const path = require('node:path')
 const CONFESSION_DIR_NAME = '.confession'
 const SCHEMA_VERSION = 'file-store-v1'
 const FILE_LIMIT = 5000
-const POLL_INTERVAL_MS = 1500
-const SCAN_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_POLL_INTERVAL_MS = 1500
+const DEFAULT_SCAN_TIMEOUT_MS = 30 * 60 * 1000
+
+const VALID_DEPTHS = new Set(['quick', 'standard', 'deep'])
+const VALID_STATUSES = new Set(['open', 'fixed', 'ignored'])
+const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'info'])
+
+const COMMAND_FLAG_SPEC = {
+  init: new Set(),
+  scan: new Set(['api', 'depth']),
+  list: new Set(['status', 'severity', 'search']),
+  status: new Set(),
+}
 
 const STORAGE_FILES = {
   config: 'config.json',
@@ -29,11 +40,78 @@ const DEFAULT_CONFIG = {
 
 const SUPPORTED_EXTS = new Set(['.go', '.js', '.jsx', '.ts', '.tsx'])
 
-function resolveProjectRoot() {
-  const fromEnv = process.env.CONFESSION_PROJECT_ROOT
+class CliError extends Error {
+  constructor(message, options = {}) {
+    super(message)
+    this.name = 'CliError'
+    this.exitCode = options.exitCode ?? 1
+    this.showHelp = options.showHelp ?? false
+  }
+}
+
+function normalizeCwd(cwdValue) {
+  if (typeof cwdValue === 'function') {
+    return cwdValue
+  }
+  if (typeof cwdValue === 'string' && cwdValue.trim().length > 0) {
+    return () => cwdValue
+  }
+  return () => process.cwd()
+}
+
+function resolveDurationFromEnv(env, key, fallback) {
+  const raw = env[key]
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return fallback
+  }
+
+  const parsed = Number.parseInt(raw.trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+
+  return parsed
+}
+
+function createRuntime(overrides = {}) {
+  const env = overrides.env ?? process.env
+
+  return {
+    stdout: overrides.stdout ?? process.stdout,
+    stderr: overrides.stderr ?? process.stderr,
+    env,
+    cwd: normalizeCwd(overrides.cwd),
+    fetchImpl: overrides.fetchImpl ?? globalThis.fetch,
+    sleepImpl: overrides.sleepImpl ?? sleep,
+    now: overrides.now ?? Date.now,
+    pollIntervalMs:
+      overrides.pollIntervalMs ??
+      resolveDurationFromEnv(
+        env,
+        'CONFESSION_CLI_POLL_INTERVAL_MS',
+        DEFAULT_POLL_INTERVAL_MS,
+      ),
+    scanTimeoutMs:
+      overrides.scanTimeoutMs ??
+      resolveDurationFromEnv(
+        env,
+        'CONFESSION_CLI_SCAN_TIMEOUT_MS',
+        DEFAULT_SCAN_TIMEOUT_MS,
+      ),
+    registerSigint:
+      overrides.registerSigint ??
+      ((handler) => {
+        process.once('SIGINT', handler)
+        return () => process.off('SIGINT', handler)
+      }),
+  }
+}
+
+function resolveProjectRoot(runtime) {
+  const fromEnv = runtime.env.CONFESSION_PROJECT_ROOT
   return fromEnv && fromEnv.trim().length > 0
     ? path.resolve(fromEnv.trim())
-    : path.resolve(process.cwd())
+    : path.resolve(runtime.cwd())
 }
 
 function getConfessionDir(projectRoot) {
@@ -78,10 +156,7 @@ function normalizeConfig(raw) {
     },
     analysis: {
       triggerMode: analysis.triggerMode === 'manual' ? 'manual' : 'onSave',
-      depth:
-        analysis.depth === 'quick' || analysis.depth === 'deep'
-          ? analysis.depth
-          : 'standard',
+      depth: VALID_DEPTHS.has(analysis.depth) ? analysis.depth : 'standard',
       debounceMs:
         typeof analysis.debounceMs === 'number'
           ? Math.max(0, Math.floor(analysis.debounceMs))
@@ -226,8 +301,16 @@ async function collectWorkspaceFiles(projectRoot, ignorePaths) {
   return { files: results, workspaceSnapshotComplete: snapshotComplete }
 }
 
-async function triggerScan(baseUrl, payload) {
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/api/scan`, {
+function ensureFetchAvailable(runtime) {
+  if (typeof runtime.fetchImpl !== 'function') {
+    throw new CliError('目前環境不支援 fetch，無法執行掃描命令')
+  }
+}
+
+async function triggerScan(baseUrl, payload, runtime) {
+  ensureFetchAvailable(runtime)
+
+  const response = await runtime.fetchImpl(`${baseUrl.replace(/\/+$/, '')}/api/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -235,65 +318,116 @@ async function triggerScan(baseUrl, payload) {
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(`觸發掃描失敗 (${response.status}) ${text}`)
+    throw new CliError(`觸發掃描失敗 (${response.status}) ${text}`)
   }
 
   return response.json()
 }
 
-async function fetchScanStatus(baseUrl, taskId) {
-  const response = await fetch(
+async function fetchScanStatus(baseUrl, taskId, runtime) {
+  ensureFetchAvailable(runtime)
+
+  const response = await runtime.fetchImpl(
     `${baseUrl.replace(/\/+$/, '')}/api/scan/status/${encodeURIComponent(taskId)}`,
   )
+
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(`讀取掃描狀態失敗 (${response.status}) ${text}`)
+    throw new CliError(`讀取掃描狀態失敗 (${response.status}) ${text}`)
   }
+
   return response.json()
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+async function cancelScanTask(baseUrl, taskId, runtime) {
+  ensureFetchAvailable(runtime)
+
+  const response = await runtime.fetchImpl(
+    `${baseUrl.replace(/\/+$/, '')}/api/scan/cancel/${encodeURIComponent(taskId)}`,
+    { method: 'POST' },
+  )
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`取消掃描失敗 (${response.status}) ${text}`)
+  }
 }
 
-function parseFlags(argv) {
+async function tryCancelScanTask(baseUrl, taskId, runtime, reason) {
+  try {
+    await cancelScanTask(baseUrl, taskId, runtime)
+    runtime.stdout.write(`${reason}，已送出取消請求\n`)
+    return true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    runtime.stderr.write(`[confession] ${reason}，取消請求失敗：${message}\n`)
+    return false
+  }
+}
+
+function parseFlags(argv, allowedFlags) {
   const flags = {}
+
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i]
-    if (!token.startsWith('--')) continue
+    if (!token.startsWith('--')) {
+      throw new CliError(`未知參數：${token}`)
+    }
+
     const key = token.slice(2)
+    if (!allowedFlags.has(key)) {
+      throw new CliError(`未知參數：--${key}`)
+    }
+
     const next = argv[i + 1]
     if (!next || next.startsWith('--')) {
-      flags[key] = true
-      continue
+      throw new CliError(`參數 --${key} 需要提供值`)
     }
+
     flags[key] = next
     i += 1
   }
+
   return flags
 }
 
-function printHelp() {
-  process.stdout.write(`\nConfession CLI\n\n`)
-  process.stdout.write(`Usage:\n`)
-  process.stdout.write(`  confession init\n`)
-  process.stdout.write(`  confession scan [--api <baseUrl>] [--depth quick|standard|deep]\n`)
-  process.stdout.write(
-    `  confession list [--status open|fixed|ignored] [--severity critical|high|medium|low|info] [--search <keyword>]\n`,
+function validateEnumFlag(name, value, allowedSet) {
+  if (value == null) {
+    return null
+  }
+
+  if (!allowedSet.has(value)) {
+    throw new CliError(
+      `參數 --${name} 僅接受：${Array.from(allowedSet).join('|')}（目前為 ${value}）`,
+    )
+  }
+
+  return value
+}
+
+function printHelp(stdout = process.stdout) {
+  stdout.write('\nConfession CLI\n\n')
+  stdout.write('Usage:\n')
+  stdout.write('  confession init\n')
+  stdout.write('  confession scan [--api <baseUrl>] [--depth quick|standard|deep]\n')
+  stdout.write(
+    '  confession list [--status open|fixed|ignored] [--severity critical|high|medium|low|info] [--search <keyword>]\n',
   )
-  process.stdout.write(`  confession status\n\n`)
+  stdout.write('  confession status\n\n')
 }
 
-async function commandInit(projectRoot) {
+async function commandInit(projectRoot, runtime) {
   await initProject(projectRoot)
-  process.stdout.write(`已初始化：${path.join(projectRoot, '.confession')}\n`)
+  runtime.stdout.write(`已初始化：${path.join(projectRoot, '.confession')}\n`)
 }
 
-async function commandScan(projectRoot, flags) {
+async function commandScan(projectRoot, flags, runtime) {
   await initProject(projectRoot)
+
   const config = await loadProjectConfig(projectRoot)
-  const depth =
-    flags.depth === 'quick' || flags.depth === 'deep' ? flags.depth : config.analysis.depth
+  const depth = flags.depth
+    ? validateEnumFlag('depth', flags.depth, VALID_DEPTHS)
+    : config.analysis.depth
   const baseUrl =
     typeof flags.api === 'string' && flags.api.trim().length > 0
       ? flags.api.trim()
@@ -305,53 +439,86 @@ async function commandScan(projectRoot, flags) {
   )
 
   if (files.length === 0) {
-    process.stdout.write('沒有可掃描檔案（可能全部被 ignore）\n')
+    runtime.stdout.write('沒有可掃描檔案（可能全部被 ignore）\n')
     return
   }
 
-  process.stdout.write(`準備掃描 ${files.length} 個檔案，呼叫 ${baseUrl}\n`)
-  const created = await triggerScan(baseUrl, {
-    files,
-    depth,
-    includeLlmScan: depth === 'deep',
-    forceRescan: true,
-    scanScope: 'workspace',
-    workspaceSnapshotComplete,
-    workspaceRoots: [projectRoot],
-  })
+  runtime.stdout.write(`準備掃描 ${files.length} 個檔案，呼叫 ${baseUrl}\n`)
+  const created = await triggerScan(
+    baseUrl,
+    {
+      files,
+      depth,
+      includeLlmScan: depth === 'deep',
+      forceRescan: true,
+      scanScope: 'workspace',
+      workspaceSnapshotComplete,
+      workspaceRoots: [projectRoot],
+    },
+    runtime,
+  )
 
   const taskId = created.taskId
   if (!taskId) {
-    throw new Error('掃描任務建立失敗：未取得 taskId')
+    throw new CliError('掃描任務建立失敗：未取得 taskId')
   }
 
-  const startedAt = Date.now()
-  while (true) {
-    if (Date.now() - startedAt > SCAN_TIMEOUT_MS) {
-      throw new Error('掃描等待逾時（30 分鐘）')
-    }
+  const pollIntervalMs = Math.max(50, Math.floor(runtime.pollIntervalMs))
+  const scanTimeoutMs = Math.max(1000, Math.floor(runtime.scanTimeoutMs))
+  const startedAt = runtime.now()
+  let interrupted = false
 
-    const status = await fetchScanStatus(baseUrl, taskId)
-    const scanned = Number(status.scannedFiles ?? 0)
-    const total = Number(status.totalFiles ?? 0)
-    const progress = total > 0 ? `${scanned}/${total}` : `${Math.round(Number(status.progress ?? 0) * 100)}%`
-    process.stdout.write(`\r[task:${taskId}] ${status.status} ${progress}                    `)
+  const unregisterSigint = runtime.registerSigint(() => {
+    interrupted = true
+  })
 
-    if (status.status === 'completed') {
-      process.stdout.write('\n掃描完成\n')
-      return
-    }
-
-    if (status.status === 'failed') {
-      process.stdout.write('\n掃描失敗\n')
-      if (status.errorMessage) {
-        process.stdout.write(`${status.errorMessage}\n`)
+  try {
+    while (true) {
+      if (interrupted) {
+        runtime.stdout.write('\n收到 SIGINT，正在取消掃描任務...\n')
+        await tryCancelScanTask(baseUrl, taskId, runtime, '掃描已中斷')
+        throw new CliError('掃描已中斷，已嘗試取消後端任務', { exitCode: 130 })
       }
-      process.exitCode = 1
-      return
-    }
 
-    await sleep(POLL_INTERVAL_MS)
+      if (runtime.now() - startedAt > scanTimeoutMs) {
+        runtime.stdout.write(
+          `\n掃描等待逾時（${Math.ceil(scanTimeoutMs / 1000)} 秒），正在取消掃描任務...\n`,
+        )
+        await tryCancelScanTask(baseUrl, taskId, runtime, '掃描逾時')
+        throw new CliError(
+          `掃描等待逾時（${Math.ceil(scanTimeoutMs / 1000)} 秒），已嘗試取消後端任務`,
+        )
+      }
+
+      const status = await fetchScanStatus(baseUrl, taskId, runtime)
+      const scanned = Number(status.scannedFiles ?? 0)
+      const total = Number(status.totalFiles ?? 0)
+      const progress =
+        total > 0
+          ? `${scanned}/${total}`
+          : `${Math.round(Number(status.progress ?? 0) * 100)}%`
+
+      runtime.stdout.write(
+        `\r[task:${taskId}] ${status.status} ${progress}                    `,
+      )
+
+      if (status.status === 'completed') {
+        runtime.stdout.write('\n掃描完成\n')
+        return
+      }
+
+      if (status.status === 'failed') {
+        const reason =
+          typeof status.errorMessage === 'string' && status.errorMessage.trim().length > 0
+            ? status.errorMessage.trim()
+            : '未知錯誤'
+        throw new CliError(`掃描失敗：${reason}`)
+      }
+
+      await runtime.sleepImpl(pollIntervalMs)
+    }
+  } finally {
+    unregisterSigint()
   }
 }
 
@@ -360,12 +527,16 @@ function truncate(text, limit) {
   return `${text.slice(0, limit - 1)}…`
 }
 
-async function commandList(projectRoot, flags) {
+async function commandList(projectRoot, flags, runtime) {
   await initProject(projectRoot)
   const rows = await readJson(getStoragePath(projectRoot, 'vulnerabilities'), [])
 
-  const statusFilter = typeof flags.status === 'string' ? flags.status : null
-  const severityFilter = typeof flags.severity === 'string' ? flags.severity : null
+  const statusFilter = validateEnumFlag('status', flags.status ?? null, VALID_STATUSES)
+  const severityFilter = validateEnumFlag(
+    'severity',
+    flags.severity ?? null,
+    VALID_SEVERITIES,
+  )
   const search = typeof flags.search === 'string' ? flags.search.toLowerCase() : null
 
   const filtered = rows
@@ -379,7 +550,7 @@ async function commandList(projectRoot, flags) {
     .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))
 
   if (filtered.length === 0) {
-    process.stdout.write('沒有符合條件的漏洞\n')
+    runtime.stdout.write('沒有符合條件的漏洞\n')
     return
   }
 
@@ -391,7 +562,9 @@ async function commandList(projectRoot, flags) {
     const line = Number(row.line ?? 0)
     const type = String(row.type ?? '')
     const description = truncate(String(row.description ?? ''), 80)
-    process.stdout.write(`${id}  [${severity}/${status}] ${filePath}:${line}  ${type}  ${description}\n`)
+    runtime.stdout.write(
+      `${id}  [${severity}/${status}] ${filePath}:${line}  ${type}  ${description}\n`,
+    )
   }
 }
 
@@ -404,7 +577,7 @@ function countBy(rows, selector) {
   return counter
 }
 
-async function commandStatus(projectRoot) {
+async function commandStatus(projectRoot, runtime) {
   await initProject(projectRoot)
   const [tasks, vulns] = await Promise.all([
     readJson(getStoragePath(projectRoot, 'scanTasks'), []),
@@ -421,56 +594,110 @@ async function commandStatus(projectRoot) {
     (row) => String(row.severity || 'unknown'),
   )
 
-  process.stdout.write(`project: ${projectRoot}\n`)
-  process.stdout.write(`vulnerabilities: total=${vulns.length} open=${byStatus.open || 0} fixed=${byStatus.fixed || 0} ignored=${byStatus.ignored || 0}\n`)
-  process.stdout.write(
+  runtime.stdout.write(`project: ${projectRoot}\n`)
+  runtime.stdout.write(
+    `vulnerabilities: total=${vulns.length} open=${byStatus.open || 0} fixed=${byStatus.fixed || 0} ignored=${byStatus.ignored || 0}\n`,
+  )
+  runtime.stdout.write(
     `open severity: critical=${bySeverityOpen.critical || 0} high=${bySeverityOpen.high || 0} medium=${bySeverityOpen.medium || 0} low=${bySeverityOpen.low || 0} info=${bySeverityOpen.info || 0}\n`,
   )
 
   if (!latestTask) {
-    process.stdout.write('latest scan: 尚無掃描任務\n')
+    runtime.stdout.write('latest scan: 尚無掃描任務\n')
     return
   }
 
-  process.stdout.write(
+  runtime.stdout.write(
     `latest scan: id=${latestTask.id} status=${latestTask.status} engine=${latestTask.engineMode} fallback=${latestTask.fallbackUsed ? 'yes' : 'no'} updatedAt=${latestTask.updatedAt}\n`,
   )
 }
 
-async function main() {
-  const argv = process.argv.slice(2)
-  const command = argv[0]
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
-  if (!command || command === '--help' || command === '-h' || command === 'help') {
-    printHelp()
-    return
+function toCliFailure(error) {
+  if (error instanceof CliError) {
+    return {
+      message: error.message,
+      exitCode: error.exitCode,
+      showHelp: error.showHelp,
+    }
   }
 
-  const flags = parseFlags(argv.slice(1))
-  const projectRoot = resolveProjectRoot()
-
-  switch (command) {
-    case 'init':
-      await commandInit(projectRoot)
-      break
-    case 'scan':
-      await commandScan(projectRoot, flags)
-      break
-    case 'list':
-      await commandList(projectRoot, flags)
-      break
-    case 'status':
-      await commandStatus(projectRoot)
-      break
-    default:
-      process.stderr.write(`未知命令：${command}\n`)
-      printHelp()
-      process.exitCode = 1
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    exitCode: 1,
+    showHelp: false,
   }
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error)
-  process.stderr.write(`[confession] ${message}\n`)
-  process.exitCode = 1
-})
+async function runCli(argv, runtimeOverrides = {}) {
+  const runtime = createRuntime(runtimeOverrides)
+
+  try {
+    const args = Array.isArray(argv) ? argv : []
+    const command = args[0]
+
+    if (!command || command === '--help' || command === '-h' || command === 'help') {
+      printHelp(runtime.stdout)
+      return 0
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(COMMAND_FLAG_SPEC, command)) {
+      throw new CliError(`未知命令：${command}`, { showHelp: true })
+    }
+
+    if (args[1] === '--help' || args[1] === '-h') {
+      printHelp(runtime.stdout)
+      return 0
+    }
+
+    const flags = parseFlags(args.slice(1), COMMAND_FLAG_SPEC[command])
+    const projectRoot = resolveProjectRoot(runtime)
+
+    switch (command) {
+      case 'init':
+        await commandInit(projectRoot, runtime)
+        break
+      case 'scan':
+        await commandScan(projectRoot, flags, runtime)
+        break
+      case 'list':
+        await commandList(projectRoot, flags, runtime)
+        break
+      case 'status':
+        await commandStatus(projectRoot, runtime)
+        break
+      default:
+        throw new CliError(`未知命令：${command}`, { showHelp: true })
+    }
+
+    return 0
+  } catch (error) {
+    const failure = toCliFailure(error)
+    runtime.stderr.write(`[confession] ${failure.message}\n`)
+
+    if (failure.showHelp) {
+      printHelp(runtime.stdout)
+    }
+
+    return failure.exitCode
+  }
+}
+
+module.exports = {
+  runCli,
+  createRuntime,
+  parseFlags,
+  commandInit,
+  commandScan,
+  commandList,
+  commandStatus,
+}
+
+if (require.main === module) {
+  void runCli(process.argv.slice(2)).then((exitCode) => {
+    process.exitCode = exitCode
+  })
+}
