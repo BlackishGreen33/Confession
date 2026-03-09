@@ -16,6 +16,7 @@
 confession/
 ├── .github/workflows/ # GitHub Actions CI
 ├── .husky/            # Git hooks（commit-msg）
+├── confession-cli/    # npm 全域 CLI（init / scan / list / status）
 ├── extension/       # VS Code 擴充套件（esbuild → CJS）
 ├── web/             # Next.js App Router + Hono 後端
 ├── go-analyzer/     # Go AST → WASM 分析器
@@ -39,7 +40,7 @@ confession/
 | 儲存層 | 專案本地 FileStore（`.confession/*.json`） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容） |
-| 測試 | Vitest + fast-check（PBT） |
+| 測試 | Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI） |
 
 ## 前置需求
 
@@ -90,6 +91,11 @@ pnpm lint
 # 測試
 pnpm test
 
+# CI 子檢查
+pnpm check:lint
+pnpm check:build
+pnpm check:test
+
 # CI 檢查（lint + build + test）
 pnpm check:ci
 
@@ -104,6 +110,9 @@ node confession-cli/bin/confession.js init
 node confession-cli/bin/confession.js scan
 node confession-cli/bin/confession.js list --status open
 node confession-cli/bin/confession.js status
+
+# CLI 測試
+pnpm --filter confession-cli test
 
 # Commit 訊息檢查（最近一筆）
 pnpm commitlint --from HEAD~1 --to HEAD
@@ -122,9 +131,15 @@ pnpm format:check
 
 - CI 使用 GitHub Actions，workflow 位於 `.github/workflows/ci.yml`
 - 觸發條件：`pull_request(main)` 與 `push(main)`
-- `quality` job 執行 `pnpm check:ci`
+- `lint` / `build` / `test` job 並行執行各自檢查
+- `quality` job 為聚合 gate（`needs: lint/build/test`），保留 required check 名稱
 - `commit-check` job 針對 commit range 執行 `pnpm commitlint:range`
 - 本機提交會由 `.husky/commit-msg` 觸發檢查
+
+## CLI 行為重點
+
+- 參數驗證為強制：未知旗標或非法列舉值（`depth/status/severity`）會直接失敗並回傳非 0 exit code
+- `scan` 在輪詢逾時或收到 `SIGINT`（Ctrl+C）時，會先嘗試呼叫 `/api/scan/cancel/:id` 再結束，避免殘留 `running` 任務
 
 ### Commit 格式
 
