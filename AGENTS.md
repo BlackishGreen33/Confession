@@ -33,6 +33,7 @@
 - 名稱：Confession（薄暮靜析的告解詩）
 - 定位：VS Code 靜態程式碼漏洞分析插件
 - 介面目標環境：VS Code Webview（桌面場景優先）
+- Webview UI 語言：支援 `zh-TW` / `zh-CN` / `en`，預設 `zh-TW`，`auto` 需跟隨宿主語言
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件）
@@ -108,6 +109,7 @@ confession/
 │       ├── export/
 │       │   ├── common.ts
 │       │   ├── printable-html.ts
+│       │   ├── printable-text.ts
 │       │   └── renderers.ts
 │       ├── llm/
 │       ├── mcp/
@@ -241,6 +243,8 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 支援 `Last-Event-ID` 以利中斷續傳
   - 每 15 秒發送 `keepalive` 事件
 - `/api/export` `format` 需支援：`json` / `csv` / `markdown` / `pdf` / `sarif`
+- `/api/export` request body 需支援 `locale?: 'zh-TW' | 'zh-CN' | 'en'`
+- `/api/export` 未帶 `locale` 時，後端需使用 `config.ui.language` 解析；`auto` 或不可判定時回退 `zh-TW`
 - `sarif` 匯出需符合 `2.1.0`，包含 `partialFingerprints.stableFingerprint`
 - `sarif` 匯出需套用 `maxResults`/`maxBytes` guard；發生截斷時以 `X-Confession-Sarif-Warning` 回傳警告
 - 漏洞事件需支援 `scan_relocated`，並帶 `fromFilePath/fromLine/toFilePath/toLine`
@@ -269,6 +273,7 @@ ignore / config 同步規範：
 - Ignore 不使用 `.confessionignore`
 - Ignore 僅存在 `.confession/config.json.ignore.paths/types`
 - 設定頁儲存時，需同步寫入 VS Code settings 與 `.confession/config.json`
+- 語言設定需支援 `confession.ui.language = auto|zh-TW|zh-CN|en`，並同步到 `.confession/config.json.ui.language`
 - Extension 需監聽 `**/.confession/config.json` 的 create/change/delete 並推送 `config_updated`
 - `scanWorkspace` 與 onSave 忽略判斷需 root-aware：依檔案所屬 root 套用對應 `.confession/config.json`
 
@@ -285,6 +290,7 @@ ignore / config 同步規範：
 - `web/src/server/**` 不允許 `max-lines` 例外；由 `pnpm maint:check` 守門
 - `extension` / `confession-cli` 暫可保留少量例外，但需標記為「待拆分」
 - 列舉以字串儲存 + Zod 驗證
+- `PluginConfig` 需包含 `ui.language`（`auto|zh-TW|zh-CN|en`）
 - 禁止無理由新增 runtime 依賴
 - 禁止濫用 `@ts-ignore` / `eslint-disable`
 - React 元件使用箭頭函式 + `React.FC<Props>`
