@@ -22,6 +22,7 @@ fileMatchPattern: '**/*.test.*'
 - Beta 能力需補齊：
   - Agentic Planner/Skill/MCP policy 單元測試
   - `engineMode` 與 `errorCode` API 回傳測試
+  - SSE 進度串流測試（含 keepalive 與斷線重連/降級）
 - Advice Gate 需補齊：
   - triggerScore/guard（threshold、cooldown、fingerprint、daily limit）單元測試
   - `GET /api/advice/latest` 路由測試（有資料/無資料）
@@ -29,9 +30,18 @@ fileMatchPattern: '**/*.test.*'
 - FileStore 需補齊：
   - `.confession/*.json` 讀寫與原子寫入測試
   - `prisma` 外觀相容層（find/update/upsert/transaction）測試
+  - `scanTask` 快速寫路徑測試（僅寫 `scan-tasks.json` + `meta.json`）
+  - `analysis-cache.json` 版本不相容清空與持久化測試
+- 匯出能力需補齊：
+  - SARIF 2.1.0 schema 相容測試（含 `partialFingerprints.stableFingerprint`）
+  - CSV 新欄位（`stableFingerprint`、`source`）與 BOM 驗證
+- 效能基準需可重複執行：
+  - `pnpm --filter web benchmark:scan` 量測 `scan_workspace_p95_ms` 與 `status_api_rps`（預設 `engineMode=baseline`）
+  - 至少覆蓋 1000 與 3000 檔工作區場景
 - CLI 需覆蓋：
   - `init` 建檔與重跑冪等
   - `scan` 成功 / 失敗 / 逾時 cancel / SIGINT cancel
   - `list` 篩選與空結果輸出
   - `status` 最新任務與 fallback 摘要
+  - `verify web`（工具存在成功路徑、工具缺失錯誤路徑）
   - 參數驗證（未知旗標與非法列舉值）

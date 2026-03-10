@@ -50,10 +50,11 @@ export default function MyComponent({ children }: MyComponentProps) {
 皆定義於 #[[file:web/src/common/libs/types.ts]]：
 
 - **InteractionPoint**：AST 輸出（type, language, location, codeSnippet, patternName, confidence）
-- **Vulnerability**：完整記錄，含位置、分類（type, cweId, severity）、修復建議、歸因、狀態
+- **Vulnerability**：完整記錄，含位置、分類（type, cweId, severity）、修復建議、歸因、狀態、`stableFingerprint`、`source(sast|dast)`
 - **VulnerabilityEvent**：漏洞事件流（scan_detected / review_saved / status_changed）
 - **ScanRequest**：files + depth + includeLlmScan
 - **PluginConfig**：llm、analysis、ignore、api 設定
 - **ExtToWebMsg / WebToExtMsg**：擴充套件與 webview 間的 postMessage 協議
 
-冪等鍵：`[filePath, line, column, codeHash, type]`，其中 `codeHash = SHA-256(codeSnippet)`
+冪等鍵：`[filePath, line, column, codeHash, type]`，其中 `codeHash = SHA-256(codeSnippet)`  
+穩定關聯鍵：`stableFingerprint`（用於 trend/advice/歷史關聯，避免純行號位移造成 churn）

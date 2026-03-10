@@ -78,6 +78,7 @@ confession/
 │       ├── llm/
 │       ├── mcp/
 │       ├── db.ts
+│       ├── file-analysis-cache-store.ts
 │       ├── advice-gate.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
@@ -96,7 +97,14 @@ confession/
 - `.confession/scan-tasks.json`
 - `.confession/advice-snapshots.json`
 - `.confession/advice-decisions.json`
+- `.confession/analysis-cache.json`
 - `.confession/meta.json`
+
+`meta` 最低必備欄位：
+
+- `schemaVersion = "file-store-v1"`
+- `analysisCacheVersion = "analysis-cache-v1"`
+- `stableFingerprintVersion = "stable-fingerprint-v1"`
 
 ## 4. 路徑別名
 
@@ -116,6 +124,8 @@ confession/
 - 驗證：`zod/v4` + `@hono/zod-validator`
 - 儲存層：專案本地 FileStore（`.confession/*.json`）
 - 舊資料遷移：`better-sqlite3`（僅一次性 SQLite → FileStore）
+- 掃描快取：`fileAnalysisCache` 持久化至 `.confession/analysis-cache.json`（含 analyzer/prompt version）
+- 掃描吞吐：JS/TS AST worker pool（預設 `min(4, cpuCores-1)`，失敗自動 fallback 單執行緒）
 - 測試：Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI）
 - CI/CD：GitHub Actions（`lint`/`build`/`test` 並行 + `quality` 聚合 + `commit-check`）
 - Commit 檢查：commitlint + husky（`commit-msg` hook）
@@ -127,10 +137,12 @@ confession/
 - CI lint 檢查：`pnpm check:lint`
 - CI build 檢查：`pnpm check:build`
 - CI test 檢查：`pnpm check:test`
+- 掃描基準（1000/3000 檔，預設 baseline）：`pnpm --filter web benchmark:scan`
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - Extension 打包 VSIX：`pnpm --filter confession-extension package`
 - CLI 本地執行：`node confession-cli/bin/confession.js --help`
+- CLI DAST 驗證：`node confession-cli/bin/confession.js verify web --url <http(s)://target>`
 - CLI 測試：`pnpm --filter confession-cli test`
 - Commit range 檢查：`pnpm commitlint:range --from <from> --to <to>`
 
@@ -167,6 +179,13 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 掃描流程需保留去重（fingerprint）與背景執行
 - `agentic_beta` 失敗需自動回退 `baseline`
 - `/api/scan/status/:id`、`/api/scan/recent` 需回傳 `engineMode`、`errorCode`、fallback 欄位
+- `/api/scan/stream/:id` 需：
+  - 回傳 `text/event-stream`
+  - `scan_progress` 事件附帶遞增 `id`
+  - 支援 `Last-Event-ID` 以利中斷續傳
+  - 每 15 秒發送 `keepalive` 事件
+- `/api/export` `format` 需支援：`json` / `csv` / `markdown` / `pdf` / `sarif`
+- `sarif` 匯出需符合 `2.1.0`，包含 `partialFingerprints.stableFingerprint`
 
 ## 7. Extension 規範
 
@@ -180,6 +199,9 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 僅處理：Go / JavaScript / TypeScript（含 React 變體）
 - Webview 與 Extension 以 postMessage 雙向同步配置與狀態
 - 狀態列需區分掃描失敗，不得在失敗時顯示「安全」
+- `scan-client` 需以 SSE（`/api/scan/stream/:id`）作為主通道
+- 只有在 SSE 不可用或中斷時才降級輪詢，並採退避重試（500ms→1s→2s→5s→10s）
+- 逾時後需呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務
 
 ignore / config 同步規範：
 
@@ -198,6 +220,8 @@ ignore / config 同步規範：
 - React 元件使用箭頭函式 + `React.FC<Props>`
 - hooks 檔案維持「React Query hooks 與 Jotai atoms 同檔共置」
 - 漏洞冪等鍵：`[filePath, line, column, codeHash, type]`
+- 穩定關聯鍵：`stableFingerprint`（用於 trend/advice/歷史關聯）
+- 漏洞來源欄位：`source = "sast" | "dast"`
 - Commit 訊息格式：`<emoji> <type>(<scope>): <description>`
 
 ## 9. 測試規範
@@ -213,17 +237,26 @@ ignore / config 同步規範：
 - extension 測試：`pnpm --filter confession-extension test`
 - CLI 測試：`pnpm --filter confession-cli test`
 - FileStore 需覆蓋讀寫、transaction 一致性與 upsert 冪等
+- 匯出需覆蓋 SARIF 2.1.0 輸出與 `stableFingerprint` 欄位
+- 掃描進度需覆蓋 SSE keepalive 與斷線降級輪詢流程
+- 效能基準需可重跑並輸出 `scan_workspace_p95_ms`、`status_api_rps`
 - CLI 需覆蓋：
   - `init` 建檔與重跑冪等
   - `scan` 成功 / 失敗 / 逾時 cancel / SIGINT cancel
   - `list` 篩選與空結果輸出
   - `status` 最新任務與 fallback 摘要
+  - `verify web`（工具存在成功路徑、工具缺失錯誤路徑）
   - 參數驗證（未知旗標與非法列舉值）
 
 ## 10. CI 與 Commit 檢查
 
 - CI workflow：`.github/workflows/ci.yml`
-- CI 觸發：`pull_request(main)`、`push(main)`
+- CI 觸發：`pull_request(main)`、`push(main)` + `paths` 精準過濾
+- CI 需注入 Turborepo Remote Cache 環境變數：
+  - `TURBO_TOKEN`
+  - `TURBO_TEAM`
+  - `TURBO_REMOTE_CACHE_SIGNATURE_KEY`
+  - `TURBO_TELEMETRY_DISABLED=1`
 - `lint` job：`pnpm install --frozen-lockfile` + `pnpm check:lint`
 - `build` job：`pnpm install --frozen-lockfile` + `pnpm check:build`
 - `test` job：`pnpm install --frozen-lockfile` + `pnpm check:test`

@@ -26,7 +26,7 @@ fileMatchPattern: '**/src/server/**/*'
 | `/api/vulnerabilities/:id`        | GET   | 單筆漏洞詳情                                               |
 | `/api/vulnerabilities/:id/events` | GET   | 單筆漏洞事件流（新到舊）                                   |
 | `/api/vulnerabilities/:id`        | PATCH | 更新狀態/歸因                                              |
-| `/api/export`                     | POST  | 匯出報告（JSON/CSV/Markdown/PDF）                          |
+| `/api/export`                     | POST  | 匯出報告（JSON/CSV/Markdown/PDF/SARIF）                    |
 | `/api/monitoring/generate`        | POST  | 產生嵌入式監測代碼                                         |
 
 ## 規範
@@ -65,6 +65,9 @@ fileMatchPattern: '**/src/server/**/*'
 - `ScanTask` 需記錄 `engineMode`、`errorCode` 與 fallback 欄位（`fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`）
 - `GET /api/scan/status/:id` / `GET /api/scan/recent` 必須回傳 `engineMode`、`errorCode` 與 fallback 欄位
 - `GET /api/scan/stream/:id` 回應 `text/event-stream`，需即時推送 `{ id, status, progress, totalFiles, scannedFiles, engineMode, fallbackUsed, fallbackFrom?, fallbackTo?, fallbackReason?, errorMessage, errorCode, createdAt, updatedAt }`
+  - 每個進度事件需帶 `id`（遞增事件序號），`event` 固定為 `scan_progress`
+  - 支援 `Last-Event-ID` 請求標頭，供中斷後續傳（resume-friendly）
+  - 需每 15 秒送出 `keepalive` 事件避免中間節點逾時斷線
   - 掃描狀態到 `completed` / `failed` 後可關閉串流
 - `POST /api/scan/cancel/:id`：
   - 任務不存在回 `404`
@@ -106,11 +109,12 @@ fileMatchPattern: '**/src/server/**/*'
   - 收斂時需寫入 `status_changed` 事件，訊息需說明來源檔案不在本次工作區快照（可能刪除或改名）
   - 收斂失敗不得中斷整體掃描任務完成；需輸出結構化 log 供追查
 - `POST /api/export` 規範：
-  - request body：`format = json|csv|markdown|pdf`，`filters` 支援 `status/severity/humanStatus/filePath/search`
+  - request body：`format = json|csv|markdown|pdf|sarif`，`filters` 支援 `status/severity/humanStatus/filePath/search`
   - `json`：`application/json`，回傳 `ExportReportV2`（schemaVersion、filters、summary、items）
   - CSV 回應需帶 UTF-8 BOM（避免繁中在部分試算表開啟亂碼）
   - `markdown`：`text/markdown; charset=utf-8`
   - `pdf`：`text/html; charset=utf-8`（列印版 HTML，由前端觸發瀏覽器列印另存 PDF）
+  - `sarif`：`application/sarif+json; charset=utf-8`，版本固定 `2.1.0`，需包含 `partialFingerprints.stableFingerprint`
   - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
 - 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`
