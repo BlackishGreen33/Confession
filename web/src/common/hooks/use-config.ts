@@ -8,9 +8,6 @@ import { api } from '@/libs/api-client'
 import { configAtom } from '@/libs/atoms'
 import type { PluginConfig } from '@/libs/types'
 
-// 從 atoms.ts 重新匯出，保持同檔共置慣例
-export { configAtom } from '@/libs/atoms'
-
 // === Hooks ===
 
 /** 讀取完整配置（單一來源：全域 configAtom） */

@@ -2,7 +2,7 @@
 
 import React from 'react'
 
-import { Dashboard } from '@/components/dashboard'
+import { Dashboard } from '@/components/dashboard/main'
 import { MotionReveal } from '@/motion/reveal'
 
 const Home: React.FC = () => {

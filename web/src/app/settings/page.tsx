@@ -2,7 +2,7 @@
 
 import React from 'react'
 
-import { SettingsPanel } from '@/components/settings-panel'
+import { SettingsPanel } from '@/components/settings/main'
 import { MotionReveal } from '@/motion/reveal'
 
 /** 設定頁 — 使用 h-dvh 直接撐滿視窗，不依賴父層高度鏈 */

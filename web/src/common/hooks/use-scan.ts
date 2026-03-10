@@ -14,9 +14,6 @@ import type {
   ScanRequest,
 } from '@/libs/types';
 
-// 從 atoms.ts 重新匯出，保持同檔共置慣例
-export { scanStatusAtom } from '@/libs/atoms';
-
 // === 回應型別 ===
 
 interface ScanTriggerResponse {

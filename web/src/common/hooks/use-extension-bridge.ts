@@ -3,7 +3,8 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useSetAtom } from 'jotai';
 import { useRouter } from 'next/navigation';
-import React, { useCallback, useEffect, useRef } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import {
   configAtom,
