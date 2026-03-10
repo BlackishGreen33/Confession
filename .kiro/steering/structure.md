@@ -13,7 +13,7 @@ confession/
 │   └── commit-msg         # 本機 commit 訊息檢查 hook
 ├── confession-cli/        # npm 全域 CLI（bin: confession）
 │   └── bin/
-│       ├── confession.js       # init / scan / list / status
+│       ├── confession.js       # init / scan / list / status / verify web
 │       └── confession.test.js  # Node node:test 覆蓋 CLI 主流程
 ├── extension/             # VSCode 擴充套件（esbuild → CommonJS）
 │   ├── src/extension.ts
@@ -49,6 +49,7 @@ confession/
 │       ├── llm/
 │       ├── mcp/
 │       ├── db.ts          # FileStore（.confession）+ SQLite 一次性遷移
+│       ├── file-analysis-cache-store.ts
 │       ├── advice-gate.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
@@ -70,9 +71,14 @@ confession/
 - `.confession/scan-tasks.json`
 - `.confession/advice-snapshots.json`
 - `.confession/advice-decisions.json`
+- `.confession/analysis-cache.json`
 - `.confession/meta.json`
 
-`meta.schemaVersion` 目前為 `file-store-v1`。
+`meta` 目前至少需包含：
+
+- `schemaVersion = "file-store-v1"`
+- `analysisCacheVersion = "analysis-cache-v1"`
+- `stableFingerprintVersion = "stable-fingerprint-v1"`
 
 ## 邊界規則
 

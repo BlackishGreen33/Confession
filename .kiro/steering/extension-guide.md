@@ -35,10 +35,12 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
   - `掃描整個工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次
   - Extension 不顯示「是否改用 baseline」互動提示，回退行為完全由後端處理
 - Timeout 與中斷策略：
-  - `掃描當前文件` 輪詢 timeout：8 分鐘
-  - `onSave` 輪詢 timeout：4 分鐘
-  - `掃描整個工作區` 輪詢 timeout：30 分鐘
-  - 輪詢逾時後 Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務
+  - `scan-client` 需優先使用 SSE（`/api/scan/stream/:id`）接收進度，輪詢僅做降級備援
+  - SSE 中斷時才啟用輪詢，並採 500ms→1s→2s→5s→10s 退避重試
+  - `掃描當前文件` timeout：8 分鐘
+  - `onSave` timeout：4 分鐘
+  - `掃描整個工作區` timeout：30 分鐘
+  - 若最終逾時，Extension 必須呼叫 `POST /api/scan/cancel/:id` 主動中止後端任務
 - 即時同步策略：
   - 單檔/增量掃描完成後，Extension 需同步拉取「全域開放漏洞」並廣播 `vulnerabilities_updated`
   - Web 端收到 `vulnerabilities_updated` 或 `scan_progress=completed/failed` 後，需立即重抓 `vulnerabilities`、`vuln-stats`、`vuln-trend`、`health`、`advice-latest`
@@ -89,7 +91,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - `src/diagnostics.ts` — DiagnosticsProvider + HoverProvider + CodeActionProvider
 - `src/file-watcher.ts` — 檔案儲存監聽 + debounce 增量分析觸發
 - `src/ignore-file.ts` — `.confession/config.json` 解析、讀寫與 root-aware 忽略規則解析
-- `src/scan-client.ts` — 掃描 API 客戶端（觸發掃描、輪詢、漏洞查詢）
+- `src/scan-client.ts` — 掃描 API 客戶端（觸發掃描、SSE 主通道、輪詢備援、漏洞查詢）
 - `src/monitoring.ts` — 監測代碼請求封裝
 - `src/webview.ts` — Webview 面板 + postMessage
 - `src/status-bar.ts` — 狀態列指示器
