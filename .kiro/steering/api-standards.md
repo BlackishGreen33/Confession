@@ -93,19 +93,22 @@ fileMatchPattern: '**/src/server/**/*'
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 漏洞事件規範：
   - `scan_detected`：新漏洞建立時寫入
+  - `scan_relocated`：同 `stableFingerprint` 命中舊漏洞但檔案/行號位移時寫入
   - `review_saved`：`humanStatus/humanComment/owaspCategory` 任一變更時寫入
   - `status_changed`：`status` 變更時寫入
+  - `scan_relocated` 事件需帶 `fromFilePath/fromLine/toFilePath/toLine`
   - 狀態更新與事件寫入需在同一 transaction，確保一致性
   - 相容舊 DB：`vulnerability_events` 尚未存在時，`/trend` 回退舊邏輯，`/:id/events` 回空陣列
 - 漏洞語義去重規範：
   - `upsertVulnerabilities` 寫入前需做語義去重（同一行同一敏感資料主題僅保留一筆）
   - `hardcoded_secret` 與 `keyword_*` 重疊時，優先保留 `hardcoded_secret`
+  - 去重聚合鍵需採 `stableFingerprint` 優先；缺值時才回退舊語義鍵
   - `GET /api/vulnerabilities` 與 `GET /api/vulnerabilities/stats` 需基於語義去重後資料回傳，避免同源重複告警膨脹
   - `GET /api/vulnerabilities/stats` 需回傳 `bySeverityOpen`（僅 `status=open` 的嚴重度分佈），供 Dashboard 做資源分配建議
 - 工作區快照收斂規範：
   - 僅 `scanScope=workspace` 且 `workspaceSnapshotComplete !== false` 時啟用
   - 必須以 `workspaceRoots` 限定收斂範圍；缺少 roots 時跳過收斂
-  - 若開放漏洞的 `filePath` 不在本次快照清單，後端需自動將其 `status` 由 `open` 轉為 `fixed`
+  - 收斂判斷需 fingerprint-aware：僅在 `filePath` 不在快照且其 `stableFingerprint` 未於本輪掃描觀測到時，才可 auto-fix
   - 收斂時需寫入 `status_changed` 事件，訊息需說明來源檔案不在本次工作區快照（可能刪除或改名）
   - 收斂失敗不得中斷整體掃描任務完成；需輸出結構化 log 供追查
 - `POST /api/export` 規範：
@@ -115,9 +118,11 @@ fileMatchPattern: '**/src/server/**/*'
   - `markdown`：`text/markdown; charset=utf-8`
   - `pdf`：`text/html; charset=utf-8`（列印版 HTML，由前端觸發瀏覽器列印另存 PDF）
   - `sarif`：`application/sarif+json; charset=utf-8`，版本固定 `2.1.0`，需包含 `partialFingerprints.stableFingerprint`
+  - SARIF 需套用 `maxResults`/`maxBytes` guard，截斷時以 `X-Confession-Sarif-Warning` 回傳警告摘要
   - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
-- 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`
+- 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`、`fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_timeout_count`
+- 漏洞寫入需輸出儲存層結構化 log（`[Confession][StorageWriteMetrics]`），至少含 `taskId`、`vuln_count`、`write_ops`、`lock_wait_ms_p95`、`lock_timeout_count`、`relocation_count`
 
 ## Agent 系統
 

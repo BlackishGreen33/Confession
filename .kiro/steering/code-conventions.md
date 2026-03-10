@@ -51,7 +51,7 @@ export default function MyComponent({ children }: MyComponentProps) {
 
 - **InteractionPoint**：AST 輸出（type, language, location, codeSnippet, patternName, confidence）
 - **Vulnerability**：完整記錄，含位置、分類（type, cweId, severity）、修復建議、歸因、狀態、`stableFingerprint`、`source(sast|dast)`
-- **VulnerabilityEvent**：漏洞事件流（scan_detected / review_saved / status_changed）
+- **VulnerabilityEvent**：漏洞事件流（scan_detected / scan_relocated / review_saved / status_changed），relocation 事件需帶 `fromFilePath/fromLine/toFilePath/toLine`
 - **ScanRequest**：files + depth + includeLlmScan
 - **PluginConfig**：llm、analysis、ignore、api 設定
 - **ExtToWebMsg / WebToExtMsg**：擴充套件與 webview 間的 postMessage 協議

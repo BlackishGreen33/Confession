@@ -8,7 +8,9 @@ inclusion: always
 confession/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml         # GitHub Actions：lint/build/test + quality + commit-check
+│       ├── ci.yml                   # GitHub Actions：lint/build/test + quality + commit-check
+│       ├── code-scanning.yml        # 產生 SARIF 並上傳 GitHub Code Scanning
+│       └── benchmark-regression.yml # 夜間/手動掃描效能回歸守門
 ├── .husky/
 │   └── commit-msg         # 本機 commit 訊息檢查 hook
 ├── confession-cli/        # npm 全域 CLI（bin: confession）
@@ -26,6 +28,12 @@ confession/
 │   ├── src/status-bar.ts
 │   └── src/types.ts
 ├── web/                   # Next.js (App Router) + Hono 後端
+│   ├── benchmarks/
+│   │   └── scan-baseline.json       # benchmark:scan 基線
+│   ├── scripts/
+│   │   ├── code-scanning-fixture.json
+│   │   ├── generate-sarif-ci.mjs    # CI SARIF 產生器（category/限制）
+│   │   └── check-benchmark-regression.mjs
 │   ├── src/app/
 │   │   ├── layout.tsx
 │   │   ├── globals.css
@@ -50,6 +58,7 @@ confession/
 │       ├── mcp/
 │       ├── db.ts          # FileStore（.confession）+ SQLite 一次性遷移
 │       ├── file-analysis-cache-store.ts
+│       ├── sarif-generator.js
 │       ├── advice-gate.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
