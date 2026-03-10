@@ -1,4 +1,4 @@
-import type { VulnerabilityInput } from '@server/db'
+import type { VulnerabilityInput } from '@server/storage'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 

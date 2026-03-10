@@ -6,7 +6,7 @@ import path from 'node:path'
 import * as fc from 'fast-check'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { prisma, upsertVulnerabilities } from './db'
+import { storage, upsertVulnerabilities } from './storage'
 
 interface VulnerabilityInput {
   filePath: string
@@ -76,8 +76,8 @@ const vulnInputArb: fc.Arbitrary<VulnerabilityInput> = fc.record({
 beforeEach(async () => {
   const root = createTempProjectRoot()
   setProjectRoot(root)
-  await prisma.vulnerabilityEvent.deleteMany()
-  await prisma.vulnerability.deleteMany()
+  await storage.vulnerabilityEvent.deleteMany()
+  await storage.vulnerability.deleteMany()
 })
 
 afterEach(() => {
@@ -85,7 +85,7 @@ afterEach(() => {
 })
 
 afterAll(async () => {
-  await prisma.$disconnect()
+  await storage.$disconnect()
   for (const root of createdRoots.splice(0, createdRoots.length)) {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -95,14 +95,14 @@ describe('FileStore: Vulnerability record idempotency', () => {
   it('inserting the same vulnerability twice produces exactly one record', async () => {
     await fc.assert(
       fc.asyncProperty(vulnInputArb, async (input) => {
-        await prisma.vulnerabilityEvent.deleteMany()
-        await prisma.vulnerability.deleteMany()
+        await storage.vulnerabilityEvent.deleteMany()
+        await storage.vulnerability.deleteMany()
 
         await upsertVulnerabilities([input])
         await upsertVulnerabilities([input])
 
         const codeHash = createHash('sha256').update(input.codeSnippet).digest('hex')
-        const count = await prisma.vulnerability.count({
+        const count = await storage.vulnerability.count({
           where: {
             filePath: input.filePath,
             line: input.line,
@@ -121,13 +121,13 @@ describe('FileStore: Vulnerability record idempotency', () => {
   it('new vulnerability create should append one scan_detected event', async () => {
     await fc.assert(
       fc.asyncProperty(vulnInputArb, async (input) => {
-        await prisma.vulnerabilityEvent.deleteMany()
-        await prisma.vulnerability.deleteMany()
+        await storage.vulnerabilityEvent.deleteMany()
+        await storage.vulnerability.deleteMany()
 
         await upsertVulnerabilities([input])
 
         const codeHash = createHash('sha256').update(input.codeSnippet).digest('hex')
-        const vuln = await prisma.vulnerability.findUnique({
+        const vuln = await storage.vulnerability.findUnique({
           where: {
             vuln_idempotent: {
               filePath: input.filePath,
@@ -140,7 +140,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
         })
         expect(vuln).not.toBeNull()
 
-        const count = await prisma.vulnerabilityEvent.count({
+        const count = await storage.vulnerabilityEvent.count({
           where: {
             vulnerabilityId: vuln.id,
             eventType: 'scan_detected',
@@ -179,7 +179,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
     await upsertVulnerabilities([original])
     const result = await upsertVulnerabilities([moved])
 
-    const rows = await prisma.vulnerability.findMany({
+    const rows = await storage.vulnerability.findMany({
       where: { stableFingerprint: 'f'.repeat(64) },
     })
     expect(rows).toHaveLength(1)
@@ -188,7 +188,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
     expect(result.relocationCount).toBe(1)
     expect(result.metrics.fs_write_ops_per_scan).toBe(3)
 
-    const events = await prisma.vulnerabilityEvent.findMany({
+    const events = await storage.vulnerabilityEvent.findMany({
       where: { vulnerabilityId: rows[0]?.id },
       orderBy: { createdAt: 'asc' },
     })
@@ -216,7 +216,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
     await upsertVulnerabilities([input])
 
     const codeHash = createHash('sha256').update(input.codeSnippet).digest('hex')
-    const vuln = await prisma.vulnerability.findUnique({
+    const vuln = await storage.vulnerability.findUnique({
       where: {
         vuln_idempotent: {
           filePath: input.filePath,
@@ -230,7 +230,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
 
     expect(vuln).not.toBeNull()
 
-    await prisma.$transaction(async (tx) => {
+    await storage.$transaction(async (tx) => {
       await tx.vulnerability.update({
         where: { id: vuln.id },
         data: { status: 'fixed' },
@@ -251,10 +251,10 @@ describe('FileStore: Vulnerability record idempotency', () => {
       })
     })
 
-    const updated = await prisma.vulnerability.findUnique({ where: { id: vuln.id } })
+    const updated = await storage.vulnerability.findUnique({ where: { id: vuln.id } })
     expect(updated?.status).toBe('fixed')
 
-    const eventCount = await prisma.vulnerabilityEvent.count({
+    const eventCount = await storage.vulnerabilityEvent.count({
       where: {
         vulnerabilityId: vuln.id,
         eventType: 'status_changed',
@@ -268,7 +268,7 @@ describe('FileStore: Vulnerability record idempotency', () => {
     const root = process.env.CONFESSION_PROJECT_ROOT
     expect(root).toBeTruthy()
 
-    await prisma.config.upsert({
+    await storage.config.upsert({
       where: { id: 'default' },
       create: {
         id: 'default',

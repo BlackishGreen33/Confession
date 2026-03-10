@@ -1,4 +1,5 @@
 import { inflightScans } from '@server/cache';
+import { resetScanProgressState } from '@server/scan-progress-bus';
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,7 +29,7 @@ const mockOrchestrate = vi.hoisted(() => vi.fn());
 const mockOrchestrateAgenticBeta = vi.hoisted(() => vi.fn());
 const mockTriggerAdviceEvaluation = vi.hoisted(() => vi.fn());
 
-vi.mock('@server/db', () => ({ prisma: mockPrisma }));
+vi.mock('@server/storage', () => ({ storage: mockPrisma }));
 vi.mock('@server/agents/orchestrator', () => ({
   orchestrate: mockOrchestrate,
 }));
@@ -127,6 +128,7 @@ const failedStatsWithMissingApiKey = {
 const baseStorageMetrics = {
   fs_write_ops_per_scan: 3,
   db_lock_wait_ms_p95: 5,
+  db_lock_hold_ms_p95: 8,
   db_lock_timeout_count: 0,
 };
 
@@ -230,6 +232,7 @@ describe('Scan routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     inflightScans.clear();
+    resetScanProgressState();
     taskState.clear();
 
     mockPrisma.config.findUnique.mockResolvedValue(null);
@@ -406,6 +409,26 @@ describe('Scan routes', () => {
     expect(body.error).toBe('尚無掃描記錄');
   });
 
+  it('GET /api/scan/recent 二次讀取會優先走熱索引', async () => {
+    const task = createDefaultTask({
+      id: 'task-recent-cache',
+      status: 'completed',
+      progress: 1,
+      engineMode: 'baseline',
+      totalFiles: 2,
+      scannedFiles: 2,
+    });
+    taskState.set(task.id, task);
+
+    const first = await app.request('/api/scan/recent');
+    expect(first.status).toBe(200);
+    expect(mockPrisma.scanTask.findFirst).toHaveBeenCalledTimes(1);
+
+    const second = await app.request('/api/scan/recent');
+    expect(second.status).toBe(200);
+    expect(mockPrisma.scanTask.findFirst).toHaveBeenCalledTimes(1);
+  });
+
   it('GET /api/scan/status/:id 未回退時回傳 fallbackUsed=false', async () => {
     const task = createDefaultTask({
       id: 'task-status',
@@ -434,6 +457,26 @@ describe('Scan routes', () => {
     expect(body.fallbackFrom).toBeUndefined();
     expect(body.fallbackTo).toBeUndefined();
     expect(body.fallbackReason).toBeUndefined();
+  });
+
+  it('GET /api/scan/status/:id 二次讀取會命中熱索引', async () => {
+    const task = createDefaultTask({
+      id: 'task-status-cache',
+      status: 'running',
+      progress: 0.4,
+      totalFiles: 5,
+      scannedFiles: 2,
+      engineMode: 'baseline',
+    });
+    taskState.set(task.id, task);
+
+    const first = await app.request('/api/scan/status/task-status-cache');
+    expect(first.status).toBe(200);
+    expect(mockPrisma.scanTask.findUnique).toHaveBeenCalledTimes(1);
+
+    const second = await app.request('/api/scan/status/task-status-cache');
+    expect(second.status).toBe(200);
+    expect(mockPrisma.scanTask.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('GET /api/scan/stream/:id 會在 SSE payload 回傳 fallback 欄位', async () => {

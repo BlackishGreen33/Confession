@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest --run",
     "benchmark:scan": "node benchmark-scan-workspace.mjs",
     "sarif:ci": "node scripts/generate-sarif-ci.mjs"
@@ -34,11 +34,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.10",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
-    "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.4",
     "fast-check": "^4.5.3",
     "shadcn": "^3.8.4",

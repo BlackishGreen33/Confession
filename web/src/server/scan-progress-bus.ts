@@ -20,6 +20,42 @@ export interface ScanProgressEvent {
 type ProgressListener = (event: ScanProgressEvent) => void
 
 const listenersByTaskId = new Map<string, Set<ProgressListener>>()
+const latestEventByTaskId = new Map<string, ScanProgressEvent>()
+let latestUpdatedAtMs = 0
+let latestTaskId: string | null = null
+
+function cloneProgressEvent(event: ScanProgressEvent): ScanProgressEvent {
+  return {
+    ...event,
+  }
+}
+
+export function rememberScanProgress(event: ScanProgressEvent): void {
+  latestEventByTaskId.set(event.id, cloneProgressEvent(event))
+  const updatedAtMs = Date.parse(event.updatedAt)
+  if (!Number.isNaN(updatedAtMs) && updatedAtMs >= latestUpdatedAtMs) {
+    latestUpdatedAtMs = updatedAtMs
+    latestTaskId = event.id
+  }
+}
+
+export function getLatestScanProgress(taskId: string): ScanProgressEvent | null {
+  const found = latestEventByTaskId.get(taskId)
+  return found ? cloneProgressEvent(found) : null
+}
+
+export function getMostRecentScanProgress(): ScanProgressEvent | null {
+  if (!latestTaskId) return null
+  const found = latestEventByTaskId.get(latestTaskId)
+  return found ? cloneProgressEvent(found) : null
+}
+
+export function resetScanProgressState(): void {
+  listenersByTaskId.clear()
+  latestEventByTaskId.clear()
+  latestUpdatedAtMs = 0
+  latestTaskId = null
+}
 
 export function subscribeScanProgress(
   taskId: string,
@@ -40,6 +76,8 @@ export function subscribeScanProgress(
 }
 
 export function emitScanProgress(event: ScanProgressEvent): void {
+  rememberScanProgress(event)
+
   const listeners = listenersByTaskId.get(event.id)
   if (!listeners || listeners.size === 0) return
 

@@ -1,4 +1,4 @@
-import type { VulnerabilityInput } from '@server/db'
+import type { VulnerabilityInput } from '@server/storage'
 
 import type { ContextBundle, CriticResult, SkillExecutionRecord } from './types'
 

@@ -7,7 +7,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@server/db', () => ({ prisma: mockPrisma }))
+vi.mock('@server/storage', () => ({ storage: mockPrisma }))
 
 import { exportRoutes } from './export'
 

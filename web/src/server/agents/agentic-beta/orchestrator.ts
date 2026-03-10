@@ -1,12 +1,12 @@
 import { buildFileAnalysisCacheKey, computeContentHash, fileAnalysisCache } from '@server/cache'
-import type { UpsertStorageMetrics, VulnerabilityInput } from '@server/db'
-import { upsertVulnerabilities } from '@server/db'
 import {
   hydrateFileAnalysisCacheFromDisk,
   persistFileAnalysisCacheToDisk,
   recordAnalyzedFile,
 } from '@server/file-analysis-cache-store'
 import type { LlmClientConfig } from '@server/llm/client'
+import type { UpsertStorageMetrics, VulnerabilityInput } from '@server/storage'
+import { upsertVulnerabilities } from '@server/storage'
 
 import type { ScanRequest } from '@/libs/types'
 
@@ -73,6 +73,7 @@ export async function orchestrateAgenticBeta(
       storageMetrics: {
         fs_write_ops_per_scan: 0,
         db_lock_wait_ms_p95: 0,
+        db_lock_hold_ms_p95: 0,
         db_lock_timeout_count: 0,
       },
       summary: buildSummary([], request.files),
