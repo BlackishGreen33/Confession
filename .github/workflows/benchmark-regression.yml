@@ -1,0 +1,94 @@
+name: Benchmark Regression
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  BENCHMARK_ENFORCE_AFTER: '2026-03-24T00:00:00Z'
+
+jobs:
+  benchmark:
+    name: benchmark-regression
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        run: pnpm --filter web build
+
+      - name: Start web server
+        run: |
+          pnpm --filter web start -- --port 3000 > /tmp/confession-web.log 2>&1 &
+          echo $! > /tmp/confession-web.pid
+
+      - name: Wait for /api/health
+        run: |
+          for i in {1..60}; do
+            if curl -fsS "http://127.0.0.1:3000/api/health" >/dev/null; then
+              echo "web server ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "web server did not become ready"
+          exit 1
+
+      - name: Run benchmark
+        run: |
+          pnpm --filter web benchmark:scan -- \
+            --api http://127.0.0.1:3000 \
+            --sizes 1000,3000 \
+            --runs 2 \
+            --warmup-runs 1 \
+            --status-clients 4 \
+            --depth quick \
+            --engine-mode baseline \
+            --output /tmp/confession-benchmark-current.json
+
+      - name: Check regression threshold
+        run: |
+          node web/scripts/check-benchmark-regression.mjs \
+            --baseline web/benchmarks/scan-baseline.json \
+            --current /tmp/confession-benchmark-current.json \
+            --latency-threshold 0.15 \
+            --rps-threshold 0.2 \
+            --enforce-after "$BENCHMARK_ENFORCE_AFTER"
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-regression
+          path: |
+            /tmp/confession-benchmark-current.json
+            /tmp/confession-web.log
+            web/benchmarks/scan-baseline.json
+
+      - name: Stop web server
+        if: always()
+        run: |
+          if [[ -f /tmp/confession-web.pid ]]; then
+            kill "$(cat /tmp/confession-web.pid)" || true
+          fi
