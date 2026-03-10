@@ -11,7 +11,7 @@
   3. 修正 steering 的過時內容
   4. 同步更新 `AGENTS.md`
 - 若 steering 與程式碼衝突：不得忽略，必須同步修正到一致
-- 全程使用繁體中文（對話、文件、程式碼註釋）
+- 全程使用繁體中文（對話、程式碼註釋）；`README.md` 預設英文並提供中譯版本
 
 ## 1. 每次任務的標準流程
 
@@ -34,6 +34,7 @@
 - 定位：VS Code 靜態程式碼漏洞分析插件
 - 介面目標環境：VS Code Webview（桌面場景優先）
 - Webview UI 語言：支援 `zh-TW` / `zh-CN` / `en`，預設 `zh-TW`，`auto` 需跟隨宿主語言
+- 文件語言：`README.md` 為英文主版，另提供 `README.zh-TW.md` 與 `README.zh-CN.md`
 - 哲學：靜態而非執行、觀測而非干預、揭露而非審判
 - 嚴格限制：不執行使用者程式碼，只做 AST + LLM 分析
 - AI 觸發策略：一律被動觸發（手動掃描或 onSave 事件）
@@ -138,6 +139,8 @@ confession/
 ├── go-analyzer/
 ├── package.json
 ├── pnpm-workspace.yaml
+├── README.zh-CN.md
+├── README.zh-TW.md
 ├── turbo.json
 └── README.md
 ```
