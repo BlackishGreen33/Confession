@@ -79,8 +79,9 @@ jobs:
           path: /tmp/confession-${{ matrix.engine_mode }}-${{ matrix.depth }}.sarif.json
 
       - name: Upload to GitHub Code Scanning
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name == 'push'
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: /tmp/confession-${{ matrix.engine_mode }}-${{ matrix.depth }}.sarif.json
           category: confession-${{ matrix.engine_mode }}-${{ matrix.depth }}
