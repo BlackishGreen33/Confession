@@ -1,5 +1,5 @@
 import { buildFileAnalysisCacheKey, computeContentHash, fileAnalysisCache } from '@server/cache'
-import type { VulnerabilityInput } from '@server/db'
+import type { UpsertStorageMetrics, VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
 import {
   hydrateFileAnalysisCacheFromDisk,
@@ -23,6 +23,7 @@ import type { AgenticTraceSummary } from './types'
 
 export interface AgenticOrchestrateOptions {
   llmConfig?: LlmClientConfig
+  taskId?: string
   onFilteredFiles?: (meta: { totalFiles: number; changedFiles: number }) => Promise<void> | void
   onFileCompleted?: (filePath: string) => Promise<void> | void
   assertNotCanceled?: () => void
@@ -30,6 +31,8 @@ export interface AgenticOrchestrateOptions {
 
 export interface AgenticOrchestrateResult {
   vulnerabilities: VulnerabilityInput[]
+  stableFingerprints: string[]
+  storageMetrics: UpsertStorageMetrics
   summary: {
     totalFiles: number
     totalVulnerabilities: number
@@ -66,6 +69,12 @@ export async function orchestrateAgenticBeta(
   if (changedFiles.length === 0) {
     return {
       vulnerabilities: [],
+      stableFingerprints: [],
+      storageMetrics: {
+        fs_write_ops_per_scan: 0,
+        db_lock_wait_ms_p95: 0,
+        db_lock_timeout_count: 0,
+      },
       summary: buildSummary([], request.files),
       llmStats: createEmptyStats(),
       agenticTrace: [],
@@ -200,7 +209,9 @@ export async function orchestrateAgenticBeta(
   }
 
   options.assertNotCanceled?.()
-  await upsertVulnerabilities(finalVulns)
+  const upsertResult = await upsertVulnerabilities(finalVulns, {
+    taskId: options.taskId,
+  })
 
   for (const file of changedFiles) {
     options.assertNotCanceled?.()
@@ -216,6 +227,8 @@ export async function orchestrateAgenticBeta(
 
   return {
     vulnerabilities: finalVulns,
+    stableFingerprints: upsertResult.stableFingerprints,
+    storageMetrics: upsertResult.metrics,
     summary: buildSummary(finalVulns, request.files),
     llmStats,
     agenticTrace: traces,

@@ -102,6 +102,7 @@ export async function buildHealthResponse(
         severity: true,
         description: true,
         aiConfidence: true,
+        stableFingerprint: true,
         status: true,
         humanStatus: true,
         createdAt: true,

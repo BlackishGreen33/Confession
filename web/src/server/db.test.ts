@@ -26,6 +26,8 @@ interface VulnerabilityInput {
   aiModel?: string | null
   aiConfidence?: number | null
   aiReasoning?: string | null
+  stableFingerprint?: string | null
+  source?: 'sast' | 'dast'
   owaspCategory?: string | null
 }
 
@@ -149,6 +151,53 @@ describe('FileStore: Vulnerability record idempotency', () => {
       }),
       { numRuns: 20 },
     )
+  })
+
+  it('stableFingerprint relocation 會更新既有漏洞位置並寫入 scan_relocated 事件', async () => {
+    const original: VulnerabilityInput = {
+      filePath: 'src/original.ts',
+      line: 10,
+      column: 2,
+      endLine: 10,
+      endColumn: 20,
+      codeSnippet: 'dangerousCall(userInput)',
+      type: 'xss',
+      severity: 'high',
+      description: '可疑輸入直接進入輸出點',
+      stableFingerprint: 'f'.repeat(64),
+    }
+    const moved: VulnerabilityInput = {
+      ...original,
+      filePath: 'src/renamed.ts',
+      line: 30,
+      column: 6,
+      endLine: 30,
+      endColumn: 26,
+      codeSnippet: 'dangerousCall(userInput)\n// moved',
+    }
+
+    await upsertVulnerabilities([original])
+    const result = await upsertVulnerabilities([moved])
+
+    const rows = await prisma.vulnerability.findMany({
+      where: { stableFingerprint: 'f'.repeat(64) },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.filePath).toBe('src/renamed.ts')
+    expect(rows[0]?.line).toBe(30)
+    expect(result.relocationCount).toBe(1)
+    expect(result.metrics.fs_write_ops_per_scan).toBe(3)
+
+    const events = await prisma.vulnerabilityEvent.findMany({
+      where: { vulnerabilityId: rows[0]?.id },
+      orderBy: { createdAt: 'asc' },
+    })
+    const relocation = events.find((item) => item.eventType === 'scan_relocated')
+    expect(relocation).toBeTruthy()
+    expect(relocation?.fromFilePath).toBe('src/original.ts')
+    expect(relocation?.toFilePath).toBe('src/renamed.ts')
+    expect(relocation?.fromLine).toBe(10)
+    expect(relocation?.toLine).toBe(30)
   })
 
   it('transaction should keep status update and event write consistent', async () => {

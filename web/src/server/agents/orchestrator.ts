@@ -1,5 +1,5 @@
 import { buildFileAnalysisCacheKey, computeContentHash, fileAnalysisCache } from '@server/cache'
-import type { VulnerabilityInput } from '@server/db'
+import type { UpsertStorageMetrics, VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
 import {
   hydrateFileAnalysisCacheFromDisk,
@@ -27,12 +27,15 @@ export interface ScanSummary {
 /** orchestrate 回傳值 */
 export interface OrchestrateResult {
   vulnerabilities: VulnerabilityInput[]
+  stableFingerprints: string[]
+  storageMetrics: UpsertStorageMetrics
   summary: ScanSummary
   llmStats: LlmUsageStats
 }
 
 export interface OrchestrateOptions {
   llmConfig?: LlmClientConfig
+  taskId?: string
   onFilteredFiles?: (meta: { totalFiles: number; changedFiles: number }) => Promise<void> | void
   onFileCompleted?: (filePath: string) => Promise<void> | void
   assertNotCanceled?: () => void
@@ -62,6 +65,12 @@ export async function orchestrate(
   if (changedFiles.length === 0) {
     return {
       vulnerabilities: [],
+      stableFingerprints: [],
+      storageMetrics: {
+        fs_write_ops_per_scan: 0,
+        db_lock_wait_ms_p95: 0,
+        db_lock_timeout_count: 0,
+      },
       summary: buildSummary([], request.files),
       llmStats: {
         requestCount: 0,
@@ -126,7 +135,9 @@ export async function orchestrate(
 
   options.assertNotCanceled?.()
   // 冪等存儲
-  await upsertVulnerabilities(vulns)
+  const upsertResult = await upsertVulnerabilities(vulns, {
+    taskId: options.taskId,
+  })
 
   // 標記已分析的檔案
   for (const file of changedFiles) {
@@ -143,6 +154,8 @@ export async function orchestrate(
 
   return {
     vulnerabilities: vulns,
+    stableFingerprints: upsertResult.stableFingerprints,
+    storageMetrics: upsertResult.metrics,
     summary: buildSummary(vulns, request.files),
     llmStats: analysisResult.stats,
   }

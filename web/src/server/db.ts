@@ -14,8 +14,6 @@ const SCHEMA_VERSION = 'file-store-v1'
 const ANALYSIS_CACHE_VERSION = 'analysis-cache-v1'
 const STABLE_FINGERPRINT_VERSION = 'stable-fingerprint-v1'
 
-const UPSERT_CHUNK_SIZE = 50
-
 const STORAGE_FILES = {
   vulnerabilities: 'vulnerabilities.json',
   vulnerabilityEvents: 'vulnerability-events.json',
@@ -73,6 +71,10 @@ interface VulnerabilityEventRecord {
   toStatus: string | null
   fromHumanStatus: string | null
   toHumanStatus: string | null
+  fromFilePath: string | null
+  fromLine: number | null
+  toFilePath: string | null
+  toLine: number | null
   createdAt: Date
 }
 
@@ -194,7 +196,24 @@ interface ScanTaskSnapshotCacheEntry {
   snapshot: Snapshot
 }
 
+interface VulnerabilitySnapshotCacheEntry {
+  vulnerabilitiesMtimeMs: number
+  vulnerabilityEventsMtimeMs: number
+  metaMtimeMs: number
+  snapshot: Snapshot
+}
+
+interface LockTelemetry {
+  waitMsSamples: number[]
+  timeoutCount: number
+}
+
+interface WriteTelemetry {
+  writeOps: number
+}
+
 const scanTaskSnapshotCache = new Map<string, ScanTaskSnapshotCacheEntry>()
+const vulnerabilitySnapshotCache = new Map<string, VulnerabilitySnapshotCacheEntry>()
 
 function resolveProjectRoot(): string {
   const fromEnv = process.env.CONFESSION_PROJECT_ROOT?.trim()
@@ -440,6 +459,10 @@ function decodeSnapshot(raw: Partial<PersistedSnapshot>): Snapshot {
           toStatus: item.toStatus ?? null,
           fromHumanStatus: item.fromHumanStatus ?? null,
           toHumanStatus: item.toHumanStatus ?? null,
+          fromFilePath: item.fromFilePath ?? null,
+          fromLine: typeof item.fromLine === 'number' ? item.fromLine : null,
+          toFilePath: item.toFilePath ?? null,
+          toLine: typeof item.toLine === 'number' ? item.toLine : null,
           createdAt: toDate(item.createdAt, now()),
         }))
       : [],
@@ -621,6 +644,19 @@ function buildScanTaskOnlySnapshot(raw: Snapshot): Snapshot {
   }
 }
 
+function buildVulnerabilityOnlySnapshot(raw: Snapshot): Snapshot {
+  return {
+    vulnerabilities: raw.vulnerabilities,
+    vulnerabilityEvents: raw.vulnerabilityEvents,
+    scanTasks: [],
+    adviceSnapshots: [],
+    adviceDecisions: [],
+    config: cloneValue(DEFAULT_CONFIG),
+    configUpdatedAt: now(),
+    meta: raw.meta,
+  }
+}
+
 async function loadScanTaskOnlySnapshot(projectRoot: string): Promise<Snapshot> {
   const scanTasksPath = getStoragePath(projectRoot, 'scanTasks')
   const metaPath = getStoragePath(projectRoot, 'meta')
@@ -658,6 +694,50 @@ async function loadScanTaskOnlySnapshot(projectRoot: string): Promise<Snapshot> 
   return snapshot
 }
 
+async function loadVulnerabilityOnlySnapshot(projectRoot: string): Promise<Snapshot> {
+  const vulnerabilitiesPath = getStoragePath(projectRoot, 'vulnerabilities')
+  const vulnerabilityEventsPath = getStoragePath(projectRoot, 'vulnerabilityEvents')
+  const metaPath = getStoragePath(projectRoot, 'meta')
+  const [vulnerabilitiesMtimeMs, vulnerabilityEventsMtimeMs, metaMtimeMs] =
+    await Promise.all([
+      readFileMtimeMs(vulnerabilitiesPath),
+      readFileMtimeMs(vulnerabilityEventsPath),
+      readFileMtimeMs(metaPath),
+    ])
+
+  const cached = vulnerabilitySnapshotCache.get(projectRoot)
+  if (
+    cached &&
+    cached.vulnerabilitiesMtimeMs === vulnerabilitiesMtimeMs &&
+    cached.vulnerabilityEventsMtimeMs === vulnerabilityEventsMtimeMs &&
+    cached.metaMtimeMs === metaMtimeMs
+  ) {
+    return cloneValue(cached.snapshot)
+  }
+
+  const [rawVulnerabilities, rawVulnerabilityEvents, rawMeta] = await Promise.all([
+    readJsonFile<PersistedSnapshot['vulnerabilities']>(vulnerabilitiesPath, []),
+    readJsonFile<PersistedSnapshot['vulnerabilityEvents']>(vulnerabilityEventsPath, []),
+    readJsonFile<MetaRecord | null>(metaPath, null),
+  ])
+
+  const decoded = decodeSnapshot({
+    vulnerabilities: rawVulnerabilities,
+    vulnerabilityEvents: rawVulnerabilityEvents,
+    meta: rawMeta ?? defaultMeta(),
+  })
+  const snapshot = buildVulnerabilityOnlySnapshot(decoded)
+
+  vulnerabilitySnapshotCache.set(projectRoot, {
+    vulnerabilitiesMtimeMs,
+    vulnerabilityEventsMtimeMs,
+    metaMtimeMs,
+    snapshot: cloneValue(snapshot),
+  })
+
+  return snapshot
+}
+
 async function saveScanTaskOnlySnapshot(projectRoot: string, snapshot: Snapshot): Promise<void> {
   const confessionDir = getConfessionDir(projectRoot)
   await fs.mkdir(confessionDir, { recursive: true })
@@ -677,6 +757,39 @@ async function saveScanTaskOnlySnapshot(projectRoot: string, snapshot: Snapshot)
     scanTasksMtimeMs,
     metaMtimeMs,
     snapshot: cloneValue(buildScanTaskOnlySnapshot(snapshot)),
+  })
+}
+
+async function saveVulnerabilityOnlySnapshot(
+  projectRoot: string,
+  snapshot: Snapshot,
+  telemetry?: WriteTelemetry,
+): Promise<void> {
+  const confessionDir = getConfessionDir(projectRoot)
+  await fs.mkdir(confessionDir, { recursive: true })
+  const persisted = serializeSnapshot(snapshot)
+
+  await Promise.all([
+    writeJsonAtomic(getStoragePath(projectRoot, 'vulnerabilities'), persisted.vulnerabilities),
+    writeJsonAtomic(getStoragePath(projectRoot, 'vulnerabilityEvents'), persisted.vulnerabilityEvents),
+    writeJsonAtomic(getStoragePath(projectRoot, 'meta'), persisted.meta),
+  ])
+  if (telemetry) {
+    telemetry.writeOps += 3
+  }
+
+  const [vulnerabilitiesMtimeMs, vulnerabilityEventsMtimeMs, metaMtimeMs] =
+    await Promise.all([
+      readFileMtimeMs(getStoragePath(projectRoot, 'vulnerabilities')),
+      readFileMtimeMs(getStoragePath(projectRoot, 'vulnerabilityEvents')),
+      readFileMtimeMs(getStoragePath(projectRoot, 'meta')),
+    ])
+
+  vulnerabilitySnapshotCache.set(projectRoot, {
+    vulnerabilitiesMtimeMs,
+    vulnerabilityEventsMtimeMs,
+    metaMtimeMs,
+    snapshot: cloneValue(buildVulnerabilityOnlySnapshot(snapshot)),
   })
 }
 
@@ -700,17 +813,26 @@ async function saveSnapshot(projectRoot: string, snapshot: Snapshot): Promise<vo
   )
 
   scanTaskSnapshotCache.delete(projectRoot)
+  vulnerabilitySnapshotCache.delete(projectRoot)
 }
 
-async function withFileLock<T>(projectRoot: string, callback: () => Promise<T>): Promise<T> {
+async function withFileLock<T>(
+  projectRoot: string,
+  callback: () => Promise<T>,
+  telemetry?: LockTelemetry,
+): Promise<T> {
   const confessionDir = getConfessionDir(projectRoot)
   await fs.mkdir(confessionDir, { recursive: true })
   const lockPath = path.join(confessionDir, LOCK_FILE_NAME)
 
+  const waitStartedAt = Date.now()
   const deadline = Date.now() + LOCK_TIMEOUT_MS
   while (true) {
     try {
       const handle = await fs.open(lockPath, 'wx')
+      if (telemetry) {
+        telemetry.waitMsSamples.push(Math.max(0, Date.now() - waitStartedAt))
+      }
       try {
         return await callback()
       } finally {
@@ -723,6 +845,9 @@ async function withFileLock<T>(projectRoot: string, callback: () => Promise<T>):
         throw error
       }
       if (Date.now() >= deadline) {
+        if (telemetry) {
+          telemetry.timeoutCount += 1
+        }
         throw new Error('Confession storage lock timeout')
       }
       await sleep(LOCK_RETRY_MS)
@@ -912,6 +1037,10 @@ function normalizeVulnerabilityEventCreate(data: AnyRecord): VulnerabilityEventR
     toStatus: typeof data.toStatus === 'string' ? data.toStatus : null,
     fromHumanStatus: typeof data.fromHumanStatus === 'string' ? data.fromHumanStatus : null,
     toHumanStatus: typeof data.toHumanStatus === 'string' ? data.toHumanStatus : null,
+    fromFilePath: typeof data.fromFilePath === 'string' ? data.fromFilePath : null,
+    fromLine: typeof data.fromLine === 'number' ? Math.floor(data.fromLine) : null,
+    toFilePath: typeof data.toFilePath === 'string' ? data.toFilePath : null,
+    toLine: typeof data.toLine === 'number' ? Math.floor(data.toLine) : null,
     createdAt: now(),
   }
 }
@@ -1233,6 +1362,15 @@ async function withScanTaskReadClient<T>(
   return callback(buildScopedClient(snapshot))
 }
 
+async function withVulnerabilityReadClient<T>(
+  callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>,
+): Promise<T> {
+  const projectRoot = resolveProjectRoot()
+  await ensureBootstrapped(projectRoot)
+  const snapshot = await loadVulnerabilityOnlySnapshot(projectRoot)
+  return callback(buildScopedClient(snapshot))
+}
+
 async function withWriteClient<T>(callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>): Promise<T> {
   const projectRoot = resolveProjectRoot()
   await ensureBootstrapped(projectRoot)
@@ -1257,6 +1395,26 @@ async function withScanTaskWriteClient<T>(
     await saveScanTaskOnlySnapshot(projectRoot, snapshot)
     return result
   })
+}
+
+async function withVulnerabilityWriteClient<T>(
+  callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>,
+  lockTelemetry?: LockTelemetry,
+  writeTelemetry?: WriteTelemetry,
+): Promise<T> {
+  const projectRoot = resolveProjectRoot()
+  await ensureBootstrapped(projectRoot)
+  return withFileLock(
+    projectRoot,
+    async () => {
+      const snapshot = await loadVulnerabilityOnlySnapshot(projectRoot)
+      const client = buildScopedClient(snapshot)
+      const result = await callback(client)
+      await saveVulnerabilityOnlySnapshot(projectRoot, snapshot, writeTelemetry)
+      return result
+    },
+    lockTelemetry,
+  )
 }
 
 async function resolveLegacyDbPath(projectRoot: string): Promise<string | null> {
@@ -1398,21 +1556,34 @@ async function ensureBootstrapped(projectRoot: string): Promise<void> {
 
 export const prisma = {
   vulnerability: {
-    findMany: (args?: AnyRecord) => withReadClient((client) => client.vulnerability.findMany(args)),
-    findUnique: (args: AnyRecord) => withReadClient((client) => client.vulnerability.findUnique(args)),
-    findFirst: (args?: AnyRecord) => withReadClient((client) => client.vulnerability.findFirst(args)),
-    count: (args?: AnyRecord) => withReadClient((client) => client.vulnerability.count(args)),
-    create: (args: AnyRecord) => withWriteClient((client) => client.vulnerability.create(args)),
-    upsert: (args: AnyRecord) => withWriteClient((client) => client.vulnerability.upsert(args)),
-    update: (args: AnyRecord) => withWriteClient((client) => client.vulnerability.update(args)),
-    updateMany: (args?: AnyRecord) => withWriteClient((client) => client.vulnerability.updateMany(args)),
-    deleteMany: (args?: AnyRecord) => withWriteClient((client) => client.vulnerability.deleteMany(args)),
+    findMany: (args?: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerability.findMany(args)),
+    findUnique: (args: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerability.findUnique(args)),
+    findFirst: (args?: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerability.findFirst(args)),
+    count: (args?: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerability.count(args)),
+    create: (args: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerability.create(args)),
+    upsert: (args: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerability.upsert(args)),
+    update: (args: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerability.update(args)),
+    updateMany: (args?: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerability.updateMany(args)),
+    deleteMany: (args?: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerability.deleteMany(args)),
   },
   vulnerabilityEvent: {
-    findMany: (args?: AnyRecord) => withReadClient((client) => client.vulnerabilityEvent.findMany(args)),
-    createMany: (args?: AnyRecord) => withWriteClient((client) => client.vulnerabilityEvent.createMany(args)),
-    deleteMany: (args?: AnyRecord) => withWriteClient((client) => client.vulnerabilityEvent.deleteMany(args)),
-    count: (args?: AnyRecord) => withReadClient((client) => client.vulnerabilityEvent.count(args)),
+    findMany: (args?: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerabilityEvent.findMany(args)),
+    createMany: (args?: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerabilityEvent.createMany(args)),
+    deleteMany: (args?: AnyRecord) =>
+      withVulnerabilityWriteClient((client) => client.vulnerabilityEvent.deleteMany(args)),
+    count: (args?: AnyRecord) =>
+      withVulnerabilityReadClient((client) => client.vulnerabilityEvent.count(args)),
   },
   scanTask: {
     findMany: (args?: AnyRecord) => withScanTaskReadClient((client) => client.scanTask.findMany(args)),
@@ -1452,19 +1623,128 @@ export const prisma = {
   $disconnect: async () => undefined,
 }
 
-export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
+export interface UpsertStorageMetrics {
+  fs_write_ops_per_scan: number
+  db_lock_wait_ms_p95: number
+  db_lock_timeout_count: number
+}
+
+export interface UpsertVulnerabilitiesResult {
+  stableFingerprints: string[]
+  relocationCount: number
+  metrics: UpsertStorageMetrics
+}
+
+interface UpsertVulnerabilitiesOptions {
+  taskId?: string
+}
+
+export async function upsertVulnerabilities(
+  vulns: VulnerabilityInput[],
+  options: UpsertVulnerabilitiesOptions = {},
+): Promise<UpsertVulnerabilitiesResult> {
   const deduped = deduplicateVulnerabilities(vulns)
   const normalized = normalizeVulnerabilityInputsForUpsert(deduped)
+  const stableFingerprints = normalized.map((item) => item.stableFingerprint)
 
-  for (let start = 0; start < normalized.length; start += UPSERT_CHUNK_SIZE) {
-    const chunk = normalized.slice(start, start + UPSERT_CHUNK_SIZE).map((item) => ({
-      vuln: item,
-      codeHash: createHash('sha256').update(item.codeSnippet).digest('hex'),
-    }))
+  if (normalized.length === 0) {
+    return {
+      stableFingerprints,
+      relocationCount: 0,
+      metrics: {
+        fs_write_ops_per_scan: 0,
+        db_lock_wait_ms_p95: 0,
+        db_lock_timeout_count: 0,
+      },
+    }
+  }
 
-    await prisma.$transaction(async (tx) => {
-      for (const { vuln, codeHash } of chunk) {
-        await tx.vulnerability.upsert({
+  const lockTelemetry: LockTelemetry = { waitMsSamples: [], timeoutCount: 0 }
+  const writeTelemetry: WriteTelemetry = { writeOps: 0 }
+  let relocationCount = 0
+
+  await withVulnerabilityWriteClient(
+    async (client) => {
+      const relocationQueues = await buildRelocationQueues(client, stableFingerprints)
+      const consumedRelocationIds = new Set<string>()
+
+      for (const vuln of normalized) {
+        const codeHash = createHash('sha256').update(vuln.codeSnippet).digest('hex')
+        const exact = await client.vulnerability.findUnique({
+          where: {
+            vuln_idempotent: {
+              filePath: vuln.filePath,
+              line: vuln.line,
+              column: vuln.column,
+              codeHash,
+              type: vuln.type,
+            },
+          },
+          select: { id: true },
+        })
+
+        if (!exact) {
+          const relocation = takeRelocationCandidate(
+            relocationQueues.get(vuln.stableFingerprint),
+            consumedRelocationIds,
+          )
+
+          if (relocation) {
+            consumedRelocationIds.add(relocation.id)
+            const moved =
+              relocation.filePath !== vuln.filePath || relocation.line !== vuln.line
+
+            await client.vulnerability.update({
+              where: { id: relocation.id },
+              data: {
+                filePath: vuln.filePath,
+                line: vuln.line,
+                column: vuln.column,
+                endLine: vuln.endLine,
+                endColumn: vuln.endColumn,
+                codeSnippet: vuln.codeSnippet,
+                codeHash,
+                type: vuln.type,
+                cweId: vuln.cweId,
+                severity: vuln.severity,
+                description: vuln.description,
+                riskDescription: vuln.riskDescription,
+                fixOldCode: vuln.fixOldCode,
+                fixNewCode: vuln.fixNewCode,
+                fixExplanation: vuln.fixExplanation,
+                aiModel: vuln.aiModel,
+                aiConfidence: vuln.aiConfidence,
+                aiReasoning: vuln.aiReasoning,
+                stableFingerprint: vuln.stableFingerprint,
+                source: vuln.source,
+              },
+            })
+
+            if (moved) {
+              relocationCount += 1
+              await client.vulnerabilityEvent.createMany({
+                data: [
+                  {
+                    vulnerabilityId: relocation.id,
+                    eventType: 'scan_relocated',
+                    message: `掃描關聯到既有漏洞（${relocation.filePath}:${relocation.line} -> ${vuln.filePath}:${vuln.line}）`,
+                    fromStatus: relocation.status,
+                    toStatus: relocation.status,
+                    fromHumanStatus: relocation.humanStatus,
+                    toHumanStatus: relocation.humanStatus,
+                    fromFilePath: relocation.filePath,
+                    fromLine: relocation.line,
+                    toFilePath: vuln.filePath,
+                    toLine: vuln.line,
+                  },
+                ],
+              })
+            }
+            continue
+          }
+        }
+
+        await client.vulnerability.upsert({
           where: {
             vuln_idempotent: {
               filePath: vuln.filePath,
@@ -1486,20 +1766,57 @@ export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
             },
           },
           update: {
-            description: vuln.description,
+            filePath: vuln.filePath,
+            line: vuln.line,
+            column: vuln.column,
+            endLine: vuln.endLine,
+            endColumn: vuln.endColumn,
+            codeSnippet: vuln.codeSnippet,
+            codeHash,
+            type: vuln.type,
+            cweId: vuln.cweId,
             severity: vuln.severity,
+            description: vuln.description,
+            riskDescription: vuln.riskDescription,
             fixOldCode: vuln.fixOldCode,
             fixNewCode: vuln.fixNewCode,
             fixExplanation: vuln.fixExplanation,
+            aiModel: vuln.aiModel,
+            aiConfidence: vuln.aiConfidence,
+            aiReasoning: vuln.aiReasoning,
             stableFingerprint: vuln.stableFingerprint,
             source: vuln.source,
           },
         })
       }
-    })
+
+      await prunePendingOpenDuplicatesInSnapshot(client, normalized)
+    },
+    lockTelemetry,
+    writeTelemetry,
+  )
+
+  const metrics: UpsertStorageMetrics = {
+    fs_write_ops_per_scan: writeTelemetry.writeOps,
+    db_lock_wait_ms_p95: percentile(lockTelemetry.waitMsSamples, 0.95),
+    db_lock_timeout_count: lockTelemetry.timeoutCount,
   }
 
-  await prunePendingOpenDuplicates(normalized)
+  if (options.taskId) {
+    process.stdout.write(
+      `[Confession][StorageWriteMetrics] ${JSON.stringify({
+        taskId: options.taskId,
+        ...metrics,
+        relocation_count: relocationCount,
+      })}\n`,
+    )
+  }
+
+  return {
+    stableFingerprints,
+    relocationCount,
+    metrics,
+  }
 }
 
 function normalizeVulnerabilityInputsForUpsert(
@@ -1550,7 +1867,118 @@ function normalizeVulnerabilityInputsForUpsert(
   return normalized
 }
 
-async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<void> {
+async function buildRelocationQueues(
+  client: ReturnType<typeof buildScopedClient>,
+  stableFingerprints: string[],
+): Promise<
+  Map<
+    string,
+    Array<{
+      id: string
+      stableFingerprint: string
+      filePath: string
+      line: number
+      humanStatus: string
+      status: string
+      updatedAt: Date
+      createdAt: Date
+    }>
+  >
+> {
+  const dedupedFingerprints = Array.from(
+    new Set(
+      stableFingerprints
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  )
+  if (dedupedFingerprints.length === 0) return new Map()
+
+  const rows = await client.vulnerability.findMany({
+    where: {
+      stableFingerprint: { in: dedupedFingerprints },
+      status: 'open',
+    },
+    select: {
+      id: true,
+      stableFingerprint: true,
+      filePath: true,
+      line: true,
+      humanStatus: true,
+      status: true,
+      updatedAt: true,
+      createdAt: true,
+    },
+  })
+
+  const grouped = new Map<
+    string,
+    Array<{
+      id: string
+      stableFingerprint: string
+      filePath: string
+      line: number
+      humanStatus: string
+      status: string
+      updatedAt: Date
+      createdAt: Date
+    }>
+  >()
+
+  for (const row of rows) {
+    const fingerprint = String(row.stableFingerprint)
+    const queue = grouped.get(fingerprint) ?? []
+    queue.push({
+      id: String(row.id),
+      stableFingerprint: fingerprint,
+      filePath: String(row.filePath),
+      line: Number(row.line),
+      humanStatus: String(row.humanStatus),
+      status: String(row.status),
+      updatedAt: row.updatedAt as Date,
+      createdAt: row.createdAt as Date,
+    })
+    grouped.set(fingerprint, queue)
+  }
+
+  for (const queue of grouped.values()) {
+    queue.sort((left, right) => {
+      const updatedDiff = right.updatedAt.getTime() - left.updatedAt.getTime()
+      if (updatedDiff !== 0) return updatedDiff
+      return right.createdAt.getTime() - left.createdAt.getTime()
+    })
+  }
+
+  return grouped
+}
+
+function takeRelocationCandidate(
+  queue: Array<{
+    id: string
+    stableFingerprint: string
+    filePath: string
+    line: number
+    humanStatus: string
+    status: string
+    updatedAt: Date
+    createdAt: Date
+  }> | undefined,
+  consumedIds: Set<string>,
+) {
+  if (!queue || queue.length === 0) return null
+  while (queue.length > 0) {
+    const candidate = queue.shift()
+    if (!candidate) break
+    if (consumedIds.has(candidate.id)) continue
+    return candidate
+  }
+  return null
+}
+
+async function prunePendingOpenDuplicatesInSnapshot(
+  client: ReturnType<typeof buildScopedClient>,
+  vulns: VulnerabilityInput[],
+): Promise<void> {
   if (vulns.length === 0) return
 
   const linesByFile = new Map<string, Set<number>>()
@@ -1563,7 +1991,7 @@ async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<
   const filePaths = Array.from(linesByFile.keys())
   if (filePaths.length === 0) return
 
-  const candidates = await prisma.vulnerability.findMany({
+  const candidates = await client.vulnerability.findMany({
     where: {
       filePath: { in: filePaths },
       status: 'open',
@@ -1582,6 +2010,7 @@ async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<
       description: true,
       codeSnippet: true,
       aiConfidence: true,
+      stableFingerprint: true,
       status: true,
       humanStatus: true,
       createdAt: true,
@@ -1599,7 +2028,15 @@ async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<
   const deleteIds = scoped.filter((item: AnyRecord) => !keepIds.has(String(item.id))).map((item: AnyRecord) => String(item.id))
   if (deleteIds.length === 0) return
 
-  await prisma.vulnerability.deleteMany({
+  await client.vulnerability.deleteMany({
     where: { id: { in: deleteIds } },
   })
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((left, right) => left - right)
+  const rawIndex = Math.ceil(sorted.length * ratio) - 1
+  const index = Math.max(0, Math.min(sorted.length - 1, rawIndex))
+  return Math.round(sorted[index])
 }
