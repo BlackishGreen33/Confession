@@ -53,6 +53,10 @@
 ```text
 confession/
 ├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       ├── code-scanning.yml
+│       └── benchmark-regression.yml
 ├── .husky/
 ├── confession-cli/
 │   └── bin/
@@ -69,6 +73,12 @@ confession/
 │   ├── src/status-bar.ts
 │   └── src/types.ts
 ├── web/
+│   ├── benchmarks/
+│   │   └── scan-baseline.json
+│   ├── scripts/
+│   │   ├── code-scanning-fixture.json
+│   │   ├── generate-sarif-ci.mjs
+│   │   └── check-benchmark-regression.mjs
 │   ├── src/app/
 │   ├── src/common/
 │   └── src/server/
@@ -79,6 +89,7 @@ confession/
 │       ├── mcp/
 │       ├── db.ts
 │       ├── file-analysis-cache-store.ts
+│       ├── sarif-generator.js
 │       ├── advice-gate.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
@@ -127,7 +138,7 @@ confession/
 - 掃描快取：`fileAnalysisCache` 持久化至 `.confession/analysis-cache.json`（含 analyzer/prompt version）
 - 掃描吞吐：JS/TS AST worker pool（預設 `min(4, cpuCores-1)`，失敗自動 fallback 單執行緒）
 - 測試：Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI）
-- CI/CD：GitHub Actions（`lint`/`build`/`test` 並行 + `quality` 聚合 + `commit-check`）
+- CI/CD：GitHub Actions（`ci.yml` + `code-scanning.yml` + `benchmark-regression.yml`）
 - Commit 檢查：commitlint + husky（`commit-msg` hook）
 
 ## 5.1 工作流程與常用指令
@@ -138,6 +149,8 @@ confession/
 - CI build 檢查：`pnpm check:build`
 - CI test 檢查：`pnpm check:test`
 - 掃描基準（1000/3000 檔，預設 baseline）：`pnpm --filter web benchmark:scan`
+- CI SARIF（本地模擬）：`pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json`
+- 效能回歸比對：`node web/scripts/check-benchmark-regression.mjs --baseline <baseline.json> --current <current.json>`
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - Extension 打包 VSIX：`pnpm --filter confession-extension package`
@@ -186,6 +199,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
   - 每 15 秒發送 `keepalive` 事件
 - `/api/export` `format` 需支援：`json` / `csv` / `markdown` / `pdf` / `sarif`
 - `sarif` 匯出需符合 `2.1.0`，包含 `partialFingerprints.stableFingerprint`
+- `sarif` 匯出需套用 `maxResults`/`maxBytes` guard；發生截斷時以 `X-Confession-Sarif-Warning` 回傳警告
+- 漏洞事件需支援 `scan_relocated`，並帶 `fromFilePath/fromLine/toFilePath/toLine`
+- 工作區快照收斂需 fingerprint-aware：`filePath` 不在快照且 `stableFingerprint` 未出現時才 auto-fix
+- 掃描引擎 metrics 需包含 `fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_timeout_count`
 
 ## 7. Extension 規範
 
@@ -221,6 +238,7 @@ ignore / config 同步規範：
 - hooks 檔案維持「React Query hooks 與 Jotai atoms 同檔共置」
 - 漏洞冪等鍵：`[filePath, line, column, codeHash, type]`
 - 穩定關聯鍵：`stableFingerprint`（用於 trend/advice/歷史關聯）
+- 漏洞事件型別：`scan_detected | scan_relocated | review_saved | status_changed`
 - 漏洞來源欄位：`source = "sast" | "dast"`
 - Commit 訊息格式：`<emoji> <type>(<scope>): <description>`
 
@@ -237,9 +255,12 @@ ignore / config 同步規範：
 - extension 測試：`pnpm --filter confession-extension test`
 - CLI 測試：`pnpm --filter confession-cli test`
 - FileStore 需覆蓋讀寫、transaction 一致性與 upsert 冪等
+- FileStore 需覆蓋 relocation match（同 fingerprint 位移不重建）與 `scan_relocated` 事件
 - 匯出需覆蓋 SARIF 2.1.0 輸出與 `stableFingerprint` 欄位
+- 匯出需覆蓋 SARIF `maxResults`/`maxBytes` guard 與 warning
 - 掃描進度需覆蓋 SSE keepalive 與斷線降級輪詢流程
 - 效能基準需可重跑並輸出 `scan_workspace_p95_ms`、`status_api_rps`
+- benchmark regression 門檻：`scan_workspace_p95_ms > +15%` 或 `status_api_rps_p95 < -20%`
 - CLI 需覆蓋：
   - `init` 建檔與重跑冪等
   - `scan` 成功 / 失敗 / 逾時 cancel / SIGINT cancel
@@ -250,7 +271,12 @@ ignore / config 同步規範：
 
 ## 10. CI 與 Commit 檢查
 
-- CI workflow：`.github/workflows/ci.yml`
+- CI workflow：
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/code-scanning.yml`
+  - `.github/workflows/benchmark-regression.yml`
+- `code-scanning.yml`：安全相關路徑觸發，產生 SARIF 並上傳 GitHub Code Scanning（category=`confession-{engineMode}-{depth}`）
+- `benchmark-regression.yml`：夜間排程 + 手動觸發，依 `BENCHMARK_ENFORCE_AFTER` 控制 warning-only/阻擋
 - CI 觸發：`pull_request(main)`、`push(main)` + `paths` 精準過濾
 - CI 需注入 Turborepo Remote Cache 環境變數：
   - `TURBO_TOKEN`

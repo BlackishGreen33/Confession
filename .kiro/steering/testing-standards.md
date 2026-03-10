@@ -31,13 +31,17 @@ fileMatchPattern: '**/*.test.*'
   - `.confession/*.json` 讀寫與原子寫入測試
   - `prisma` 外觀相容層（find/update/upsert/transaction）測試
   - `scanTask` 快速寫路徑測試（僅寫 `scan-tasks.json` + `meta.json`）
+  - vulnerability 單次掃描單鎖/單次寫回測試（避免 chunk 交易放大）
+  - relocation match 測試（同 `stableFingerprint` rename/移行不重建、需產生 `scan_relocated`）
   - `analysis-cache.json` 版本不相容清空與持久化測試
 - 匯出能力需補齊：
   - SARIF 2.1.0 schema 相容測試（含 `partialFingerprints.stableFingerprint`）
+  - SARIF `maxResults`/`maxBytes` guard 與 warning header 測試
   - CSV 新欄位（`stableFingerprint`、`source`）與 BOM 驗證
 - 效能基準需可重複執行：
   - `pnpm --filter web benchmark:scan` 量測 `scan_workspace_p95_ms` 與 `status_api_rps`（預設 `engineMode=baseline`）
   - 至少覆蓋 1000 與 3000 檔工作區場景
+  - benchmark regression script 需驗證門檻：`scan_workspace_p95_ms > +15%`、`status_api_rps_p95 < -20%`
 - CLI 需覆蓋：
   - `init` 建檔與重跑冪等
   - `scan` 成功 / 失敗 / 逾時 cancel / SIGINT cancel

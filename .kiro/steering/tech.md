@@ -21,17 +21,27 @@ inclusion: always
 | Agentic Engine | Planner/Skill/Analyst/Critic/Judge 多代理管線（正式預設，失敗自動回退 baseline） |
 | MCP | 內建 broker + policy（白名單 server、僅允許安全能力） |
 | 測試 | Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI） |
-| CI/CD | GitHub Actions（`lint`/`build`/`test` 並行 + `quality` 聚合 + `commit-check`） |
+| CI/CD | GitHub Actions（`ci.yml` + `code-scanning.yml` + `benchmark-regression.yml`） |
 | Commit 檢查 | commitlint + husky（`commit-msg` hook） |
 
 ## CI 快取與觸發
 
 - `ci.yml` 需使用 `paths`/`paths-ignore` 做精準觸發，避免無關變更浪費 CI。
+- `code-scanning.yml` 需限制為安全相關路徑觸發，並上傳 `category=confession-{engineMode}-{depth}` 的 SARIF。
+- `benchmark-regression.yml` 以夜間排程 + 手動觸發執行；前期可 warning-only，達 `BENCHMARK_ENFORCE_AFTER` 後改為阻擋。
 - Turborepo Remote Cache 以環境變數注入：
   - `TURBO_TOKEN`
   - `TURBO_TEAM`
   - `TURBO_REMOTE_CACHE_SIGNATURE_KEY`
 - CI 環境需設定 `TURBO_TELEMETRY_DISABLED=1`。
+
+## SARIF 與回歸守門
+
+- SARIF 產生邏輯需集中於 `web/src/server/sarif-generator.js`，供 route 與 CI 腳本共用。
+- SARIF 需支援 `maxResults`/`maxBytes` guard，超限時截斷並附 warning。
+- Benchmark regression 預設門檻：
+  - `scan_workspace_p95_ms` 惡化 > 15%
+  - `status_api_rps_p95` 惡化 > 20%
 
 ## 部署備註（Vercel）
 
@@ -67,6 +77,8 @@ inclusion: always
 - 測試（extension）：`pnpm --filter confession-extension test`
 - 測試（CLI）：`pnpm --filter confession-cli test`
 - 掃描基準（1000/3000 檔）：`pnpm --filter web benchmark:scan`
+- CI SARIF（本地模擬）：`pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json`
+- 效能回歸比對：`node web/scripts/check-benchmark-regression.mjs --baseline <baseline.json> --current <current.json>`
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - CI 檢查彙總：`pnpm check:ci`
