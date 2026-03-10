@@ -64,6 +64,12 @@ function getPluginConfig(): PluginConfig {
       baseUrl: config.get<string>('api.baseUrl', 'http://localhost:3000'),
       mode: config.get<'local' | 'remote'>('api.mode', 'local'),
     },
+    ui: {
+      language: config.get<'auto' | 'zh-TW' | 'zh-CN' | 'en'>(
+        'ui.language',
+        'auto',
+      ),
+    },
   }
 
   try {
@@ -88,6 +94,10 @@ function getPluginConfig(): PluginConfig {
       api: {
         ...settingsConfig.api,
         ...scopedConfig.config.api,
+      },
+      ui: {
+        ...settingsConfig.ui,
+        ...scopedConfig.config.ui,
       },
     }
   } catch {

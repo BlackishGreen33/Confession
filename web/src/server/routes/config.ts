@@ -11,6 +11,7 @@ const DEFAULT_CONFIG: PluginConfig = {
   analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [] as string[], types: [] as string[] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
 }
 
 const configBodySchema = z.object({
@@ -41,6 +42,11 @@ const configBodySchema = z.object({
       mode: z.enum(['local', 'remote']),
     })
     .optional(),
+  ui: z
+    .object({
+      language: z.enum(['auto', 'zh-TW', 'zh-CN', 'en']),
+    })
+    .optional(),
 })
 
 export const configRoutes = new Hono()
@@ -67,6 +73,9 @@ function normalizeConfig(raw: unknown): PluginConfig {
     api?: {
       baseUrl?: string
       mode?: PluginConfig['api']['mode']
+    }
+    ui?: {
+      language?: PluginConfig['ui']['language']
     }
   }
 
@@ -95,6 +104,14 @@ function normalizeConfig(raw: unknown): PluginConfig {
     api: {
       baseUrl: input.api?.baseUrl ?? DEFAULT_CONFIG.api.baseUrl,
       mode: input.api?.mode ?? DEFAULT_CONFIG.api.mode,
+    },
+    ui: {
+      language:
+        input.ui?.language === 'zh-TW' ||
+        input.ui?.language === 'zh-CN' ||
+        input.ui?.language === 'en'
+          ? input.ui.language
+          : 'auto',
     },
   }
 }
@@ -165,6 +182,7 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
     analysis: { ...prev.analysis, ...body.analysis },
     ignore: { ...prev.ignore, ...body.ignore },
     api: { ...prev.api, ...body.api },
+    ui: { ...prev.ui, ...body.ui },
   }
 
   await storage.config.upsert({

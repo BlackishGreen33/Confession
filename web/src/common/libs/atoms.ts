@@ -56,4 +56,7 @@ export const configAtom = atom<PluginConfig>({
     baseUrl: 'http://localhost:3000',
     mode: 'local',
   },
+  ui: {
+    language: 'auto',
+  },
 })

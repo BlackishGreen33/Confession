@@ -39,6 +39,7 @@ export type ScanErrorCode = 'BETA_ENGINE_FAILED' | 'LLM_ANALYSIS_FAILED' | 'UNKN
 
 // 插件配置
 export type LlmProvider = 'gemini' | 'nvidia'
+export type UiLanguage = 'auto' | 'zh-TW' | 'zh-CN' | 'en'
 
 export interface PluginConfig {
   llm: {
@@ -59,6 +60,9 @@ export interface PluginConfig {
   api: {
     baseUrl: string
     mode: 'local' | 'remote'
+  }
+  ui: {
+    language: UiLanguage
   }
 }
 
@@ -125,7 +129,11 @@ export type WebToExtMsg =
   | {
       type: 'export_pdf'
       requestId: string
-      data: { filters?: ExportFilters; filename?: string }
+      data: {
+        filters?: ExportFilters
+        filename?: string
+        locale?: 'zh-TW' | 'zh-CN' | 'en'
+      }
     }
   | { type: 'request_config' }
   | { type: 'paste_clipboard' }

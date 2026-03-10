@@ -489,6 +489,7 @@ async function fetchPdfReportHtml(
       body: JSON.stringify({
         format: 'pdf',
         filters: data.filters ?? {},
+        ...(data.locale ? { locale: data.locale } : {}),
       }),
       signal: controller.signal,
     })
@@ -591,6 +592,7 @@ async function writeConfigToSettings(
     await cfg.update('ignore.types', normalizedIgnoreTypes, vscode.ConfigurationTarget.Global)
     await cfg.update('api.baseUrl', config.api.baseUrl, vscode.ConfigurationTarget.Global)
     await cfg.update('api.mode', config.api.mode, vscode.ConfigurationTarget.Global)
+    await cfg.update('ui.language', config.ui.language, vscode.ConfigurationTarget.Global)
 
     const projectConfigSync = await writeScopedProjectConfig(normalizedConfig)
     const warningSuffix =
