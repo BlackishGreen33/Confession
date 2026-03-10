@@ -15,7 +15,7 @@ inclusion: always
 | 後端 | Hono（透過 Next.js catch-all `/api/[...route]`） |
 | 驗證 | zod/v4 + @hono/zod-validator |
 | 儲存層 | 專案本地 FileStore（`.confession/*.json`） |
-| 舊資料遷移 | `better-sqlite3`（僅一次性 SQLite → FileStore 遷移） |
+| 舊資料遷移 | 已移除（不再支援 SQLite 回遷） |
 | 擴充套件打包 | esbuild（CJS, external: vscode） |
 | LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容；預設 NVIDIA） |
 | Agentic Engine | Planner/Skill/Analyst/Critic/Judge 多代理管線（正式預設，失敗自動回退 baseline） |
@@ -28,7 +28,7 @@ inclusion: always
 
 - `ci.yml` 需使用 `paths`/`paths-ignore` 做精準觸發，避免無關變更浪費 CI。
 - `code-scanning.yml` 需限制為安全相關路徑觸發，並上傳 `category=confession-{engineMode}-{depth}` 的 SARIF。
-- `benchmark-regression.yml` 以夜間排程 + 手動觸發執行；前期可 warning-only，達 `BENCHMARK_ENFORCE_AFTER` 後改為阻擋。
+- `benchmark-regression.yml` 以夜間排程 + 手動觸發 + server 路徑相關 PR/Push 觸發執行；前期可 warning-only，達 `BENCHMARK_ENFORCE_AFTER` 後改為阻擋。
 - Turborepo Remote Cache 以環境變數注入：
   - `TURBO_TOKEN`
   - `TURBO_TEAM`
@@ -68,6 +68,7 @@ inclusion: always
 - 安裝依賴：`pnpm install`
 - 本地開發（全專案）：`pnpm dev`
 - 型別檢查與 lint：`pnpm lint`
+- 維護守門（server `max-lines` 例外檢查）：`pnpm maint:check`
 - 建置：`pnpm build`
 - 全部測試：`pnpm test`
 - CI lint 檢查：`pnpm check:lint`
@@ -77,6 +78,7 @@ inclusion: always
 - 測試（extension）：`pnpm --filter confession-extension test`
 - 測試（CLI）：`pnpm --filter confession-cli test`
 - 掃描基準（1000/3000 檔）：`pnpm --filter web benchmark:scan`
+- 建議固定 benchmark 參數（可比性）：`--seed <int>`、`--workspace-root /benchmark`
 - CI SARIF（本地模擬）：`pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json`
 - 效能回歸比對：`node web/scripts/check-benchmark-regression.mjs --baseline <baseline.json> --current <current.json>`
 - 程式碼格式化：`pnpm format`

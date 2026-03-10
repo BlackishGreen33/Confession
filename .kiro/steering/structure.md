@@ -52,14 +52,54 @@ confession/
 │   │   └── utils/
 │   └── src/server/
 │       ├── routes/
+│       │   ├── scan/
+│       │       ├── cancel-control.ts
+│       │       ├── constants.ts
+│       │       ├── progress-event.ts
+│       │       ├── runner.ts
+│       │       ├── runner-llm.ts
+│       │       ├── runner-reconcile.ts
+│       │       ├── schema.ts
+│       │       └── status-read-metrics.ts
+│       │   └── vulnerabilities/
+│       │       ├── constants.ts
+│       │       ├── listing.ts
+│       │       ├── patch-delta.ts
+│       │       └── trend.ts
 │       ├── agents/
 │       ├── analyzers/
+│       ├── advice-gate/
+│       │   ├── generation.ts
+│       │   ├── guards.ts
+│       │   ├── metrics.ts
+│       │   ├── scoring.ts
+│       │   └── types.ts
+│       ├── export/
+│       │   ├── common.ts
+│       │   ├── printable-html.ts
+│       │   └── renderers.ts
 │       ├── llm/
 │       ├── mcp/
-│       ├── db.ts          # FileStore（.confession）+ SQLite 一次性遷移
+│       ├── storage/
+│       │   ├── bootstrap.ts
+│       │   ├── client.ts                # storage façade（薄入口）
+│       │   ├── client-core.ts           # FileStore 核心組裝層
+│       │   ├── query-engine.ts
+│       │   ├── repository.ts
+│       │   ├── snapshot-codec.ts
+│       │   ├── snapshot-io.ts
+│       │   ├── lock.ts
+│       │   ├── types.ts
+│       │   ├── upsert-vulnerabilities-helpers.ts
+│       │   ├── upsert-vulnerabilities.ts# 漏洞寫入與 relocation
+│       │   └── index.ts
 │       ├── file-analysis-cache-store.ts
+│       ├── runtime-llm-config.ts
+│       ├── vulnerability-presenter.ts
+│       ├── vulnerability-query.ts
 │       ├── sarif-generator.js
 │       ├── advice-gate.ts
+│       ├── health-score-core.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
 ├── go-analyzer/
