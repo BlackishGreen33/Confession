@@ -53,7 +53,8 @@ export interface Vulnerability {
 export type VulnerabilityEventType =
   | 'scan_detected'
   | 'review_saved'
-  | 'status_changed';
+  | 'status_changed'
+  | 'scan_relocated';
 
 export interface VulnerabilityEvent {
   id: string;
@@ -64,6 +65,10 @@ export interface VulnerabilityEvent {
   toStatus: Vulnerability['status'] | null;
   fromHumanStatus: Vulnerability['humanStatus'] | null;
   toHumanStatus: Vulnerability['humanStatus'] | null;
+  fromFilePath: string | null;
+  fromLine: number | null;
+  toFilePath: string | null;
+  toLine: number | null;
   createdAt: string;
 }
 

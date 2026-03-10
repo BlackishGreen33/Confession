@@ -186,6 +186,7 @@ vulnerabilityRoutes.get('/stats', async (c) => {
       description: true,
       codeSnippet: true,
       aiConfidence: true,
+      stableFingerprint: true,
       status: true,
       humanStatus: true,
       createdAt: true,

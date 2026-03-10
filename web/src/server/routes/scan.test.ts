@@ -124,8 +124,16 @@ const failedStatsWithMissingApiKey = {
   lastErrorMessage: 'NVIDIA API key 未設定',
 };
 
+const baseStorageMetrics = {
+  fs_write_ops_per_scan: 3,
+  db_lock_wait_ms_p95: 5,
+  db_lock_timeout_count: 0,
+};
+
 const baselineSuccessResult = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -137,6 +145,8 @@ const baselineSuccessResult = {
 
 const agenticSuccessResult = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -149,6 +159,8 @@ const agenticSuccessResult = {
 
 const agenticFailedResult = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -161,6 +173,8 @@ const agenticFailedResult = {
 
 const baselineFailedResult = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -172,6 +186,8 @@ const baselineFailedResult = {
 
 const agenticFailedResultWithMissingApiKey = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -184,6 +200,8 @@ const agenticFailedResultWithMissingApiKey = {
 
 const baselineFailedResultWithMissingApiKey = {
   vulnerabilities: [],
+  stableFingerprints: [],
+  storageMetrics: baseStorageMetrics,
   summary: {
     totalFiles: 1,
     totalVulnerabilities: 0,
@@ -719,6 +737,7 @@ describe('Scan routes', () => {
           id: 'v-stale',
           filePath: '/repo/deleted.ts',
           humanStatus: 'pending',
+          stableFingerprint: 'z'.repeat(64),
         },
       ])
       .mockResolvedValueOnce([
@@ -793,6 +812,55 @@ describe('Scan routes', () => {
 
     expect(finalTask.status).toBe('completed');
     expect(mockPrisma.vulnerability.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.vulnerability.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.vulnerabilityEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('workspace 收斂遇到同 stableFingerprint 時不應誤判 fixed', async () => {
+    mockPrisma.vulnerability.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'v-relocated',
+          filePath: '/repo/old-name.ts',
+          humanStatus: 'pending',
+          stableFingerprint: 's'.repeat(64),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    mockOrchestrate.mockResolvedValueOnce({
+      ...baselineSuccessResult,
+      stableFingerprints: ['s'.repeat(64)],
+    });
+
+    const res = await app.request('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          {
+            path: '/repo/new-name.ts',
+            content: 'const a = 1',
+            language: 'typescript',
+          },
+        ],
+        depth: 'standard',
+        engineMode: 'baseline',
+        scanScope: 'workspace',
+        workspaceSnapshotComplete: true,
+        workspaceRoots: ['/repo'],
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const created = (await res.json()) as { taskId: string };
+    const finalTask = await waitForTaskStatus(
+      taskState,
+      created.taskId,
+      'completed'
+    );
+
+    expect(finalTask.status).toBe('completed');
     expect(mockPrisma.vulnerability.updateMany).not.toHaveBeenCalled();
     expect(mockPrisma.vulnerabilityEvent.createMany).not.toHaveBeenCalled();
   });

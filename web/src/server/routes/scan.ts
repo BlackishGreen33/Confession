@@ -3,7 +3,7 @@ import { triggerAdviceEvaluation } from '@server/advice-gate';
 import { orchestrateAgenticBeta } from '@server/agents/agentic-beta/orchestrator';
 import { orchestrate } from '@server/agents/orchestrator';
 import { computeScanFingerprint, inflightScans } from '@server/cache';
-import { prisma } from '@server/db';
+import { prisma, type UpsertStorageMetrics } from '@server/db';
 import { configFromPlugin, type LlmClientConfig } from '@server/llm/client';
 import {
   emitScanProgress,
@@ -48,6 +48,8 @@ interface FallbackMetadata {
 
 interface EngineAttemptOutcome {
   ok: boolean;
+  observedStableFingerprints: Set<string>;
+  storageMetrics: UpsertStorageMetrics;
   errorCode?: ScanErrorCode;
   errorMessage?: string;
 }
@@ -57,6 +59,12 @@ const NO_FALLBACK: FallbackMetadata = {
   fallbackFrom: null,
   fallbackTo: null,
   fallbackReason: null,
+};
+
+const NO_STORAGE_METRICS: UpsertStorageMetrics = {
+  fs_write_ops_per_scan: 0,
+  db_lock_wait_ms_p95: 0,
+  db_lock_timeout_count: 0,
 };
 
 class ScanCanceledError extends Error {
@@ -326,6 +334,16 @@ async function runScan(
   let agenticFailureCount = 0;
   let baselineFallbackCount = 0;
   let fallbackSucceeded = false;
+  const storageMetrics: UpsertStorageMetrics = { ...NO_STORAGE_METRICS };
+
+  const mergeStorageMetrics = (next: UpsertStorageMetrics) => {
+    storageMetrics.fs_write_ops_per_scan += next.fs_write_ops_per_scan;
+    storageMetrics.db_lock_wait_ms_p95 = Math.max(
+      storageMetrics.db_lock_wait_ms_p95,
+      next.db_lock_wait_ms_p95
+    );
+    storageMetrics.db_lock_timeout_count += next.db_lock_timeout_count;
+  };
   const assertNotCanceled = () => assertTaskNotCanceled(taskId);
 
   try {
@@ -342,13 +360,15 @@ async function runScan(
         fallbackMeta,
         assertNotCanceled,
       });
+      mergeStorageMetrics(agenticOutcome.storageMetrics);
 
       if (agenticOutcome.ok) {
         assertNotCanceled();
         await reconcileWorkspaceSnapshotVulnerabilities(
           taskId,
           body,
-          assertNotCanceled
+          assertNotCanceled,
+          agenticOutcome.observedStableFingerprints
         );
         await markTaskCompleted(
           taskId,
@@ -393,6 +413,7 @@ async function runScan(
         fallbackMeta,
         assertNotCanceled,
       });
+      mergeStorageMetrics(baselineOutcome.storageMetrics);
 
       if (baselineOutcome.ok) {
         fallbackSucceeded = true;
@@ -400,7 +421,8 @@ async function runScan(
         await reconcileWorkspaceSnapshotVulnerabilities(
           taskId,
           body,
-          assertNotCanceled
+          assertNotCanceled,
+          baselineOutcome.observedStableFingerprints
         );
         await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta);
         return;
@@ -432,13 +454,15 @@ async function runScan(
       fallbackMeta,
       assertNotCanceled,
     });
+    mergeStorageMetrics(baselineOutcome.storageMetrics);
 
     if (baselineOutcome.ok) {
       assertNotCanceled();
       await reconcileWorkspaceSnapshotVulnerabilities(
         taskId,
         body,
-        assertNotCanceled
+        assertNotCanceled,
+        baselineOutcome.observedStableFingerprints
       );
       await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta);
       return;
@@ -488,6 +512,9 @@ async function runScan(
         baseline_fallback_count: baselineFallbackCount,
         fallback_success_rate:
           baselineFallbackCount > 0 ? Number(fallbackSucceeded) : null,
+        fs_write_ops_per_scan: storageMetrics.fs_write_ops_per_scan,
+        db_lock_wait_ms_p95: storageMetrics.db_lock_wait_ms_p95,
+        db_lock_timeout_count: storageMetrics.db_lock_timeout_count,
         scan_latency_ms: Date.now() - startedAt,
       })}\n`
     );
@@ -648,6 +675,7 @@ async function executeEngineAttempt(params: {
             },
             {
               llmConfig,
+              taskId,
               onFilteredFiles: handleFilteredFiles,
               onFileCompleted: handleFileCompleted,
               assertNotCanceled,
@@ -666,6 +694,7 @@ async function executeEngineAttempt(params: {
             },
             {
               llmConfig,
+              taskId,
               onFilteredFiles: handleFilteredFiles,
               onFileCompleted: handleFileCompleted,
               assertNotCanceled,
@@ -679,6 +708,8 @@ async function executeEngineAttempt(params: {
     if (isLlmAnalysisFailed(result.llmStats)) {
       return {
         ok: false,
+        observedStableFingerprints: new Set(result.stableFingerprints),
+        storageMetrics: result.storageMetrics,
         errorCode:
           engineMode === 'agentic_beta'
             ? 'BETA_ENGINE_FAILED'
@@ -687,7 +718,11 @@ async function executeEngineAttempt(params: {
       };
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      observedStableFingerprints: new Set(result.stableFingerprints),
+      storageMetrics: result.storageMetrics,
+    };
   } catch (err) {
     await drainRunningProgressFlush();
     if (isScanCanceledError(err)) {
@@ -696,6 +731,8 @@ async function executeEngineAttempt(params: {
     const message = err instanceof Error ? err.message : '未知錯誤';
     return {
       ok: false,
+      observedStableFingerprints: new Set<string>(),
+      storageMetrics: { ...NO_STORAGE_METRICS },
       errorCode:
         engineMode === 'agentic_beta' ? 'BETA_ENGINE_FAILED' : 'UNKNOWN',
       errorMessage: message,
@@ -796,7 +833,8 @@ async function markTaskFailed(
 async function reconcileWorkspaceSnapshotVulnerabilities(
   taskId: string,
   body: ScanBody,
-  assertNotCanceled: () => void
+  assertNotCanceled: () => void,
+  observedStableFingerprints: Set<string>
 ): Promise<void> {
   if (body.scanScope !== 'workspace') return;
   if (body.workspaceSnapshotComplete === false) {
@@ -836,10 +874,21 @@ async function reconcileWorkspaceSnapshotVulnerabilities(
         id: true,
         filePath: true,
         humanStatus: true,
+        stableFingerprint: true,
       },
     });
 
-    const stale = openVulns.filter((item) => !filePathSet.has(item.filePath));
+    const stale = openVulns.filter((item) => {
+      if (filePathSet.has(item.filePath)) return false;
+      if (
+        typeof item.stableFingerprint === 'string' &&
+        item.stableFingerprint.trim().length > 0 &&
+        observedStableFingerprints.has(item.stableFingerprint)
+      ) {
+        return false;
+      }
+      return true;
+    });
     if (stale.length === 0) {
       process.stdout.write(
         `[Confession][WorkspaceReconcile] ${JSON.stringify({
