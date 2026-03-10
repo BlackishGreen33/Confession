@@ -32,6 +32,8 @@ function buildVulnerability(overrides: Record<string, unknown> = {}) {
     aiModel: 'nvidia/qwen',
     aiConfidence: 0.91,
     aiReasoning: '由資料流可達危險 DOM sink',
+    stableFingerprint: 'stable-fp-1',
+    source: 'sast',
     humanStatus: 'confirmed',
     humanComment: '已確認可重現',
     humanReviewedAt: new Date('2026-03-01T00:00:00.000Z'),
@@ -127,7 +129,7 @@ describe('exportRoutes', () => {
     expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf])
     const text = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')
     expect(text).toContain(
-      'id,filePath,line,column,endLine,endColumn,type,cweId,severity,status,humanStatus,owaspCategory,description,riskDescription,codeSnippet,codeHash,fixExplanation,fixOldCode,fixNewCode,aiModel,aiConfidence,aiReasoning,humanComment,humanReviewedAt,createdAt,updatedAt',
+      'id,filePath,line,column,endLine,endColumn,type,cweId,severity,status,humanStatus,owaspCategory,description,riskDescription,codeSnippet,codeHash,fixExplanation,fixOldCode,fixNewCode,aiModel,aiConfidence,aiReasoning,stableFingerprint,source,humanComment,humanReviewedAt,createdAt,updatedAt',
     )
     expect(text).toContain('"desc,with,comma"')
     expect(text).toContain('"line1\nline2 ""quoted"""')
@@ -176,5 +178,45 @@ describe('exportRoutes', () => {
     expect(html).toContain('@page')
     expect(html).toContain('Confession 漏洞匯出報告')
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
+  it('sarif 匯出會回傳 2.1.0 並包含 stableFingerprint', async () => {
+    mockPrisma.vulnerability.findMany.mockResolvedValue([
+      buildVulnerability({
+        stableFingerprint: 'stable-fingerprint-xss',
+        source: 'sast',
+      }),
+    ])
+
+    const res = await app.request('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'sarif' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/sarif+json')
+    expect(res.headers.get('content-disposition')).toMatch(
+      /confession-vulnerabilities-\d{8}-\d{6}\.sarif\.json/,
+    )
+
+    const body = (await res.json()) as {
+      version: string
+      runs: Array<{
+        tool: { driver: { name: string } }
+        results: Array<{
+          ruleId: string
+          level: string
+          partialFingerprints?: Record<string, string>
+        }>
+      }>
+    }
+    expect(body.version).toBe('2.1.0')
+    expect(body.runs[0]?.tool.driver.name).toBe('Confession')
+    expect(body.runs[0]?.results[0]?.ruleId).toBe('xss')
+    expect(body.runs[0]?.results[0]?.level).toBe('error')
+    expect(body.runs[0]?.results[0]?.partialFingerprints?.stableFingerprint).toBe(
+      'stable-fingerprint-xss',
+    )
   })
 })

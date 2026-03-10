@@ -24,6 +24,8 @@ export interface Vulnerability {
   aiModel: string | null
   aiConfidence: number | null
   aiReasoning: string | null
+  stableFingerprint: string
+  source: 'sast' | 'dast'
   humanStatus: 'pending' | 'confirmed' | 'rejected' | 'false_positive'
   humanComment: string | null
   owaspCategory: string | null
