@@ -222,4 +222,43 @@ describe('dashboard-insights', () => {
     expect(summary.dataSourceLabel).toContain('規則推導')
     expect(summary.dataTime).toBe('2026-03-06T12:34:56.000Z')
   })
+
+  it('趨勢洞察支援 en / zh-CN 輸出', () => {
+    const trend = [
+      { date: '2026-03-01', total: 10, open: 4, fixed: 5, ignored: 1 },
+      { date: '2026-03-02', total: 11, open: 5, fixed: 5, ignored: 1 },
+      { date: '2026-03-03', total: 12, open: 6, fixed: 5, ignored: 1 },
+      { date: '2026-03-04', total: 12, open: 5, fixed: 6, ignored: 1 },
+      { date: '2026-03-05', total: 12, open: 4, fixed: 7, ignored: 1 },
+    ]
+
+    const enInsights = computeTrendInsights(trend, 'en')
+    const zhCnInsights = computeTrendInsights(trend, 'zh-CN')
+
+    expect(enInsights.metrics[0]?.label).toBe('7d Open Net Change')
+    expect(enInsights.metrics[1]?.label).toBe('Fix Velocity')
+    expect(zhCnInsights.metrics[0]?.label).toBe('7日待处理净变化')
+    expect(zhCnInsights.metrics[1]?.label).toBe('修复速度')
+  })
+
+  it('總結卡支援 en / zh-CN 主行動文案', () => {
+    const input = buildInput({
+      openCount: 8,
+      bySeverityOpen: {
+        critical: 3,
+        high: 1,
+        medium: 2,
+        low: 1,
+        info: 1,
+      },
+    })
+
+    const enSummary = buildSecuritySummary(input, 'en')
+    const zhCnSummary = buildSecuritySummary(input, 'zh-CN')
+
+    expect(enSummary.action?.label).toBe('Handle Critical Now')
+    expect(enSummary.action?.kpi.current).toBe('3 items')
+    expect(zhCnSummary.action?.label).toBe('立即处理严重级')
+    expect(zhCnSummary.action?.kpi.current).toBe('3 笔')
+  })
 })

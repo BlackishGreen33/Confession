@@ -35,6 +35,7 @@ const DEFAULT_CONFIG: PluginConfig = {
   analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
 }
 
 function createTempWorkspaceDir(prefix: string): string {

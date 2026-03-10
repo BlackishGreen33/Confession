@@ -1,9 +1,14 @@
+import { TextDecoder } from 'node:util'
+
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockPrisma = vi.hoisted(() => ({
   vulnerability: {
     findMany: vi.fn(),
+  },
+  config: {
+    findUnique: vi.fn(),
   },
 }))
 
@@ -50,6 +55,12 @@ describe('exportRoutes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockPrisma.config.findUnique.mockResolvedValue({
+      id: 'default',
+      data: JSON.stringify({
+        ui: { language: 'zh-TW' },
+      }),
+    })
   })
 
   it('json 匯出會回傳 v2 報告並套用 search 篩選條件', async () => {
@@ -127,12 +138,29 @@ describe('exportRoutes', () => {
     expect(res.headers.get('content-type')).toContain('text/csv')
     const bytes = new Uint8Array(await res.arrayBuffer())
     expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf])
-    const text = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')
+    const text = new TextDecoder('utf-8').decode(bytes)
     expect(text).toContain(
-      'id,filePath,line,column,endLine,endColumn,type,cweId,severity,status,humanStatus,owaspCategory,description,riskDescription,codeSnippet,codeHash,fixExplanation,fixOldCode,fixNewCode,aiModel,aiConfidence,aiReasoning,stableFingerprint,source,humanComment,humanReviewedAt,createdAt,updatedAt',
+      'ID,檔案路徑,行,列,結束行,結束列,漏洞類型,CWE,嚴重度,狀態,人工審核狀態,OWASP 類別,描述,風險說明,代碼片段,代碼雜湊,修復說明,修復前代碼,修復後代碼,AI 模型,AI 信心值,AI 推理,穩定指紋,來源,人工備註,人工審核時間,建立時間,更新時間',
     )
     expect(text).toContain('"desc,with,comma"')
     expect(text).toContain('"line1\nline2 ""quoted"""')
+  })
+
+  it('csv 匯出可指定 locale=en，欄位標題使用英文鍵名', async () => {
+    mockPrisma.vulnerability.findMany.mockResolvedValue([buildVulnerability()])
+
+    const res = await app.request('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'csv', locale: 'en' }),
+    })
+
+    expect(res.status).toBe(200)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const text = new TextDecoder('utf-8').decode(bytes)
+    expect(text).toContain(
+      'id,file_path,line,column,end_line,end_column,type,cwe_id,severity,status,human_status,owasp_category,description,risk_description,code_snippet,code_hash,fix_explanation,fix_old_code,fix_new_code,ai_model,ai_confidence,ai_reasoning,stable_fingerprint,source,human_comment,human_reviewed_at,created_at,updated_at',
+    )
   })
 
   it('markdown 匯出會包含摘要與漏洞明細章節', async () => {
@@ -153,6 +181,27 @@ describe('exportRoutes', () => {
     expect(text).toContain('# Confession 漏洞匯出報告')
     expect(text).toContain('## 統計摘要')
     expect(text).toContain('## 漏洞明細')
+  })
+
+  it('markdown 匯出未帶 locale 時會依 config.ui.language 決定語系', async () => {
+    mockPrisma.config.findUnique.mockResolvedValue({
+      id: 'default',
+      data: JSON.stringify({
+        ui: { language: 'zh-CN' },
+      }),
+    })
+    mockPrisma.vulnerability.findMany.mockResolvedValue([buildVulnerability()])
+
+    const res = await app.request('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'markdown' }),
+    })
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('# Confession 漏洞导出报告')
+    expect(text).toContain('## 统计摘要')
   })
 
   it('pdf 匯出會回傳可列印 HTML 並跳脫危險字元', async () => {

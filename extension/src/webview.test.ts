@@ -117,6 +117,9 @@ const arbPluginConfig: fc.Arbitrary<PluginConfig> = fc.record({
     baseUrl: fc.webUrl(),
     mode: fc.constantFrom('local' as const, 'remote' as const),
   }),
+  ui: fc.record({
+    language: fc.constantFrom('auto' as const, 'zh-TW' as const, 'zh-CN' as const, 'en' as const),
+  }),
 })
 
 /** 產生隨機 ExtToWebMsg */
@@ -212,6 +215,7 @@ describe('Feature: sidebar-security-panel, Property 2: Extension → Webview 訊
       analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
     }
 
     // 註冊 provider，觸發 resolveWebviewView
@@ -338,6 +342,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
     analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
     ignore: { paths: [], types: [] },
     api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
   }
 
   beforeEach(() => {
@@ -644,6 +649,7 @@ describe('AI 自動修復冪等保護', () => {
       analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
     }
     registerDashboardProvider(mockContext, () => mockConfig)
   })
@@ -723,6 +729,7 @@ describe('Feature: sidebar-security-panel, Property 4: 配置變更觸發通知'
       analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
     }
 
     // 註冊 provider，觸發 resolveWebviewView，建立 providerInstance
@@ -810,6 +817,7 @@ describe('Feature: sidebar-security-panel, Property 5: 可見性變更觸發配�
       analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
     }
 
     const mockContext = {
@@ -902,6 +910,7 @@ describe('向後相容：viewType 與 openDashboard 指令', () => {
       analysis: { triggerMode: 'manual', depth: 'standard', debounceMs: 500 },
       ignore: { paths: [], types: [] },
       api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
     }
 
     registerDashboardProvider(mockContext, () => mockConfig)
