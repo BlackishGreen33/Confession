@@ -56,7 +56,7 @@ jobs:
 
       - name: Start web server
         run: |
-          pnpm --filter web start -- --port 3000 > /tmp/confession-web.log 2>&1 &
+          pnpm --filter web exec next start -p 3000 -H 127.0.0.1 > /tmp/confession-web.log 2>&1 &
           echo $! > /tmp/confession-web.pid
 
       - name: Wait for /api/health
@@ -69,6 +69,10 @@ jobs:
             sleep 2
           done
           echo "web server did not become ready"
+          if [[ -f /tmp/confession-web.log ]]; then
+            echo "----- confession-web.log -----"
+            tail -n 200 /tmp/confession-web.log || true
+          fi
           exit 1
 
       - name: Run benchmark
