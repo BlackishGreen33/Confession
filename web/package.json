@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "benchmark:scan": "node benchmark-scan-workspace.mjs"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",
