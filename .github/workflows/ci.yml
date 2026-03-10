@@ -3,12 +3,46 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'web/**'
+      - 'extension/**'
+      - 'confession-cli/**'
+      - 'go-analyzer/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+      - 'eslint.config.mjs'
+      - 'commitlint.config.mjs'
+      - 'AGENTS.md'
+      - '.kiro/steering/**'
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'web/**'
+      - 'extension/**'
+      - 'confession-cli/**'
+      - 'go-analyzer/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+      - 'eslint.config.mjs'
+      - 'commitlint.config.mjs'
+      - 'AGENTS.md'
+      - '.kiro/steering/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
 jobs:
   lint:
