@@ -72,6 +72,12 @@ export class TtlCache<T> {
   }
 }
 
+export const FILE_ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+export function buildFileAnalysisCacheKey(filePath: string, contentHash: string): string {
+  return `${filePath}:${contentHash}`
+}
+
 /**
  * 計算檔案內容雜湊（SHA-256），用於增量分析判斷檔案是否變更。
  */
@@ -126,8 +132,8 @@ export function computeLlmPromptFingerprint(
 
 // === 全域快取實例 ===
 
-/** 檔案分析結果快取：key = filePath:contentHash，value = 是否已分析（5 分鐘 TTL） */
-export const fileAnalysisCache = new TtlCache<boolean>(5 * 60 * 1000)
+/** 檔案分析結果快取：key = filePath:contentHash，value = 是否已分析（預設 24 小時 TTL） */
+export const fileAnalysisCache = new TtlCache<boolean>(FILE_ANALYSIS_CACHE_TTL_MS)
 
 /** 進行中的掃描任務去重：key = scanFingerprint，value = taskId（10 分鐘 TTL） */
 export const inflightScans = new TtlCache<string>(10 * 60 * 1000)

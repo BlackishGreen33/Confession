@@ -1,6 +1,11 @@
-import { computeContentHash, fileAnalysisCache } from '@server/cache'
+import { buildFileAnalysisCacheKey, computeContentHash, fileAnalysisCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
+import {
+  hydrateFileAnalysisCacheFromDisk,
+  persistFileAnalysisCacheToDisk,
+  recordAnalyzedFile,
+} from '@server/file-analysis-cache-store'
 import type { LlmClientConfig } from '@server/llm/client'
 
 import type { ScanRequest } from '@/libs/types'
@@ -50,6 +55,8 @@ export async function orchestrateAgenticBeta(
   request: ScanRequest,
   options: AgenticOrchestrateOptions = {},
 ): Promise<AgenticOrchestrateResult> {
+  options.assertNotCanceled?.()
+  await hydrateFileAnalysisCacheFromDisk()
   options.assertNotCanceled?.()
   const maxRetryAttempts = resolveRetryAttempts(request)
   const changedFiles = request.forceRescan ? request.files : filterChangedFiles(request.files)
@@ -161,6 +168,7 @@ export async function orchestrateAgenticBeta(
           } catch (err) {
             llmStats.requestFailures += 1
             accumulateFailureKind(llmStats, err)
+            rememberFirstFailureMessage(llmStats, err)
             transientFailure = isConcurrencyThrottleError(err)
             traces.push({
               filePath: file.path,
@@ -197,7 +205,13 @@ export async function orchestrateAgenticBeta(
   for (const file of changedFiles) {
     options.assertNotCanceled?.()
     const hash = computeContentHash(file.content)
-    fileAnalysisCache.set(`${file.path}:${hash}`, true)
+    recordAnalyzedFile(file.path, hash)
+  }
+
+  try {
+    await persistFileAnalysisCacheToDisk()
+  } catch {
+    // 快取持久化失敗不應影響掃描主流程
   }
 
   return {
@@ -216,7 +230,7 @@ function resolveRetryAttempts(request: ScanRequest): number {
 function filterChangedFiles(files: ScanRequest['files']): ScanRequest['files'] {
   return files.filter((file) => {
     const hash = computeContentHash(file.content)
-    return !fileAnalysisCache.has(`${file.path}:${hash}`)
+    return !fileAnalysisCache.has(buildFileAnalysisCacheKey(file.path, hash))
   })
 }
 
@@ -230,11 +244,11 @@ function groupByLanguage(files: ScanRequest['files']) {
 function buildSummary(vulns: VulnerabilityInput[], files: ScanRequest['files']) {
   const bySeverity: Record<string, number> = {}
   const byLanguage: Record<string, number> = {}
+  const languageByFilePath = new Map(files.map((file) => [file.path, file.language]))
 
   for (const vuln of vulns) {
     bySeverity[vuln.severity] = (bySeverity[vuln.severity] ?? 0) + 1
-    const file = files.find((item) => item.path === vuln.filePath)
-    const language = file?.language ?? 'unknown'
+    const language = languageByFilePath.get(vuln.filePath) ?? 'unknown'
     byLanguage[language] = (byLanguage[language] ?? 0) + 1
   }
 
@@ -286,6 +300,17 @@ function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
   }
 
   stats.failureKinds.other += 1
+}
+
+function rememberFirstFailureMessage(stats: LlmUsageStats, err: unknown): void {
+  if (typeof stats.lastErrorMessage === 'string' && stats.lastErrorMessage.length > 0) {
+    return
+  }
+
+  const raw = err instanceof Error ? err.message : String(err)
+  const message = raw.trim()
+  if (message.length === 0) return
+  stats.lastErrorMessage = message.slice(0, 280)
 }
 
 function isConcurrencyThrottleError(err: unknown): boolean {

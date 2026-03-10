@@ -1,6 +1,11 @@
-import { computeContentHash, fileAnalysisCache } from '@server/cache'
+import { buildFileAnalysisCacheKey, computeContentHash, fileAnalysisCache } from '@server/cache'
 import type { VulnerabilityInput } from '@server/db'
 import { upsertVulnerabilities } from '@server/db'
+import {
+  hydrateFileAnalysisCacheFromDisk,
+  persistFileAnalysisCacheToDisk,
+  recordAnalyzedFile,
+} from '@server/file-analysis-cache-store'
 import type { LlmClientConfig } from '@server/llm/client'
 
 import type { ScanRequest } from '@/libs/types'
@@ -43,6 +48,8 @@ export async function orchestrate(
   request: ScanRequest,
   options: OrchestrateOptions = {},
 ): Promise<OrchestrateResult> {
+  options.assertNotCanceled?.()
+  await hydrateFileAnalysisCacheFromDisk()
   options.assertNotCanceled?.()
   const retryAttempts = resolveRetryAttempts(request)
   const maxParallelFiles = resolveBaselineParallelFiles(request)
@@ -125,7 +132,13 @@ export async function orchestrate(
   for (const file of changedFiles) {
     options.assertNotCanceled?.()
     const hash = computeContentHash(file.content)
-    fileAnalysisCache.set(`${file.path}:${hash}`, true)
+    recordAnalyzedFile(file.path, hash)
+  }
+
+  try {
+    await persistFileAnalysisCacheToDisk()
+  } catch {
+    // 快取持久化失敗不應影響掃描主流程
   }
 
   return {
@@ -161,7 +174,7 @@ function resolveBaselineParallelFiles(request: ScanRequest): number {
 function filterChangedFiles(files: ScanRequest['files']): ScanRequest['files'] {
   return files.filter((f) => {
     const hash = computeContentHash(f.content)
-    return !fileAnalysisCache.has(`${f.path}:${hash}`)
+    return !fileAnalysisCache.has(buildFileAnalysisCacheKey(f.path, hash))
   })
 }
 
@@ -182,13 +195,12 @@ function buildSummary(
 ): ScanSummary {
   const bySeverity: Record<string, number> = {}
   const byLanguage: Record<string, number> = {}
+  const languageByFilePath = new Map(files.map((file) => [file.path, file.language]))
 
   for (const v of vulns) {
     bySeverity[v.severity] = (bySeverity[v.severity] ?? 0) + 1
 
-    // 從檔案列表中找出對應語言
-    const file = files.find((f) => f.path === v.filePath)
-    const lang = file?.language ?? 'unknown'
+    const lang = languageByFilePath.get(v.filePath) ?? 'unknown'
     byLanguage[lang] = (byLanguage[lang] ?? 0) + 1
   }
 
