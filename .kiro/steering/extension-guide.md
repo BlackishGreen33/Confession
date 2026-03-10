@@ -16,6 +16,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - 設定頁儲存時需同步：
   - 回寫 VS Code `confession.*`（相容 fallback）
   - 回寫作用中 root 的 `.confession/config.json`
+- 語言設定需支援 `confession.ui.language = auto|zh-TW|zh-CN|en`，並同步到 `.confession/config.json.ui.language`
 - 讀取優先序：
   - 若作用中 root 有 `.confession/config.json`，設定頁與掃描使用該檔內容
   - 若不存在，回退 `confession.*` settings
@@ -83,6 +84,7 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 
 - VS Code settings.json 變更 → `onDidChangeConfiguration` → `sendConfigUpdate()` → Webview Jotai atom
 - Webview 設定面板儲存 → `update_config` postMessage → Extension 同步寫入 settings 與 `.confession/config.json`
+- `ui.language=auto` 代表持續跟隨宿主語言（VS Code / 瀏覽器），非一次性偵測
 - Extension 需監聽 `**/.confession/config.json` 的 create/change/delete 事件並主動推送 `config_updated`
 
 ## 檔案結構

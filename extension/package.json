@@ -164,6 +164,17 @@
           },
           "default": [],
           "description": "Vulnerability types to ignore"
+        },
+        "confession.ui.language": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "zh-TW",
+            "zh-CN",
+            "en"
+          ],
+          "default": "auto",
+          "description": "UI language for Confession webview (auto follows host locale)"
         }
       }
     }

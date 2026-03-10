@@ -3,9 +3,16 @@ import type {
   SerializedVulnerability,
 } from '@server/vulnerability-presenter'
 
-import { escapeHtml, formatCounter, groupBySeverity } from './common'
+import type { ResolvedLocale } from '@/libs/i18n'
 
-export function renderPrintableHtml(report: ExportReportV2): string {
+import { escapeHtml, formatCounter, groupBySeverity } from './common'
+import { PRINTABLE_TEXT, type PrintableText } from './printable-text'
+
+export function renderPrintableHtml(
+  report: ExportReportV2,
+  locale: ResolvedLocale = 'zh-TW',
+): string {
+  const text = PRINTABLE_TEXT[locale]
   const openCount = report.summary.byStatus.open ?? 0
   const fixedCount = report.summary.byStatus.fixed ?? 0
   const ignoredCount = report.summary.byStatus.ignored ?? 0
@@ -13,11 +20,11 @@ export function renderPrintableHtml(report: ExportReportV2): string {
   const highCount = report.summary.bySeverity.high ?? 0
 
   const summaryCards = [
-    ['總漏洞', String(report.summary.total), 'total'],
-    ['待處理', String(openCount), 'open'],
-    ['已修復', String(fixedCount), 'fixed'],
-    ['已忽略', String(ignoredCount), 'ignored'],
-    ['嚴重+高風險', String(criticalCount + highCount), 'danger'],
+    [text.statTotal, String(report.summary.total), 'total'],
+    [text.statOpen, String(openCount), 'open'],
+    [text.statFixed, String(fixedCount), 'fixed'],
+    [text.statIgnored, String(ignoredCount), 'ignored'],
+    [text.statDanger, String(criticalCount + highCount), 'danger'],
   ]
     .map(
       ([label, value, kind]) => `
@@ -29,24 +36,24 @@ export function renderPrintableHtml(report: ExportReportV2): string {
     )
     .join('')
 
-  const sections = groupBySeverity(report.items)
+  const sections = groupBySeverity(report.items, locale)
     .filter((section) => section.items.length > 0)
     .map(
       (section) => `
         <section class="panel severity-section">
           <h2><span class="section-index">SEC</span>${escapeHtml(section.label)}（${section.items.length}）</h2>
-          ${section.items.map((item) => renderIssueCardHtml(item)).join('\n')}
+          ${section.items.map((item) => renderIssueCardHtml(item, text)).join('\n')}
         </section>
       `,
     )
     .join('\n')
 
   const summaryRows = [
-    ['總漏洞數', String(report.summary.total)],
-    ['依嚴重度', formatCounter(report.summary.bySeverity)],
-    ['依狀態', formatCounter(report.summary.byStatus)],
-    ['依審核狀態', formatCounter(report.summary.byHumanStatus)],
-    ['依漏洞類型', formatCounter(report.summary.byType)],
+    [text.summaryTotal, String(report.summary.total)],
+    [text.summaryBySeverity, formatCounter(report.summary.bySeverity)],
+    [text.summaryByStatus, formatCounter(report.summary.byStatus)],
+    [text.summaryByHumanStatus, formatCounter(report.summary.byHumanStatus)],
+    [text.summaryByType, formatCounter(report.summary.byType)],
   ]
     .map(
       ([k, v]) =>
@@ -64,13 +71,13 @@ export function renderPrintableHtml(report: ExportReportV2): string {
   const filterTable =
     filterRows.length > 0
       ? `<table class="kv">${filterRows}</table>`
-      : '<p class="muted">（無篩選）</p>'
+      : `<p class="muted">${text.noFilters}</p>`
 
   return `<!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="${text.htmlLang}">
 <head>
   <meta charset="UTF-8" />
-  <title>Confession 漏洞匯出報告</title>
+  <title>${escapeHtml(text.title)}</title>
   <style>
     :root {
       --bg: #020617;
@@ -430,54 +437,57 @@ export function renderPrintableHtml(report: ExportReportV2): string {
         </div>
         <div class="logo-text">
           <span class="logo-title">Confession</span>
-          <span class="logo-subtitle">Security Vulnerability Report</span>
+          <span class="logo-subtitle">${escapeHtml(text.logoSubtitle)}</span>
         </div>
       </div>
       <div class="meta-top">
         <span class="meta-dot" aria-hidden="true"></span>
-        <span>Cyber Security Analysis Snapshot</span>
+        <span>${escapeHtml(text.topCaption)}</span>
       </div>
-      <h1>Confession 漏洞匯出報告</h1>
-      <div class="meta">版本：${escapeHtml(report.schemaVersion)} ｜ 匯出時間：${escapeHtml(report.exportedAt)}</div>
+      <h1>${escapeHtml(text.title)}</h1>
+      <div class="meta">${escapeHtml(text.version)}：${escapeHtml(report.schemaVersion)} ｜ ${escapeHtml(text.exportedAt)}：${escapeHtml(report.exportedAt)}</div>
     </header>
 
-    <section class="summary-grid" aria-label="重點摘要">
+    <section class="summary-grid" aria-label="${escapeHtml(text.summaryAria)}">
       ${summaryCards}
     </section>
 
     <section class="panel">
-      <h2><span class="section-index">01</span>篩選條件</h2>
+      <h2><span class="section-index">01</span>${escapeHtml(text.filtersSection)}</h2>
       ${filterTable}
     </section>
 
     <section class="panel">
-      <h2><span class="section-index">02</span>統計摘要</h2>
+      <h2><span class="section-index">02</span>${escapeHtml(text.summarySection)}</h2>
       <table class="kv">${summaryRows}</table>
     </section>
 
     <section class="panel">
-      <h2><span class="section-index">03</span>漏洞明細</h2>
-      ${sections || '<p class="muted">（沒有符合條件的漏洞）</p>'}
+      <h2><span class="section-index">03</span>${escapeHtml(text.detailsSection)}</h2>
+      ${sections || `<p class="muted">${escapeHtml(text.noDetails)}</p>`}
     </section>
 
-    <div class="footer">Generated by Confession</div>
+    <div class="footer">${escapeHtml(text.generatedBy)}</div>
   </main>
 </body>
 </html>`
 }
 
-function renderIssueCardHtml(item: SerializedVulnerability): string {
+function renderIssueCardHtml(
+  item: SerializedVulnerability,
+  text: PrintableText,
+): string {
   return `<article class="issue ${issueSeverityClass(item.severity)}">
     <p class="issue-title">${escapeHtml(item.cweId ?? item.type)} — ${escapeHtml(item.filePath)}:${item.line}:${item.column}</p>
     <div class="tags">
-      <span class="tag ${severityTagClass(item.severity)}">severity: ${escapeHtml(item.severity)}</span>
-      <span class="tag ${statusTagClass(item.status)}">status: ${escapeHtml(item.status)}</span>
-      <span class="tag">humanStatus: ${escapeHtml(item.humanStatus)}</span>
+      <span class="tag ${severityTagClass(item.severity)}">${escapeHtml(text.severityTag)}: ${escapeHtml(item.severity)}</span>
+      <span class="tag ${statusTagClass(item.status)}">${escapeHtml(text.statusTag)}: ${escapeHtml(item.status)}</span>
+      <span class="tag">${escapeHtml(text.humanStatusTag)}: ${escapeHtml(item.humanStatus)}</span>
     </div>
-    <p class="small"><strong>描述：</strong>${escapeHtml(item.description)}</p>
-    <p class="small"><strong>風險：</strong>${escapeHtml(item.riskDescription ?? 'N/A')}</p>
+    <p class="small"><strong>${escapeHtml(text.description)}：</strong>${escapeHtml(item.description)}</p>
+    <p class="small"><strong>${escapeHtml(text.risk)}：</strong>${escapeHtml(item.riskDescription ?? text.na)}</p>
     <pre>${escapeHtml(item.codeSnippet)}</pre>
-    <p class="small"><strong>修復建議：</strong>${escapeHtml(item.fixExplanation ?? 'N/A')}</p>
+    <p class="small"><strong>${escapeHtml(text.fixSuggestion)}：</strong>${escapeHtml(item.fixExplanation ?? text.na)}</p>
   </article>`
 }
 

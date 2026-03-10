@@ -100,6 +100,11 @@ describe('P4: Agent 消息序列化往返', () => {
       baseUrl: fc.stringMatching(/^https?:\/\/[a-z0-9.:]+$/),
       mode: fc.constantFrom('local', 'remote') as fc.Arbitrary<PluginConfig['api']['mode']>,
     }),
+    ui: fc.record({
+      language: fc.constantFrom('auto', 'zh-TW', 'zh-CN', 'en') as fc.Arbitrary<
+        PluginConfig['ui']['language']
+      >,
+    }),
   })
 
   const extToWebMsgArb: fc.Arbitrary<ExtToWebMsg> = fc.oneof(

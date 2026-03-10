@@ -15,6 +15,7 @@ const DEFAULT_CONFIG: PluginConfig = {
   analysis: { triggerMode: 'onSave', depth: 'standard', debounceMs: 500 },
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
+  ui: { language: 'auto' },
 }
 
 function cloneDefaultConfig(): PluginConfig {
@@ -124,6 +125,9 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
       baseUrl?: string
       mode?: PluginConfig['api']['mode']
     }
+    ui?: {
+      language?: PluginConfig['ui']['language']
+    }
   }
 
   const config: PluginConfig = {
@@ -147,6 +151,14 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
     api: {
       baseUrl: typeof input.api?.baseUrl === 'string' ? input.api.baseUrl : 'http://localhost:3000',
       mode: input.api?.mode === 'remote' ? 'remote' : 'local',
+    },
+    ui: {
+      language:
+        input.ui?.language === 'zh-TW' ||
+        input.ui?.language === 'zh-CN' ||
+        input.ui?.language === 'en'
+          ? input.ui.language
+          : 'auto',
     },
   }
 

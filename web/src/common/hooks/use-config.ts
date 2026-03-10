@@ -32,6 +32,7 @@ export function useUpdateConfig() {
       analysis: { ...prev.analysis, ...partial.analysis },
       ignore: { ...prev.ignore, ...partial.ignore },
       api: { ...prev.api, ...partial.api },
+      ui: { ...prev.ui, ...partial.ui },
     }))
   }
 }

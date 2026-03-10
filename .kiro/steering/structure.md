@@ -77,6 +77,7 @@ confession/
 │       ├── export/
 │       │   ├── common.ts
 │       │   ├── printable-html.ts
+│       │   ├── printable-text.ts
 │       │   └── renderers.ts
 │       ├── llm/
 │       ├── mcp/
@@ -135,6 +136,7 @@ confession/
 - 擴充套件程式碼僅在 `extension/` 內
 - CLI 程式碼僅在 `confession-cli/` 內
 - 共用型別放 `web/src/common/libs/types.ts`
+- i18n 核心放 `web/src/common/libs/i18n.ts`，hook 放 `web/src/common/hooks/use-i18n.ts`
 
 ## 路徑別名
 

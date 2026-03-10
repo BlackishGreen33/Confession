@@ -5,6 +5,9 @@ import { buildVulnerabilityWhere } from '@server/vulnerability-query'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
+import { type ResolvedLocale,resolveLocale } from '@/libs/i18n'
+import type { UiLanguage } from '@/libs/types'
+
 import { renderPrintableHtml } from '../export/printable-html'
 import {
   buildExportFilename,
@@ -22,6 +25,7 @@ const REPORT_SCHEMA_VERSION = '2.0.0'
 
 const exportBodySchema = z.object({
   format: z.enum(['json', 'csv', 'markdown', 'pdf', 'sarif']),
+  locale: z.enum(['zh-TW', 'zh-CN', 'en']).optional(),
   filters: z
     .object({
       status: z.enum(STATUS_VALUES).optional(),
@@ -35,13 +39,30 @@ const exportBodySchema = z.object({
 
 export const exportRoutes = new Hono()
 
+async function resolveExportLocale(input: ResolvedLocale | undefined): Promise<ResolvedLocale> {
+  if (input) return input
+
+  const row = await storage.config.findUnique({ where: { id: 'default' } })
+  if (!row) return 'zh-TW'
+
+  try {
+    const raw = JSON.parse(row.data) as {
+      ui?: { language?: UiLanguage }
+    }
+    return resolveLocale(raw.ui?.language ?? 'auto')
+  } catch {
+    return 'zh-TW'
+  }
+}
+
 /**
  * POST /api/export — 匯出漏洞報告（JSON / CSV / Markdown / PDF(列印 HTML) / SARIF）
  *
  * 根據篩選條件查詢漏洞，以指定格式回傳。
  */
 exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
-  const { format, filters } = c.req.valid('json')
+  const { format, filters, locale: localeFromRequest } = c.req.valid('json')
+  const locale = await resolveExportLocale(localeFromRequest)
   const filename = buildExportFilename(format as ExportFormat)
   const where = buildVulnerabilityWhere(filters)
 
@@ -62,7 +83,7 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
   )
 
   if (format === 'csv') {
-    const csv = renderCsv(items)
+    const csv = renderCsv(items, locale)
     // 加入 UTF-8 BOM，避免繁中在部分試算表工具開啟時出現亂碼
     const csvWithBom = `\uFEFF${csv}`
     return c.text(csvWithBom, 200, {
@@ -72,14 +93,14 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
   }
 
   if (format === 'markdown') {
-    return c.text(renderMarkdown(report), 200, {
+    return c.text(renderMarkdown(report, locale), 200, {
       'Content-Type': 'text/markdown; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
     })
   }
 
   if (format === 'pdf') {
-    return c.text(renderPrintableHtml(report), 200, {
+    return c.text(renderPrintableHtml(report, locale), 200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
     })

@@ -113,7 +113,8 @@ fileMatchPattern: '**/src/server/**/*'
   - 收斂時需寫入 `status_changed` 事件，訊息需說明來源檔案不在本次工作區快照（可能刪除或改名）
   - 收斂失敗不得中斷整體掃描任務完成；需輸出結構化 log 供追查
 - `POST /api/export` 規範：
-  - request body：`format = json|csv|markdown|pdf|sarif`，`filters` 支援 `status/severity/humanStatus/filePath/search`
+  - request body：`format = json|csv|markdown|pdf|sarif`，`locale? = zh-TW|zh-CN|en`，`filters` 支援 `status/severity/humanStatus/filePath/search`
+  - `locale` 未帶值時，後端需依 `config.ui.language` 解析；若為 `auto` 或不可判定，回退 `zh-TW`
   - `json`：`application/json`，回傳 `ExportReportV2`（schemaVersion、filters、summary、items）
   - CSV 回應需帶 UTF-8 BOM（避免繁中在部分試算表開啟亂碼）
   - `markdown`：`text/markdown; charset=utf-8`
@@ -121,6 +122,7 @@ fileMatchPattern: '**/src/server/**/*'
   - `sarif`：`application/sarif+json; charset=utf-8`，版本固定 `2.1.0`，需包含 `partialFingerprints.stableFingerprint`
   - SARIF 需套用 `maxResults`/`maxBytes` guard，截斷時以 `X-Confession-Sarif-Warning` 回傳警告摘要
   - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
+- `GET /api/config` / `PUT /api/config` 的 `PluginConfig` 需包含 `ui.language`（`auto|zh-TW|zh-CN|en`）
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
 - 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`、`fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_hold_ms_p95`、`db_lock_timeout_count`
 - 狀態查詢需輸出讀路徑結構化 log（`[Confession][StatusReadMetrics]`），至少含 `status_cache_hit_rate`、`status_cache_reload_ms`、`status_read_elapsed_ms`
