@@ -17,7 +17,7 @@ const mockPrisma = vi.hoisted(() => ({
 }));
 const mockTriggerAdviceEvaluation = vi.hoisted(() => vi.fn());
 
-vi.mock('@server/db', () => ({ prisma: mockPrisma }));
+vi.mock('@server/storage', () => ({ storage: mockPrisma }));
 vi.mock('@server/advice-gate', () => ({
   triggerAdviceEvaluation: mockTriggerAdviceEvaluation,
 }));

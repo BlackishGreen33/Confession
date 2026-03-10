@@ -30,7 +30,7 @@ const mockConfigFromPlugin = vi.hoisted(() => vi.fn());
 const mockResolveDefaultModel = vi.hoisted(() => vi.fn());
 const mockDeduplicateVulnerabilities = vi.hoisted(() => vi.fn());
 
-vi.mock('./db', () => ({ prisma: mockPrisma }));
+vi.mock('./storage', () => ({ storage: mockPrisma }));
 vi.mock('./health-score', () => ({
   buildHealthResponse: mockBuildHealthResponse,
 }));

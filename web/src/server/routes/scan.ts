@@ -1,89 +1,36 @@
-import { zValidator } from '@hono/zod-validator';
-import { triggerAdviceEvaluation } from '@server/advice-gate';
-import { orchestrateAgenticBeta } from '@server/agents/agentic-beta/orchestrator';
-import { orchestrate } from '@server/agents/orchestrator';
-import { computeScanFingerprint, inflightScans } from '@server/cache';
-import { prisma, type UpsertStorageMetrics } from '@server/db';
-import { configFromPlugin, type LlmClientConfig } from '@server/llm/client';
+import { zValidator } from '@hono/zod-validator'
+import { triggerAdviceEvaluation } from '@server/advice-gate'
+import { loadRuntimeLlmConfigFromStorage } from '@server/runtime-llm-config'
 import {
   emitScanProgress,
   type ScanProgressEvent,
   subscribeScanProgress,
-} from '@server/scan-progress-bus';
-import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
-import { z } from 'zod/v4';
+} from '@server/scan-progress-bus'
+import { storage } from '@server/storage'
+import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 
-import type { ScanEngineMode, ScanErrorCode } from '@/libs/types';
+import {
+  clearInflightReferences,
+  interruptSupersededScanTasks,
+  registerInflightTask,
+  requestScanCancel,
+  tryGetInflightTaskId,
+} from './scan/cancel-control'
+import { SSE_KEEPALIVE_MS, USER_CANCELED_MESSAGE } from './scan/constants'
+import { toScanProgressEvent } from './scan/progress-event'
+import { runScan } from './scan/runner'
+import { resolveEngineMode, scanBodySchema } from './scan/schema'
+import {
+  readRecentScanWithHotIndex,
+  readScanStatusWithHotIndex,
+} from './scan/status-read-metrics'
 
-/** POST /api/scan 請求 body schema */
-const scanBodySchema = z.object({
-  files: z.array(
-    z.object({
-      path: z.string(),
-      content: z.string(),
-      language: z.string(),
-    })
-  ),
-  depth: z.enum(['quick', 'standard', 'deep']).default('standard'),
-  includeLlmScan: z.boolean().optional(),
-  forceRescan: z.boolean().optional(),
-  scanScope: z.enum(['file', 'workspace']).optional(),
-  workspaceSnapshotComplete: z.boolean().optional(),
-  workspaceRoots: z.array(z.string()).optional(),
-  engineMode: z.enum(['baseline', 'agentic_beta']).optional(),
-});
+export const scanRoutes = new Hono()
 
-type ScanBody = z.infer<typeof scanBodySchema>;
-type EngineExecutionResult =
-  | Awaited<ReturnType<typeof orchestrate>>
-  | Awaited<ReturnType<typeof orchestrateAgenticBeta>>;
-
-interface FallbackMetadata {
-  fallbackUsed: boolean;
-  fallbackFrom: 'agentic_beta' | null;
-  fallbackTo: 'baseline' | null;
-  fallbackReason: string | null;
+interface ScanTaskIdRow {
+  id: string
 }
-
-interface EngineAttemptOutcome {
-  ok: boolean;
-  observedStableFingerprints: Set<string>;
-  storageMetrics: UpsertStorageMetrics;
-  errorCode?: ScanErrorCode;
-  errorMessage?: string;
-}
-
-const NO_FALLBACK: FallbackMetadata = {
-  fallbackUsed: false,
-  fallbackFrom: null,
-  fallbackTo: null,
-  fallbackReason: null,
-};
-
-const NO_STORAGE_METRICS: UpsertStorageMetrics = {
-  fs_write_ops_per_scan: 0,
-  db_lock_wait_ms_p95: 0,
-  db_lock_timeout_count: 0,
-};
-
-class ScanCanceledError extends Error {
-  constructor(message = '掃描已取消') {
-    super(message);
-    this.name = 'ScanCanceledError';
-  }
-}
-
-const cancelRequestedByTaskId = new Map<string, string>();
-const USER_CANCELED_MESSAGE = '使用者已取消掃描';
-const SUPERSEDED_BY_NEW_SCAN_MESSAGE = '新掃描任務已啟動，上一個掃描已中止';
-const WORKSPACE_SNAPSHOT_AUTO_FIXED_MESSAGE =
-  '來源檔案未出現在本次工作區快照，已自動標記為 fixed（可能已刪除或改名）';
-const PROGRESS_FLUSH_INTERVAL_MS = 2_000;
-const PROGRESS_FLUSH_FILE_STEP = 20;
-const SSE_KEEPALIVE_MS = 15_000;
-
-export const scanRoutes = new Hono();
 
 /**
  * POST /api/scan — 觸發掃描
@@ -92,35 +39,27 @@ export const scanRoutes = new Hono();
  * 即時回傳 taskId 供前端輪詢進度。
  */
 scanRoutes.post('/', zValidator('json', scanBodySchema), async (c) => {
-  const body = c.req.valid('json');
-  const runtime = await loadRuntimeConfigFromDb();
-  const engineMode = resolveEngineMode(body.engineMode);
-
-  // 請求去重：相同檔案內容 + depth + engineMode 的掃描直接回傳既有 taskId
-  const fingerprint = computeScanFingerprint(
-    body.files,
-    body.depth,
-    body.forceRescan ?? false,
-    engineMode
-  );
-  const existingTaskId = inflightScans.get(fingerprint);
+  const body = c.req.valid('json')
+  const llmConfig = await loadRuntimeLlmConfigFromStorage()
+  const engineMode = resolveEngineMode(body.engineMode)
+  const { fingerprint, existingTaskId } = tryGetInflightTaskId(body, engineMode)
 
   if (existingTaskId) {
-    const task = await prisma.scanTask.findUnique({
+    const task = await storage.scanTask.findUnique({
       where: { id: existingTaskId },
-    });
+    })
     if (task && (task.status === 'pending' || task.status === 'running')) {
       return c.json(
         { taskId: existingTaskId, status: task.status, deduplicated: true },
-        200
-      );
+        200,
+      )
     }
-    clearInflightReferences(existingTaskId);
+    clearInflightReferences(existingTaskId)
   }
 
-  await interruptSupersededScanTasks();
+  await interruptSupersededScanTasks()
 
-  const task = await prisma.scanTask.create({
+  const task = await storage.scanTask.create({
     data: {
       status: 'running',
       engineMode,
@@ -133,39 +72,61 @@ scanRoutes.post('/', zValidator('json', scanBodySchema), async (c) => {
       fallbackTo: null,
       fallbackReason: null,
     },
-  });
+  })
+  const typedTask = task as unknown as ScanTaskIdRow
 
-  inflightScans.set(task.id, task.id);
-  inflightScans.set(fingerprint, task.id);
-  emitScanProgress(toScanProgressEvent(task));
+  registerInflightTask(typedTask.id, fingerprint)
+  emitScanProgress(toScanProgressEvent(task))
 
-  void runScan(task.id, body, fingerprint, engineMode, runtime.llmConfig);
+  void runScan(typedTask.id, body, fingerprint, engineMode, llmConfig)
 
-  return c.json({ taskId: task.id, status: 'running' }, 201);
-});
+  return c.json({ taskId: typedTask.id, status: 'running' }, 201)
+})
 
 /**
  * GET /api/scan/status/:id — 查詢掃描進度
  */
 scanRoutes.get('/status/:id', async (c) => {
-  const id = c.req.param('id');
-
-  const task = await prisma.scanTask.findUnique({ where: { id } });
-  if (!task) {
-    return c.json({ error: '掃描任務不存在' }, 404);
+  const id = c.req.param('id')
+  const { event, metrics, shouldLog } = await readScanStatusWithHotIndex(id, () =>
+    storage.scanTask.findUnique({ where: { id } }),
+  )
+  if (!event) {
+    if (shouldLog) {
+      process.stdout.write(
+        `[Confession][StatusReadMetrics] ${JSON.stringify({
+          route: 'status',
+          taskId: id,
+          found: false,
+          ...metrics,
+        })}\n`,
+      )
+    }
+    return c.json({ error: '掃描任務不存在' }, 404)
   }
 
-  return c.json(toScanProgressEvent(task));
-});
+  if (shouldLog) {
+    process.stdout.write(
+      `[Confession][StatusReadMetrics] ${JSON.stringify({
+        route: 'status',
+        taskId: id,
+        found: true,
+        ...metrics,
+      })}\n`,
+    )
+  }
+
+  return c.json(event)
+})
 
 /**
  * POST /api/scan/cancel/:id — 取消進行中的掃描
  */
 scanRoutes.post('/cancel/:id', async (c) => {
-  const id = c.req.param('id');
-  const task = await prisma.scanTask.findUnique({ where: { id } });
+  const id = c.req.param('id')
+  const task = await storage.scanTask.findUnique({ where: { id } })
   if (!task) {
-    return c.json({ error: '掃描任務不存在' }, 404);
+    return c.json({ error: '掃描任務不存在' }, 404)
   }
 
   if (task.status === 'completed' || task.status === 'failed') {
@@ -174,11 +135,11 @@ scanRoutes.post('/cancel/:id', async (c) => {
       status: task.status,
       canceling: false,
       message: '任務已結束，無需取消',
-    });
+    })
   }
 
-  requestScanCancel(id, USER_CANCELED_MESSAGE);
-  const canceledTask = await prisma.scanTask.update({
+  requestScanCancel(id, USER_CANCELED_MESSAGE)
+  const canceledTask = await storage.scanTask.update({
     where: { id },
     data: {
       status: 'failed',
@@ -192,9 +153,9 @@ scanRoutes.post('/cancel/:id', async (c) => {
       fallbackTo: task.fallbackTo,
       fallbackReason: task.fallbackReason,
     },
-  });
-  emitScanProgress(toScanProgressEvent(canceledTask));
-  triggerAdviceEvaluation({ sourceEvent: 'scan_failed', sourceTaskId: id });
+  })
+  emitScanProgress(toScanProgressEvent(canceledTask))
+  triggerAdviceEvaluation({ sourceEvent: 'scan_failed', sourceTaskId: id })
 
   return c.json(
     {
@@ -203,63 +164,63 @@ scanRoutes.post('/cancel/:id', async (c) => {
       canceling: true,
       message: '已取消掃描任務',
     },
-    202
-  );
-});
+    202,
+  )
+})
 
 /**
  * GET /api/scan/stream/:id — SSE 即時進度推送
  */
 scanRoutes.get('/stream/:id', async (c) => {
-  const id = c.req.param('id');
-  const task = await prisma.scanTask.findUnique({ where: { id } });
+  const id = c.req.param('id')
+  const task = await storage.scanTask.findUnique({ where: { id } })
   if (!task) {
-    return c.json({ error: '掃描任務不存在' }, 404);
+    return c.json({ error: '掃描任務不存在' }, 404)
   }
 
-  c.header('Cache-Control', 'no-cache, no-transform');
-  c.header('Connection', 'keep-alive');
-  c.header('X-Accel-Buffering', 'no');
+  c.header('Cache-Control', 'no-cache, no-transform')
+  c.header('Connection', 'keep-alive')
+  c.header('X-Accel-Buffering', 'no')
 
   return streamSSE(c, async (stream) => {
     let eventSeq = Math.max(
       0,
-      Number.parseInt(c.req.header('Last-Event-ID') ?? '0', 10) || 0
-    );
+      Number.parseInt(c.req.header('Last-Event-ID') ?? '0', 10) || 0,
+    )
     const nextEventId = () => {
-      eventSeq += 1;
-      return String(eventSeq);
-    };
+      eventSeq += 1
+      return String(eventSeq)
+    }
     const writeProgress = async (event: ScanProgressEvent) => {
       await stream.writeSSE({
         id: nextEventId(),
         event: 'scan_progress',
         data: JSON.stringify(event),
-      });
-    };
+      })
+    }
 
-    const initial = toScanProgressEvent(task);
-    await writeProgress(initial);
+    const initial = toScanProgressEvent(task)
+    await writeProgress(initial)
 
     if (initial.status === 'completed' || initial.status === 'failed') {
-      return;
+      return
     }
 
     await new Promise<void>((resolve) => {
-      let settled = false;
-      let unsubscribe: () => void = () => {};
-      let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+      let settled = false
+      let unsubscribe: () => void = () => {}
+      let keepaliveTimer: ReturnType<typeof setInterval> | null = null
 
       const finish = () => {
-        if (settled) return;
-        settled = true;
+        if (settled) return
+        settled = true
         if (keepaliveTimer) {
-          clearInterval(keepaliveTimer);
-          keepaliveTimer = null;
+          clearInterval(keepaliveTimer)
+          keepaliveTimer = null
         }
-        unsubscribe();
-        resolve();
-      };
+        unsubscribe()
+        resolve()
+      }
 
       keepaliveTimer = setInterval(() => {
         void stream
@@ -272,1060 +233,64 @@ scanRoutes.get('/stream/:id', async (c) => {
             }),
           })
           .catch(() => {
-            finish();
-          });
-      }, SSE_KEEPALIVE_MS);
+            finish()
+          })
+      }, SSE_KEEPALIVE_MS)
 
       unsubscribe = subscribeScanProgress(id, (event) => {
         void (async () => {
           try {
-            await writeProgress(event);
+            await writeProgress(event)
           } catch {
-            finish();
-            return;
+            finish()
+            return
           }
 
           if (event.status === 'completed' || event.status === 'failed') {
-            finish();
+            finish()
           }
-        })();
-      });
+        })()
+      })
 
       stream.onAbort(() => {
-        finish();
-      });
-    });
-  });
-});
+        finish()
+      })
+    })
+  })
+})
 
 /**
  * GET /api/scan/recent — 取得最近一次掃描摘要
  */
 scanRoutes.get('/recent', async (c) => {
-  const task = await prisma.scanTask.findFirst({
-    orderBy: { updatedAt: 'desc' },
-  });
-
-  if (!task) {
-    return c.json({ error: '尚無掃描記錄' }, 404);
-  }
-
-  return c.json(toScanProgressEvent(task));
-});
-
-/**
- * 背景掃描邏輯：呼叫 orchestrator 並更新 ScanTask 狀態。
- * 完成後清除去重快取。
- */
-async function runScan(
-  taskId: string,
-  body: ScanBody,
-  fingerprint: string,
-  requestedEngineMode: ScanEngineMode,
-  llmConfig?: LlmClientConfig
-) {
-  const totalFiles = body.files.length;
-  const startedAt = Date.now();
-
-  let activeEngineMode: ScanEngineMode = requestedEngineMode;
-  let fallbackMeta: FallbackMetadata = NO_FALLBACK;
-
-  let agenticAttemptCount = 0;
-  let agenticFailureCount = 0;
-  let baselineFallbackCount = 0;
-  let fallbackSucceeded = false;
-  const storageMetrics: UpsertStorageMetrics = { ...NO_STORAGE_METRICS };
-
-  const mergeStorageMetrics = (next: UpsertStorageMetrics) => {
-    storageMetrics.fs_write_ops_per_scan += next.fs_write_ops_per_scan;
-    storageMetrics.db_lock_wait_ms_p95 = Math.max(
-      storageMetrics.db_lock_wait_ms_p95,
-      next.db_lock_wait_ms_p95
-    );
-    storageMetrics.db_lock_timeout_count += next.db_lock_timeout_count;
-  };
-  const assertNotCanceled = () => assertTaskNotCanceled(taskId);
-
-  try {
-    assertNotCanceled();
-
-    if (requestedEngineMode === 'agentic_beta') {
-      agenticAttemptCount += 1;
-      const agenticOutcome = await executeEngineAttempt({
-        taskId,
-        body,
-        engineMode: 'agentic_beta',
-        totalFiles,
-        llmConfig,
-        fallbackMeta,
-        assertNotCanceled,
-      });
-      mergeStorageMetrics(agenticOutcome.storageMetrics);
-
-      if (agenticOutcome.ok) {
-        assertNotCanceled();
-        await reconcileWorkspaceSnapshotVulnerabilities(
-          taskId,
-          body,
-          assertNotCanceled,
-          agenticOutcome.observedStableFingerprints
-        );
-        await markTaskCompleted(
-          taskId,
-          totalFiles,
-          'agentic_beta',
-          fallbackMeta
-        );
-        return;
-      }
-
-      agenticFailureCount += 1;
-      baselineFallbackCount += 1;
-
-      fallbackMeta = {
-        fallbackUsed: true,
-        fallbackFrom: 'agentic_beta',
-        fallbackTo: 'baseline',
-        fallbackReason: `Agentic 引擎失敗：${agenticOutcome.errorMessage ?? '未知錯誤'}`,
-      };
-      activeEngineMode = 'baseline';
-
-      const fallbackStarted = await prisma.scanTask.update({
-        where: { id: taskId },
-        data: {
-          status: 'running',
-          progress: 0,
-          scannedFiles: 0,
-          engineMode: 'baseline',
-          errorCode: null,
-          errorMessage: null,
-          ...toFallbackUpdateData(fallbackMeta),
-        },
-      });
-      emitScanProgress(toScanProgressEvent(fallbackStarted));
-
-      const baselineOutcome = await executeEngineAttempt({
-        taskId,
-        body,
-        engineMode: 'baseline',
-        totalFiles,
-        llmConfig,
-        fallbackMeta,
-        assertNotCanceled,
-      });
-      mergeStorageMetrics(baselineOutcome.storageMetrics);
-
-      if (baselineOutcome.ok) {
-        fallbackSucceeded = true;
-        assertNotCanceled();
-        await reconcileWorkspaceSnapshotVulnerabilities(
-          taskId,
-          body,
-          assertNotCanceled,
-          baselineOutcome.observedStableFingerprints
-        );
-        await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta);
-        return;
-      }
-
-      const agenticFailure = agenticOutcome.errorMessage ?? '未知錯誤';
-      const baselineFailure = baselineOutcome.errorMessage ?? '未知錯誤';
-      fallbackMeta = {
-        ...fallbackMeta,
-        fallbackReason: `Agentic 失敗：${agenticFailure}；Baseline 失敗：${baselineFailure}`,
-      };
-      await markTaskFailed(
-        taskId,
-        totalFiles,
-        'baseline',
-        'BETA_ENGINE_FAILED',
-        `Agentic 失敗：${agenticFailure}；Baseline 回退失敗：${baselineFailure}`,
-        fallbackMeta
-      );
-      return;
-    }
-
-    const baselineOutcome = await executeEngineAttempt({
-      taskId,
-      body,
-      engineMode: 'baseline',
-      totalFiles,
-      llmConfig,
-      fallbackMeta,
-      assertNotCanceled,
-    });
-    mergeStorageMetrics(baselineOutcome.storageMetrics);
-
-    if (baselineOutcome.ok) {
-      assertNotCanceled();
-      await reconcileWorkspaceSnapshotVulnerabilities(
-        taskId,
-        body,
-        assertNotCanceled,
-        baselineOutcome.observedStableFingerprints
-      );
-      await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta);
-      return;
-    }
-
-    await markTaskFailed(
-      taskId,
-      totalFiles,
-      'baseline',
-      baselineOutcome.errorCode ?? 'UNKNOWN',
-      baselineOutcome.errorMessage ?? '未知錯誤',
-      fallbackMeta
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '未知錯誤';
-    const errorCode: ScanErrorCode = isScanCanceledError(err)
-      ? 'UNKNOWN'
-      : activeEngineMode === 'agentic_beta'
-        ? 'BETA_ENGINE_FAILED'
-        : 'UNKNOWN';
-
-    await markTaskFailed(
-      taskId,
-      totalFiles,
-      activeEngineMode,
-      errorCode,
-      message,
-      fallbackMeta
-    );
-  } finally {
-    inflightScans.delete(fingerprint);
-    clearInflightReferences(taskId);
-    clearScanCancel(taskId);
-
-    const fallbackUsed = fallbackMeta.fallbackUsed;
-    process.stdout.write(
-      `[Confession][EngineMetrics] ${JSON.stringify({
-        taskId,
-        requestedEngineMode,
-        finalEngineMode: activeEngineMode,
-        fallbackUsed,
-        fallbackFrom: fallbackUsed ? fallbackMeta.fallbackFrom : null,
-        fallbackTo: fallbackUsed ? fallbackMeta.fallbackTo : null,
-        fallbackReason: fallbackUsed ? fallbackMeta.fallbackReason : null,
-        agentic_attempt_count: agenticAttemptCount,
-        agentic_failure_count: agenticFailureCount,
-        baseline_fallback_count: baselineFallbackCount,
-        fallback_success_rate:
-          baselineFallbackCount > 0 ? Number(fallbackSucceeded) : null,
-        fs_write_ops_per_scan: storageMetrics.fs_write_ops_per_scan,
-        db_lock_wait_ms_p95: storageMetrics.db_lock_wait_ms_p95,
-        db_lock_timeout_count: storageMetrics.db_lock_timeout_count,
-        scan_latency_ms: Date.now() - startedAt,
-      })}\n`
-    );
-  }
-}
-
-async function executeEngineAttempt(params: {
-  taskId: string;
-  body: ScanBody;
-  engineMode: ScanEngineMode;
-  totalFiles: number;
-  llmConfig?: LlmClientConfig;
-  fallbackMeta: FallbackMetadata;
-  assertNotCanceled: () => void;
-}): Promise<EngineAttemptOutcome> {
-  const {
-    taskId,
-    body,
-    engineMode,
-    totalFiles,
-    llmConfig,
-    fallbackMeta,
-    assertNotCanceled,
-  } = params;
-
-  let completedFiles = 0;
-  let lastReportedCompleted = -1;
-  let pendingCompletedDelta = 0;
-  let lastProgressFlushAt = 0;
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  let flushPromise: Promise<void> | null = null;
-
-  async function flushRunningProgress(force = false): Promise<void> {
-    assertNotCanceled();
-    const normalized = Math.max(0, Math.min(totalFiles, completedFiles));
-    if (!force && normalized === lastReportedCompleted) return;
-
-    if (flushPromise) {
-      await flushPromise;
-      if (!force && normalized === lastReportedCompleted) return;
-    }
-
-    flushPromise = (async () => {
-      const progress =
-        totalFiles > 0 ? Math.min(0.98, normalized / totalFiles) : 0.98;
-      try {
-        const updated = await prisma.scanTask.update({
-          where: { id: taskId },
-          data: {
-            status: 'running',
-            scannedFiles: normalized,
-            progress,
-            engineMode,
-            errorCode: null,
-            errorMessage: null,
-            ...toFallbackUpdateData(fallbackMeta),
-          },
-        });
-        emitScanProgress(toScanProgressEvent(updated));
-        lastReportedCompleted = normalized;
-        pendingCompletedDelta = 0;
-        lastProgressFlushAt = Date.now();
-      } catch {
-        // 進度更新失敗不應中斷掃描主流程
-      }
-    })();
-
-    await flushPromise;
-    flushPromise = null;
-  }
-
-  function scheduleRunningProgressFlush(): void {
-    if (flushTimer) return;
-    flushTimer = setTimeout(() => {
-      flushTimer = null;
-      void flushRunningProgress(false).catch(() => {
-        // 取消或更新失敗由主流程處理，避免未處理 Promise 拋錯
-      });
-    }, PROGRESS_FLUSH_INTERVAL_MS);
-  }
-
-  async function drainRunningProgressFlush(): Promise<void> {
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-    await flushRunningProgress(true);
-  }
-
-  async function updateRunningProgress(
-    nextCompletedFiles: number
-  ): Promise<void> {
-    assertNotCanceled();
-    const normalized = Math.max(0, Math.min(totalFiles, nextCompletedFiles));
-    const previous = completedFiles;
-    completedFiles = normalized;
-
-    if (normalized > previous) {
-      pendingCompletedDelta += normalized - previous;
-    }
-
-    const shouldFlushImmediately =
-      normalized === totalFiles ||
-      pendingCompletedDelta >= PROGRESS_FLUSH_FILE_STEP ||
-      Date.now() - lastProgressFlushAt >= PROGRESS_FLUSH_INTERVAL_MS;
-
-    if (shouldFlushImmediately) {
-      await flushRunningProgress(false);
-      return;
-    }
-
-    scheduleRunningProgressFlush();
-  }
-
-  async function handleFilteredFiles(meta: {
-    totalFiles: number;
-    changedFiles: number;
-  }): Promise<void> {
-    assertNotCanceled();
-    const skippedFiles = Math.max(0, meta.totalFiles - meta.changedFiles);
-    await updateRunningProgress(skippedFiles);
-  }
-
-  async function handleFileCompleted(): Promise<void> {
-    assertNotCanceled();
-    await updateRunningProgress(completedFiles + 1);
-  }
-
-  assertNotCanceled();
-  const started = await prisma.scanTask.update({
-    where: { id: taskId },
-    data: {
-      status: 'running',
-      progress: 0,
-      scannedFiles: 0,
-      engineMode,
-      errorCode: null,
-      errorMessage: null,
-      ...toFallbackUpdateData(fallbackMeta),
-    },
-  });
-  emitScanProgress(toScanProgressEvent(started));
-
-  try {
-    assertNotCanceled();
-    const result =
-      engineMode === 'agentic_beta'
-        ? await orchestrateAgenticBeta(
-            {
-              files: body.files,
-              depth: body.depth,
-              includeLlmScan: body.includeLlmScan,
-              forceRescan: body.forceRescan ?? false,
-              scanScope: body.scanScope,
-              workspaceSnapshotComplete: body.workspaceSnapshotComplete,
-              workspaceRoots: body.workspaceRoots,
-              engineMode,
-            },
-            {
-              llmConfig,
-              taskId,
-              onFilteredFiles: handleFilteredFiles,
-              onFileCompleted: handleFileCompleted,
-              assertNotCanceled,
-            }
-          )
-        : await orchestrate(
-            {
-              files: body.files,
-              depth: body.depth,
-              includeLlmScan: body.includeLlmScan,
-              forceRescan: body.forceRescan ?? false,
-              scanScope: body.scanScope,
-              workspaceSnapshotComplete: body.workspaceSnapshotComplete,
-              workspaceRoots: body.workspaceRoots,
-              engineMode,
-            },
-            {
-              llmConfig,
-              taskId,
-              onFilteredFiles: handleFilteredFiles,
-              onFileCompleted: handleFileCompleted,
-              assertNotCanceled,
-            }
-          );
-
-    assertNotCanceled();
-    await drainRunningProgressFlush();
-    logLlmUsage(taskId, engineMode, body.depth, result);
-
-    if (isLlmAnalysisFailed(result.llmStats)) {
-      return {
-        ok: false,
-        observedStableFingerprints: new Set(result.stableFingerprints),
-        storageMetrics: result.storageMetrics,
-        errorCode:
-          engineMode === 'agentic_beta'
-            ? 'BETA_ENGINE_FAILED'
-            : 'LLM_ANALYSIS_FAILED',
-        errorMessage: buildLlmFailureMessage(result.llmStats),
-      };
-    }
-
-    return {
-      ok: true,
-      observedStableFingerprints: new Set(result.stableFingerprints),
-      storageMetrics: result.storageMetrics,
-    };
-  } catch (err) {
-    await drainRunningProgressFlush();
-    if (isScanCanceledError(err)) {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : '未知錯誤';
-    return {
-      ok: false,
-      observedStableFingerprints: new Set<string>(),
-      storageMetrics: { ...NO_STORAGE_METRICS },
-      errorCode:
-        engineMode === 'agentic_beta' ? 'BETA_ENGINE_FAILED' : 'UNKNOWN',
-      errorMessage: message,
-    };
-  }
-}
-
-function logLlmUsage(
-  taskId: string,
-  engineMode: ScanEngineMode,
-  depth: ScanBody['depth'],
-  result: EngineExecutionResult
-): void {
-  process.stdout.write(
-    `[Confession][LLMUsage] ${JSON.stringify({
-      taskId,
-      engineMode,
-      depth,
-      requestCount: result.llmStats.requestCount,
-      cacheHits: result.llmStats.cacheHits,
-      promptTokens: result.llmStats.promptTokens,
-      completionTokens: result.llmStats.completionTokens,
-      totalTokens: result.llmStats.totalTokens,
-      skippedByPolicy: result.llmStats.skippedByPolicy,
-      processedFiles: result.llmStats.processedFiles,
-      successfulFiles: result.llmStats.successfulFiles,
-      requestFailures: result.llmStats.requestFailures,
-      parseFailures: result.llmStats.parseFailures,
-      lastErrorMessage: result.llmStats.lastErrorMessage ?? null,
-      failureKinds: result.llmStats.failureKinds,
-      agenticTraceCount:
-        'agenticTrace' in result && Array.isArray(result.agenticTrace)
-          ? result.agenticTrace.length
-          : 0,
-    })}\n`
-  );
-
-  if ('agenticTrace' in result && Array.isArray(result.agenticTrace)) {
-    process.stdout.write(
-      `[Confession][AgenticTrace] ${JSON.stringify({
-        taskId,
-        engineMode,
-        traces: result.agenticTrace,
-      })}\n`
-    );
-  }
-}
-
-async function markTaskCompleted(
-  taskId: string,
-  totalFiles: number,
-  engineMode: ScanEngineMode,
-  fallbackMeta: FallbackMetadata
-): Promise<void> {
-  const completed = await prisma.scanTask.update({
-    where: { id: taskId },
-    data: {
-      status: 'completed',
-      progress: 1,
-      scannedFiles: totalFiles,
-      engineMode,
-      errorCode: null,
-      errorMessage: null,
-      ...toFallbackUpdateData(fallbackMeta),
-    },
-  });
-  emitScanProgress(toScanProgressEvent(completed));
-  triggerAdviceEvaluation({
-    sourceEvent: 'scan_completed',
-    sourceTaskId: taskId,
-  });
-}
-
-async function markTaskFailed(
-  taskId: string,
-  totalFiles: number,
-  engineMode: ScanEngineMode,
-  errorCode: ScanErrorCode,
-  errorMessage: string,
-  fallbackMeta: FallbackMetadata
-): Promise<void> {
-  const failed = await prisma.scanTask.update({
-    where: { id: taskId },
-    data: {
-      status: 'failed',
-      progress: 1,
-      scannedFiles: totalFiles,
-      engineMode,
-      errorCode,
-      errorMessage,
-      ...toFallbackUpdateData(fallbackMeta),
-    },
-  });
-  emitScanProgress(toScanProgressEvent(failed));
-  triggerAdviceEvaluation({ sourceEvent: 'scan_failed', sourceTaskId: taskId });
-}
-
-async function reconcileWorkspaceSnapshotVulnerabilities(
-  taskId: string,
-  body: ScanBody,
-  assertNotCanceled: () => void,
-  observedStableFingerprints: Set<string>
-): Promise<void> {
-  if (body.scanScope !== 'workspace') return;
-  if (body.workspaceSnapshotComplete === false) {
-    process.stdout.write(
-      `[Confession][WorkspaceReconcile] ${JSON.stringify({
-        taskId,
-        skipped: true,
-        reason: 'workspace_snapshot_incomplete',
-      })}\n`
-    );
-    return;
-  }
-
-  const workspaceRoots = normalizeWorkspaceRoots(body.workspaceRoots);
-  if (workspaceRoots.length === 0) {
-    process.stdout.write(
-      `[Confession][WorkspaceReconcile] ${JSON.stringify({
-        taskId,
-        skipped: true,
-        reason: 'missing_workspace_roots',
-      })}\n`
-    );
-    return;
-  }
-
-  const filePathSet = new Set(body.files.map((file) => file.path));
-  if (filePathSet.size === 0) return;
-
-  try {
-    assertNotCanceled();
-    const openVulns = await prisma.vulnerability.findMany({
-      where: {
-        status: 'open',
-        OR: workspaceRoots.map((root) => ({ filePath: { startsWith: root } })),
-      },
-      select: {
-        id: true,
-        filePath: true,
-        humanStatus: true,
-        stableFingerprint: true,
-      },
-    });
-
-    const stale = openVulns.filter((item) => {
-      if (filePathSet.has(item.filePath)) return false;
-      if (
-        typeof item.stableFingerprint === 'string' &&
-        item.stableFingerprint.trim().length > 0 &&
-        observedStableFingerprints.has(item.stableFingerprint)
-      ) {
-        return false;
-      }
-      return true;
-    });
-    if (stale.length === 0) {
+  const { event, metrics, shouldLog } = await readRecentScanWithHotIndex(() =>
+    storage.scanTask.findFirst({
+      orderBy: { updatedAt: 'desc' },
+    }),
+  )
+  if (!event) {
+    if (shouldLog) {
       process.stdout.write(
-        `[Confession][WorkspaceReconcile] ${JSON.stringify({
-          taskId,
-          skipped: true,
-          reason: 'no_stale_vulnerability',
-        })}\n`
-      );
-      return;
+        `[Confession][StatusReadMetrics] ${JSON.stringify({
+          route: 'recent',
+          found: false,
+          ...metrics,
+        })}\n`,
+      )
     }
+    return c.json({ error: '尚無掃描記錄' }, 404)
+  }
 
-    const staleIds = stale.map((item) => item.id);
-    const staleById = new Map(stale.map((item) => [item.id, item]));
-
-    assertNotCanceled();
-    try {
-      await prisma.$transaction(async (tx) => {
-        const currentOpen = await tx.vulnerability.findMany({
-          where: {
-            id: { in: staleIds },
-            status: 'open',
-          },
-          select: {
-            id: true,
-            humanStatus: true,
-          },
-        });
-
-        if (currentOpen.length === 0) return;
-        const currentIds = currentOpen.map((item) => item.id);
-
-        await tx.vulnerability.updateMany({
-          where: {
-            id: { in: currentIds },
-            status: 'open',
-          },
-          data: {
-            status: 'fixed',
-          },
-        });
-
-        await tx.vulnerabilityEvent.createMany({
-          data: currentOpen.map((item) => ({
-            vulnerabilityId: item.id,
-            eventType: 'status_changed',
-            message: WORKSPACE_SNAPSHOT_AUTO_FIXED_MESSAGE,
-            fromStatus: 'open',
-            toStatus: 'fixed',
-            fromHumanStatus: item.humanStatus,
-            toHumanStatus: item.humanStatus,
-          })),
-        });
-      });
-    } catch (err) {
-      if (!isMissingEventsTableError(err)) throw err;
-      await prisma.vulnerability.updateMany({
-        where: {
-          id: { in: staleIds },
-          status: 'open',
-        },
-        data: {
-          status: 'fixed',
-        },
-      });
-    }
-
+  if (shouldLog) {
     process.stdout.write(
-      `[Confession][WorkspaceReconcile] ${JSON.stringify({
-        taskId,
-        skipped: false,
-        autoFixedCount: staleIds.length,
-        staleFileSamples: Array.from(
-          new Set(
-            staleIds
-              .map((id) => staleById.get(id)?.filePath)
-              .filter((value): value is string => typeof value === 'string')
-          )
-        ).slice(0, 5),
-      })}\n`
-    );
-  } catch (err) {
-    // 收斂失敗不應影響主掃描完成，僅記錄以供追查。
-    const message = err instanceof Error ? err.message : String(err);
-    process.stdout.write(
-      `[Confession][WorkspaceReconcile] ${JSON.stringify({
-        taskId,
-        skipped: true,
-        reason: 'reconcile_failed',
-        message,
-      })}\n`
-    );
-  }
-}
-
-function toFallbackUpdateData(fallbackMeta: FallbackMetadata) {
-  return {
-    fallbackUsed: fallbackMeta.fallbackUsed,
-    fallbackFrom: fallbackMeta.fallbackFrom,
-    fallbackTo: fallbackMeta.fallbackTo,
-    fallbackReason: fallbackMeta.fallbackReason,
-  };
-}
-
-function requestScanCancel(taskId: string, reason: string): void {
-  cancelRequestedByTaskId.set(taskId, reason);
-}
-
-function clearScanCancel(taskId: string): void {
-  cancelRequestedByTaskId.delete(taskId);
-}
-
-function assertTaskNotCanceled(taskId: string): void {
-  const reason = cancelRequestedByTaskId.get(taskId);
-  if (!reason) return;
-  throw new ScanCanceledError(reason);
-}
-
-function isScanCanceledError(err: unknown): err is ScanCanceledError {
-  return err instanceof ScanCanceledError;
-}
-
-async function interruptSupersededScanTasks(): Promise<void> {
-  try {
-    const activeTasks = await prisma.scanTask.findMany({
-      where: { status: { in: ['pending', 'running'] } },
-      select: {
-        id: true,
-        progress: true,
-        scannedFiles: true,
-        engineMode: true,
-        fallbackUsed: true,
-        fallbackFrom: true,
-        fallbackTo: true,
-        fallbackReason: true,
-      },
-    });
-    if (activeTasks.length === 0) return;
-
-    for (const task of activeTasks) {
-      requestScanCancel(task.id, SUPERSEDED_BY_NEW_SCAN_MESSAGE);
-
-      const updateResult = await prisma.scanTask.updateMany({
-        where: { id: task.id, status: { in: ['pending', 'running'] } },
-        data: {
-          status: 'failed',
-          progress: task.progress,
-          scannedFiles: task.scannedFiles,
-          engineMode: task.engineMode,
-          errorCode: 'UNKNOWN',
-          errorMessage: SUPERSEDED_BY_NEW_SCAN_MESSAGE,
-          fallbackUsed: task.fallbackUsed,
-          fallbackFrom: task.fallbackFrom,
-          fallbackTo: task.fallbackTo,
-          fallbackReason: task.fallbackReason,
-        },
-      });
-
-      if (updateResult.count === 0) {
-        clearScanCancel(task.id);
-        continue;
-      }
-
-      const failedTask = await prisma.scanTask.findUnique({
-        where: { id: task.id },
-      });
-      if (failedTask) {
-        emitScanProgress(toScanProgressEvent(failedTask));
-      }
-      triggerAdviceEvaluation({
-        sourceEvent: 'scan_failed',
-        sourceTaskId: task.id,
-      });
-
-      clearInflightReferences(task.id);
-    }
-  } catch {
-    // 不中斷新掃描建立流程，僅記錄舊任務中止失敗
-  }
-}
-
-function clearInflightReferences(taskId: string): void {
-  inflightScans.delete(taskId);
-}
-
-function isLlmAnalysisFailed(stats: {
-  processedFiles: number;
-  successfulFiles: number;
-  requestFailures: number;
-  parseFailures: number;
-}): boolean {
-  if (stats.processedFiles === 0) return false;
-  if (stats.successfulFiles > 0) return false;
-  return stats.requestFailures > 0 || stats.parseFailures > 0;
-}
-
-function buildLlmFailureMessage(stats: {
-  requestFailures: number;
-  parseFailures: number;
-  lastErrorMessage?: string;
-  failureKinds: {
-    quotaExceeded: number;
-    unavailable: number;
-    timeout: number;
-    other: number;
-  };
-}): string {
-  if (stats.failureKinds.quotaExceeded > 0) {
-    return 'LLM 分析失敗：配額已用盡（429/RESOURCE_EXHAUSTED），請稍後重試或更換 API Key/方案';
+      `[Confession][StatusReadMetrics] ${JSON.stringify({
+        route: 'recent',
+        taskId: event.id,
+        found: true,
+        ...metrics,
+      })}\n`,
+    )
   }
 
-  const actionableRootCause = resolveActionableLlmFailureRootCause(
-    stats.lastErrorMessage
-  );
-  if (actionableRootCause) {
-    return `LLM 分析失敗：${actionableRootCause}`;
-  }
-
-  const parts: string[] = [];
-  if (stats.failureKinds.unavailable > 0)
-    parts.push(`服務暫時不可用 ${stats.failureKinds.unavailable} 次`);
-  if (stats.failureKinds.timeout > 0)
-    parts.push(`請求逾時 ${stats.failureKinds.timeout} 次`);
-  if (stats.failureKinds.other > 0)
-    parts.push(`其他錯誤 ${stats.failureKinds.other} 次`);
-  if (stats.requestFailures > 0)
-    parts.push(`LLM 呼叫失敗 ${stats.requestFailures} 次`);
-  if (stats.parseFailures > 0)
-    parts.push(`LLM 回應解析失敗 ${stats.parseFailures} 次`);
-  if (parts.length === 0) return 'LLM 分析失敗';
-  return `LLM 分析失敗：${parts.join('，')}`;
-}
-
-function resolveActionableLlmFailureRootCause(
-  value: string | undefined
-): string | null {
-  if (typeof value !== 'string') return null;
-  const message = value.trim();
-  if (message.length === 0) return null;
-
-  if (message.includes('API key 未設定')) {
-    return message;
-  }
-
-  const lower = message.toLowerCase();
-  const isAuthFailed =
-    /\b401\b/.test(lower) ||
-    /\b403\b/.test(lower) ||
-    lower.includes('unauthorized') ||
-    lower.includes('forbidden') ||
-    lower.includes('invalid api key') ||
-    lower.includes('invalid_api_key');
-
-  if (isAuthFailed) {
-    return 'API Key 驗證失敗（401/403），請確認 provider 與 API Key 是否有效';
-  }
-
-  const isModelOrEndpointNotFound =
-    /\b404\b/.test(lower) &&
-    (lower.includes('model') ||
-      lower.includes('endpoint') ||
-      lower.includes('not found'));
-  if (isModelOrEndpointNotFound) {
-    return '模型或端點不存在（404），請檢查 model / endpoint 設定';
-  }
-
-  return null;
-}
-
-function isMissingEventsTableError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const maybeCode = (err as { code?: unknown }).code;
-  const maybeMessage = (err as { message?: unknown }).message;
-  const code = typeof maybeCode === 'string' ? maybeCode : '';
-  const message = typeof maybeMessage === 'string' ? maybeMessage : '';
-  return code === 'P2021' || /vulnerability_events/i.test(message);
-}
-
-function normalizeWorkspaceRoots(roots: string[] | undefined): string[] {
-  if (!Array.isArray(roots)) return [];
-
-  const normalized = roots
-    .map((root) => root.trim())
-    .filter((root) => root.length > 0)
-    .map((root) => root.replace(/[\\/]$/, ''));
-
-  return Array.from(new Set(normalized));
-}
-
-interface ScanTaskRecordLike {
-  id?: unknown;
-  status?: unknown;
-  progress?: unknown;
-  totalFiles?: unknown;
-  scannedFiles?: unknown;
-  engineMode?: unknown;
-  fallbackUsed?: unknown;
-  fallbackFrom?: unknown;
-  fallbackTo?: unknown;
-  fallbackReason?: unknown;
-  errorMessage?: unknown;
-  errorCode?: unknown;
-  createdAt?: unknown;
-  updatedAt?: unknown;
-}
-
-function toScanProgressEvent(task: ScanTaskRecordLike): ScanProgressEvent {
-  const fallbackUsed = Boolean(task.fallbackUsed);
-  const createdAt = toDateOrNow(task.createdAt);
-  const updatedAt = toDateOrNow(task.updatedAt);
-  return {
-    id: typeof task.id === 'string' ? task.id : '',
-    status: normalizeTaskStatus(task.status),
-    progress: typeof task.progress === 'number' ? task.progress : 0,
-    totalFiles: typeof task.totalFiles === 'number' ? task.totalFiles : 0,
-    scannedFiles: typeof task.scannedFiles === 'number' ? task.scannedFiles : 0,
-    engineMode: normalizeEngineMode(task.engineMode),
-    fallbackUsed,
-    fallbackFrom: fallbackUsed
-      ? normalizeFallbackFrom(
-          typeof task.fallbackFrom === 'string' ? task.fallbackFrom : null
-        )
-      : undefined,
-    fallbackTo: fallbackUsed
-      ? normalizeFallbackTo(typeof task.fallbackTo === 'string' ? task.fallbackTo : null)
-      : undefined,
-    fallbackReason: fallbackUsed
-      ? normalizeFallbackReason(
-          typeof task.fallbackReason === 'string' ? task.fallbackReason : null
-        )
-      : undefined,
-    errorMessage: typeof task.errorMessage === 'string' ? task.errorMessage : null,
-    errorCode: normalizeErrorCode(
-      typeof task.errorCode === 'string' ? task.errorCode : null
-    ),
-    createdAt: createdAt.toISOString(),
-    updatedAt: updatedAt.toISOString(),
-  };
-}
-
-function normalizeTaskStatus(value: unknown): ScanProgressEvent['status'] {
-  if (value === 'running' || value === 'completed' || value === 'failed')
-    return value;
-  return 'pending';
-}
-
-function normalizeEngineMode(value: unknown): ScanEngineMode {
-  return value === 'agentic_beta' ? 'agentic_beta' : 'baseline';
-}
-
-function toDateOrNow(value: unknown): Date {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-  return new Date();
-}
-
-function normalizeErrorCode(value: string | null): ScanErrorCode | null {
-  if (value === 'BETA_ENGINE_FAILED') return value;
-  if (value === 'LLM_ANALYSIS_FAILED') return value;
-  if (value === 'UNKNOWN') return value;
-  return null;
-}
-
-function normalizeFallbackFrom(
-  value: string | null
-): 'agentic_beta' | undefined {
-  return value === 'agentic_beta' ? 'agentic_beta' : undefined;
-}
-
-function normalizeFallbackTo(value: string | null): 'baseline' | undefined {
-  return value === 'baseline' ? 'baseline' : undefined;
-}
-
-function normalizeFallbackReason(value: string | null): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-const persistedConfigSchema = z.object({
-  llm: z
-    .object({
-      provider: z.enum(['gemini', 'nvidia']).optional(),
-      apiKey: z.string().nullable().optional(),
-      endpoint: z.string().nullable().optional(),
-      model: z.string().nullable().optional(),
-    })
-    .optional(),
-});
-
-function resolveEngineMode(
-  requested: ScanEngineMode | undefined
-): ScanEngineMode {
-  return requested ?? 'agentic_beta';
-}
-
-function normalizeOptional(
-  value: string | null | undefined
-): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function normalizeNvidiaModel(model: string | undefined): string | undefined {
-  if (model !== 'deepseek-ai/deepseek-r1') return model;
-  return 'qwen/qwen2.5-coder-32b-instruct';
-}
-
-async function loadRuntimeConfigFromDb(): Promise<{
-  llmConfig?: LlmClientConfig;
-}> {
-  const row = await prisma.config.findUnique({ where: { id: 'default' } });
-  if (!row) {
-    return { llmConfig: undefined };
-  }
-
-  try {
-    const parsed = persistedConfigSchema.safeParse(JSON.parse(row.data));
-    if (!parsed.success || !parsed.data.llm) {
-      return { llmConfig: undefined };
-    }
-
-    const provider = parsed.data.llm.provider ?? 'nvidia';
-    const model = normalizeOptional(parsed.data.llm.model);
-
-    return {
-      llmConfig: configFromPlugin({
-        provider,
-        apiKey: normalizeOptional(parsed.data.llm.apiKey) ?? '',
-        endpoint: normalizeOptional(parsed.data.llm.endpoint),
-        model: provider === 'nvidia' ? normalizeNvidiaModel(model) : model,
-      }),
-    };
-  } catch {
-    return { llmConfig: undefined };
-  }
-}
+  return c.json(event)
+})

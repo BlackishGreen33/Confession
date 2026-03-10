@@ -1,4 +1,4 @@
-import { prisma } from '@server/db'
+import { storage } from '@server/storage'
 
 import type { ContextBundle, SkillExecutionRecord } from '../types'
 
@@ -6,7 +6,7 @@ export async function runHistoryLookupSkill(bundle: ContextBundle): Promise<Skil
   const startedAt = Date.now()
 
   try {
-    const rows = await prisma.vulnerability.findMany({
+    const rows = await storage.vulnerability.findMany({
       where: { filePath: bundle.filePath },
       select: {
         id: true,

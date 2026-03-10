@@ -1,5 +1,5 @@
 import { zValidator } from '@hono/zod-validator'
-import { prisma } from '@server/db'
+import { storage } from '@server/storage'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
@@ -145,7 +145,7 @@ function mergeLlmConfig(
  * GET /api/config — 取得目前配置
  */
 configRoutes.get('/', async (c) => {
-  const row = await prisma.config.findUnique({ where: { id: 'default' } })
+  const row = await storage.config.findUnique({ where: { id: 'default' } })
   if (!row) return c.json(DEFAULT_CONFIG)
   return c.json(normalizeConfig(JSON.parse(row.data)))
 })
@@ -157,7 +157,7 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
   const body = c.req.valid('json')
 
   // 讀取現有配置，合併後寫入
-  const existing = await prisma.config.findUnique({ where: { id: 'default' } })
+  const existing = await storage.config.findUnique({ where: { id: 'default' } })
   const prev = existing ? normalizeConfig(JSON.parse(existing.data)) : DEFAULT_CONFIG
 
   const merged = {
@@ -167,7 +167,7 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
     api: { ...prev.api, ...body.api },
   }
 
-  await prisma.config.upsert({
+  await storage.config.upsert({
     where: { id: 'default' },
     create: { id: 'default', data: JSON.stringify(merged) },
     update: { data: JSON.stringify(merged) },

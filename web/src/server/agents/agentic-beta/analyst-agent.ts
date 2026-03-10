@@ -1,8 +1,8 @@
 import { computeLlmPromptFingerprint, llmResponseCache } from '@server/cache'
-import type { VulnerabilityInput } from '@server/db'
 import type { LlmCallResult, LlmClientConfig } from '@server/llm/client'
 import { callLlm, configFromEnv, resolveDefaultModel } from '@server/llm/client'
 import { parseLlmResponse } from '@server/llm/parser'
+import type { VulnerabilityInput } from '@server/storage'
 
 import type { ScanRequest } from '@/libs/types'
 
