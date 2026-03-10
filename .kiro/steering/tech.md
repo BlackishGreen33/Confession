@@ -29,7 +29,8 @@ inclusion: always
 - `ci.yml` 需使用 `paths`/`paths-ignore` 做精準觸發，避免無關變更浪費 CI。
 - `code-scanning.yml` 需限制為安全相關路徑觸發，並上傳 `category=confession-{engineMode}-{depth}` 的 SARIF。
   - workflow permissions 需包含 `actions: read`、`security-events: write`
-  - fork PR 僅保留 SARIF artifact；僅同 repo PR 或 push 才執行 `upload-sarif`
+  - PR 僅保留 SARIF artifact；`upload-sarif` 僅在 push 執行
+  - `upload-sarif` 設為 non-blocking（`continue-on-error`），避免 repo 尚未啟用 Code Scanning 時阻擋整體 CI
 - `benchmark-regression.yml` 以夜間排程 + 手動觸發 + server 路徑相關 PR/Push 觸發執行；前期可 warning-only，達 `BENCHMARK_ENFORCE_AFTER` 後改為阻擋。
   - server 啟動命令固定使用 `pnpm --filter web exec next start -p 3000 -H 127.0.0.1`，避免 `pnpm run` 參數轉發歧義
   - health check timeout 時需輸出 web server log 便於除錯

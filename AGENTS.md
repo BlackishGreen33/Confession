@@ -330,7 +330,8 @@ ignore / config 同步規範：
   - `.github/workflows/benchmark-regression.yml`
 - `code-scanning.yml`：安全相關路徑觸發，產生 SARIF 並上傳 GitHub Code Scanning（category=`confession-{engineMode}-{depth}`）
   - workflow permissions 需包含 `actions: read`、`security-events: write`
-  - fork PR 僅保留 SARIF artifact；僅同 repo PR 或 push 才執行 `upload-sarif`
+  - PR 僅保留 SARIF artifact；`upload-sarif` 僅在 push 執行
+  - `upload-sarif` 採 non-blocking（`continue-on-error`），避免 repo 尚未啟用 Code Scanning 時阻擋 CI
 - `benchmark-regression.yml`：夜間排程 + 手動觸發 + server 路徑相關 PR/Push 觸發，依 `BENCHMARK_ENFORCE_AFTER` 控制 warning-only/阻擋
   - server 啟動命令固定使用 `pnpm --filter web exec next start -p 3000 -H 127.0.0.1`
   - health check timeout 時需輸出 web server log 便於除錯
