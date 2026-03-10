@@ -83,14 +83,54 @@ confession/
 │   ├── src/common/
 │   └── src/server/
 │       ├── routes/
+│       │   ├── scan/
+│       │       ├── cancel-control.ts
+│       │       ├── constants.ts
+│       │       ├── progress-event.ts
+│       │       ├── runner.ts
+│       │       ├── runner-llm.ts
+│       │       ├── runner-reconcile.ts
+│       │       ├── schema.ts
+│       │       └── status-read-metrics.ts
+│       │   └── vulnerabilities/
+│       │       ├── constants.ts
+│       │       ├── listing.ts
+│       │       ├── patch-delta.ts
+│       │       └── trend.ts
 │       ├── agents/
 │       ├── analyzers/
+│       ├── advice-gate/
+│       │   ├── generation.ts
+│       │   ├── guards.ts
+│       │   ├── metrics.ts
+│       │   ├── scoring.ts
+│       │   └── types.ts
+│       ├── export/
+│       │   ├── common.ts
+│       │   ├── printable-html.ts
+│       │   └── renderers.ts
 │       ├── llm/
 │       ├── mcp/
-│       ├── db.ts
+│       ├── storage/
+│       │   ├── bootstrap.ts
+│       │   ├── client.ts
+│       │   ├── client-core.ts
+│       │   ├── query-engine.ts
+│       │   ├── repository.ts
+│       │   ├── snapshot-codec.ts
+│       │   ├── snapshot-io.ts
+│       │   ├── lock.ts
+│       │   ├── types.ts
+│       │   ├── upsert-vulnerabilities-helpers.ts
+│       │   ├── upsert-vulnerabilities.ts
+│       │   └── index.ts
 │       ├── file-analysis-cache-store.ts
+│       ├── runtime-llm-config.ts
+│       ├── vulnerability-presenter.ts
+│       ├── vulnerability-query.ts
 │       ├── sarif-generator.js
 │       ├── advice-gate.ts
+│       ├── health-score-core.ts
 │       ├── health-score.ts
 │       └── monitoring.ts
 ├── go-analyzer/
@@ -134,7 +174,7 @@ confession/
 - 後端：Hono（掛載於 Next.js `/api/[...route]`）
 - 驗證：`zod/v4` + `@hono/zod-validator`
 - 儲存層：專案本地 FileStore（`.confession/*.json`）
-- 舊資料遷移：`better-sqlite3`（僅一次性 SQLite → FileStore）
+- 舊資料遷移：已移除（不再支援 SQLite 回遷）
 - 掃描快取：`fileAnalysisCache` 持久化至 `.confession/analysis-cache.json`（含 analyzer/prompt version）
 - 掃描吞吐：JS/TS AST worker pool（預設 `min(4, cpuCores-1)`，失敗自動 fallback 單執行緒）
 - 測試：Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI）
@@ -146,9 +186,11 @@ confession/
 - 全專案本地開發：`pnpm dev`
 - 品質檢查彙總（lint + build + test）：`pnpm check:ci`
 - CI lint 檢查：`pnpm check:lint`
+- 維護守門（server `max-lines` 例外檢查）：`pnpm maint:check`
 - CI build 檢查：`pnpm check:build`
 - CI test 檢查：`pnpm check:test`
 - 掃描基準（1000/3000 檔，預設 baseline）：`pnpm --filter web benchmark:scan`
+- 建議固定 benchmark 參數（可比性）：`--seed <int>`、`--workspace-root /benchmark`
 - CI SARIF（本地模擬）：`pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json`
 - 效能回歸比對：`node web/scripts/check-benchmark-regression.mjs --baseline <baseline.json> --current <current.json>`
 - 程式碼格式化：`pnpm format`
@@ -192,6 +234,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 掃描流程需保留去重（fingerprint）與背景執行
 - `agentic_beta` 失敗需自動回退 `baseline`
 - `/api/scan/status/:id`、`/api/scan/recent` 需回傳 `engineMode`、`errorCode`、fallback 欄位
+- `/api/scan/status/:id`、`/api/scan/recent` 讀路徑需優先命中記憶體熱索引，未命中再回退 FileStore
 - `/api/scan/stream/:id` 需：
   - 回傳 `text/event-stream`
   - `scan_progress` 事件附帶遞增 `id`
@@ -202,7 +245,8 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `sarif` 匯出需套用 `maxResults`/`maxBytes` guard；發生截斷時以 `X-Confession-Sarif-Warning` 回傳警告
 - 漏洞事件需支援 `scan_relocated`，並帶 `fromFilePath/fromLine/toFilePath/toLine`
 - 工作區快照收斂需 fingerprint-aware：`filePath` 不在快照且 `stableFingerprint` 未出現時才 auto-fix
-- 掃描引擎 metrics 需包含 `fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_timeout_count`
+- 掃描引擎 metrics 需包含 `fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_hold_ms_p95`、`db_lock_timeout_count`
+- 狀態查詢 metrics 需包含 `status_cache_hit_rate`、`status_cache_reload_ms`、`status_read_elapsed_ms`
 
 ## 7. Extension 規範
 
@@ -231,11 +275,20 @@ ignore / config 同步規範：
 ## 8. 程式碼規範
 
 - ESLint flat config + Prettier（根層級）
+- lint script 必須使用 `--max-warnings=0`
+- `unused-imports/*`、`simple-import-sort/*`、`no-console` 一律為 error
+- 啟用 `@typescript-eslint/consistent-type-imports`（error）
+- `max-lines`（資料邏輯目錄）：
+  - `web/src/server/**`：600（不含 `*.test.*`）
+  - `extension/src/**`：600（不含 `*.test.*`）
+  - `confession-cli/bin/**`：600（不含 `*.test.*`）
+- `web/src/server/**` 不允許 `max-lines` 例外；由 `pnpm maint:check` 守門
+- `extension` / `confession-cli` 暫可保留少量例外，但需標記為「待拆分」
 - 列舉以字串儲存 + Zod 驗證
 - 禁止無理由新增 runtime 依賴
 - 禁止濫用 `@ts-ignore` / `eslint-disable`
 - React 元件使用箭頭函式 + `React.FC<Props>`
-- hooks 檔案維持「React Query hooks 與 Jotai atoms 同檔共置」
+- hooks 僅匯出 hooks；atoms 統一由 `@/libs/atoms` 直接引用，禁止在 hooks 內二次導出
 - 漏洞冪等鍵：`[filePath, line, column, codeHash, type]`
 - 穩定關聯鍵：`stableFingerprint`（用於 trend/advice/歷史關聯）
 - 漏洞事件型別：`scan_detected | scan_relocated | review_saved | status_changed`
@@ -276,7 +329,7 @@ ignore / config 同步規範：
   - `.github/workflows/code-scanning.yml`
   - `.github/workflows/benchmark-regression.yml`
 - `code-scanning.yml`：安全相關路徑觸發，產生 SARIF 並上傳 GitHub Code Scanning（category=`confession-{engineMode}-{depth}`）
-- `benchmark-regression.yml`：夜間排程 + 手動觸發，依 `BENCHMARK_ENFORCE_AFTER` 控制 warning-only/阻擋
+- `benchmark-regression.yml`：夜間排程 + 手動觸發 + server 路徑相關 PR/Push 觸發，依 `BENCHMARK_ENFORCE_AFTER` 控制 warning-only/阻擋
 - CI 觸發：`pull_request(main)`、`push(main)` + `paths` 精準過濾
 - CI 需注入 Turborepo Remote Cache 環境變數：
   - `TURBO_TOKEN`
