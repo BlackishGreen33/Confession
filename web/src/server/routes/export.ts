@@ -1,5 +1,6 @@
 import { zValidator } from '@hono/zod-validator'
 import { prisma } from '@server/db'
+import { buildSarifPayloadWithGuards } from '@server/sarif-generator'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
 
@@ -197,130 +198,16 @@ function renderJsonReport(report: ExportReportV2): string {
   return JSON.stringify(report, null, 2)
 }
 
-function renderSarif(report: ExportReportV2): string {
-  const rulesMap = new Map<
-    string,
-    {
-      id: string
-      shortDescription: { text: string }
-      fullDescription: { text: string }
-      help: { text: string }
-      properties: Record<string, unknown>
-    }
-  >()
-
-  for (const item of report.items) {
-    if (rulesMap.has(item.type)) continue
-    rulesMap.set(item.type, {
-      id: item.type,
-      shortDescription: { text: item.cweId ?? item.type },
-      fullDescription: { text: item.description || item.type },
-      help: {
-        text: item.fixExplanation ?? '請依漏洞型別與上下文調整修復策略',
-      },
-      properties: {
-        tags: [item.severity, item.source],
-        precision: 'medium',
-        'security-severity': toSarifSecuritySeverity(item.severity),
-      },
-    })
-  }
-
-  const results = report.items.map((item) => ({
-    ruleId: item.type,
-    level: toSarifLevel(item.severity),
-    message: { text: item.description },
-    locations: [
-      {
-        physicalLocation: {
-          artifactLocation: {
-            uri: item.filePath,
-            uriBaseId: '%SRCROOT%',
-          },
-          region: {
-            startLine: item.line,
-            startColumn: item.column,
-            endLine: item.endLine,
-            endColumn: item.endColumn,
-            snippet: {
-              text: item.codeSnippet,
-            },
-          },
-        },
-      },
-    ],
-    partialFingerprints: {
-      stableFingerprint: item.stableFingerprint,
-      codeHash: item.codeHash,
-    },
-    properties: {
-      severity: item.severity,
-      status: item.status,
-      humanStatus: item.humanStatus,
-      source: item.source,
-      cweId: item.cweId,
-      owaspCategory: item.owaspCategory,
-      confidence: item.aiConfidence,
-    },
-  }))
-
-  return JSON.stringify(
-    {
-      $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
-      version: '2.1.0',
-      runs: [
-        {
-          tool: {
-            driver: {
-              name: 'Confession',
-              informationUri: 'https://github.com/BlackishGreen33/Confession',
-              semanticVersion: '0.1.0',
-              rules: Array.from(rulesMap.values()),
-            },
-          },
-          invocations: [
-            {
-              executionSuccessful: true,
-            },
-          ],
-          properties: {
-            reportSchemaVersion: report.schemaVersion,
-            exportedAt: report.exportedAt,
-            filters: report.filters ?? {},
-          },
-          results,
-        },
-      ],
-    },
-    null,
-    2,
-  )
-}
-
-function toSarifLevel(severity: string): 'error' | 'warning' | 'note' {
-  switch (severity) {
-    case 'critical':
-    case 'high':
-      return 'error'
-    case 'medium':
-      return 'warning'
-    default:
-      return 'note'
-  }
-}
-
-function toSarifSecuritySeverity(severity: string): string {
-  switch (severity) {
-    case 'critical':
-      return '9.5'
-    case 'high':
-      return '8.0'
-    case 'medium':
-      return '6.0'
-    case 'low':
-      return '3.0'
-    default:
-      return '1.0'
+function renderSarif(report: ExportReportV2): { content: string; warnings: string[] } {
+  const built = buildSarifPayloadWithGuards({
+    items: report.items,
+    reportSchemaVersion: report.schemaVersion,
+    exportedAt: report.exportedAt,
+    filters: report.filters ?? {},
+  })
+  return {
+    content: JSON.stringify(built.payload, null, 2),
+    warnings: built.warnings,
   }
 }
 
@@ -1007,10 +894,15 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
   }
 
   if (format === 'sarif') {
-    return c.text(renderSarif(report), 200, {
+    const sarif = renderSarif(report)
+    const headers: Record<string, string> = {
       'Content-Type': 'application/sarif+json; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
-    })
+    }
+    if (sarif.warnings.length > 0) {
+      headers['X-Confession-Sarif-Warning'] = sarif.warnings[0]
+    }
+    return c.text(sarif.content, 200, headers)
   }
 
   return c.text(renderJsonReport(report), 200, {

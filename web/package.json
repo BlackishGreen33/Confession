@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest --run",
-    "benchmark:scan": "node benchmark-scan-workspace.mjs"
+    "benchmark:scan": "node benchmark-scan-workspace.mjs",
+    "sarif:ci": "node scripts/generate-sarif-ci.mjs"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",
