@@ -46,6 +46,7 @@ import {
   sendFocusSidebarViewAndWait,
 } from '@/hooks/use-extension-bridge';
 import { useHealth } from '@/hooks/use-health';
+import { useI18n } from '@/hooks/use-i18n';
 import { useRecentScanSummary } from '@/hooks/use-scan';
 import { useVulnStats, useVulnTrend } from '@/hooks/use-vulnerabilities';
 import { api } from '@/libs/api-client';
@@ -53,13 +54,14 @@ import { vulnerabilityPresetAtom, vulnFiltersAtom } from '@/libs/atoms';
 import {
   buildRiskPriorityLanes,
   buildSecuritySummary,
+  getPresetLabel,
   type MetricHelpContent,
-  PRESET_LABELS,
   presetToFilters,
   type RiskPriorityLane,
   type SecuritySummary,
   type SecuritySummaryAction,
 } from '@/libs/dashboard-insights';
+import type { ResolvedLocale } from '@/libs/i18n';
 import type {
   AdviceLatestResponse,
   ExportFilters,
@@ -636,15 +638,27 @@ function toRecentScanAvailabilityView(params: {
   };
 }
 
-function formatRecentTime(iso: string | undefined): string {
-  if (!iso) return '尚無資料';
-  return new Date(iso).toLocaleString('zh-TW', { hour12: false });
+function formatRecentTime(
+  iso: string | undefined,
+  locale: ResolvedLocale,
+): string {
+  if (!iso) {
+    return locale === 'en' ? 'No Data' : locale === 'zh-CN' ? '暂无数据' : '尚無資料';
+  }
+  return new Date(iso).toLocaleString(locale === 'en' ? 'en-US' : locale, {
+    hour12: false,
+  });
 }
 
-function formatTimeOnly(iso: string | undefined): string {
-  if (!iso) return '未更新';
+function formatTimeOnly(
+  iso: string | undefined,
+  locale: ResolvedLocale,
+): string {
+  if (!iso) {
+    return locale === 'en' ? 'Not Updated' : locale === 'zh-CN' ? '未更新' : '未更新';
+  }
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso.slice(5).replace('-', '/');
-  return new Date(iso).toLocaleTimeString('zh-TW', {
+  return new Date(iso).toLocaleTimeString(locale === 'en' ? 'en-US' : locale, {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
@@ -677,26 +691,40 @@ const TECH_HELP_CONTENT = {
   },
 } satisfies Record<string, TechHelpContent>;
 
-function toEngineModeLabel(mode: ScanEngineMode): {
+function toEngineModeLabel(
+  mode: ScanEngineMode,
+  locale: ResolvedLocale = 'zh-TW',
+): {
   display: string;
   detail: string;
   code: string;
 } {
   if (mode === 'agentic_beta') {
     return {
-      display: getEngineModeLabel(mode),
-      detail: '規劃→技能→分析→審核，多步驟交叉判斷',
+      display: getEngineModeLabel(mode, locale),
+      detail:
+        locale === 'en'
+          ? 'Plan → Skills → Analysis → Review, multi-step cross validation'
+          : locale === 'zh-CN'
+            ? '规划→技能→分析→审查，多步骤交叉判断'
+            : '規劃→技能→分析→審核，多步驟交叉判斷',
       code: 'agentic_beta',
     };
   }
   return {
-    display: getEngineModeLabel(mode),
-    detail: '單階段分析流程，偏向穩定與快速',
+    display: getEngineModeLabel(mode, locale),
+    detail:
+      locale === 'en'
+        ? 'Single-stage analysis flow focused on stability and speed'
+        : locale === 'zh-CN'
+          ? '单阶段分析流程，偏向稳定与快速'
+          : '單階段分析流程，偏向穩定與快速',
     code: 'baseline',
   };
 }
 
 function toFallbackLabel(params: {
+  locale?: ResolvedLocale;
   fallbackUsed: boolean;
   fallbackFrom?: 'agentic_beta';
   fallbackTo?: 'baseline';
@@ -706,27 +734,54 @@ function toFallbackLabel(params: {
   detail: string;
   tone: 'normal' | 'warning';
 } {
+  const locale = params.locale ?? 'zh-TW';
   if (!params.fallbackUsed) {
     return {
-      display: '未觸發',
-      detail: '本次掃描未需要切換備援引擎',
+      display:
+        locale === 'en'
+          ? 'Not Triggered'
+          : locale === 'zh-CN'
+            ? '未触发'
+            : '未觸發',
+      detail:
+        locale === 'en'
+          ? 'No fallback engine switch was needed for this scan'
+          : locale === 'zh-CN'
+            ? '本次扫描不需要切换备援引擎'
+            : '本次掃描未需要切換備援引擎',
       tone: 'normal',
     };
   }
-  const from = toEngineModeLabel(params.fallbackFrom ?? 'agentic_beta');
-  const to = toEngineModeLabel(params.fallbackTo ?? 'baseline');
+  const from = toEngineModeLabel(params.fallbackFrom ?? 'agentic_beta', locale);
+  const to = toEngineModeLabel(params.fallbackTo ?? 'baseline', locale);
   return {
-    display: '已觸發',
+    display:
+      locale === 'en' ? 'Triggered' : locale === 'zh-CN' ? '已触发' : '已觸發',
     detail: `${from.display} → ${to.display}`,
     tone: 'warning',
   };
 }
 
-function toErrorCodeLabel(code: ScanErrorCode | null): string | null {
+function toErrorCodeLabel(
+  code: ScanErrorCode | null,
+  locale: ResolvedLocale = 'zh-TW',
+): string | null {
   if (!code) return null;
-  if (code === 'BETA_ENGINE_FAILED') return '多代理流程失敗（含回退後仍失敗）';
-  if (code === 'LLM_ANALYSIS_FAILED') return '模型分析回應失敗';
-  return '未知錯誤';
+  if (code === 'BETA_ENGINE_FAILED') {
+    return locale === 'en'
+      ? 'Agentic flow failed (including fallback failure)'
+      : locale === 'zh-CN'
+        ? '多代理流程失败（含回退后仍失败）'
+        : '多代理流程失敗（含回退後仍失敗）';
+  }
+  if (code === 'LLM_ANALYSIS_FAILED') {
+    return locale === 'en'
+      ? 'LLM analysis response failed'
+      : locale === 'zh-CN'
+        ? '模型分析响应失败'
+        : '模型分析回應失敗';
+  }
+  return locale === 'en' ? 'Unknown Error' : locale === 'zh-CN' ? '未知错误' : '未知錯誤';
 }
 
 function toGradeView(grade: HealthGrade): {
@@ -915,6 +970,7 @@ const CyberCard: React.FC<CyberCardProps> = ({
 };
 
 const RecentScanCard: React.FC = () => {
+  const { locale } = useI18n();
   const { data, isLoading, isError } = useRecentScanSummary();
   const [showTechDetail, setShowTechDetail] = useState(false);
   const availability = toRecentScanAvailabilityView({
@@ -923,16 +979,17 @@ const RecentScanCard: React.FC = () => {
     isError,
   });
   const inVscodeWebview = isInVscodeWebview();
-  const engineMode = data ? toEngineModeLabel(data.engineMode) : null;
+  const engineMode = data ? toEngineModeLabel(data.engineMode, locale) : null;
   const fallbackInfo = data
     ? toFallbackLabel({
+        locale,
         fallbackUsed: data.fallbackUsed,
         fallbackFrom: data.fallbackFrom,
         fallbackTo: data.fallbackTo,
         fallbackReason: data.fallbackReason ?? undefined,
       })
     : null;
-  const errorCodeLabel = data ? toErrorCodeLabel(data.errorCode) : null;
+  const errorCodeLabel = data ? toErrorCodeLabel(data.errorCode, locale) : null;
 
   const handleOpenVulnerabilityList = useCallback(() => {
     const toastId = toast.loading('正在切換到漏洞列表…');
@@ -944,17 +1001,20 @@ const RecentScanCard: React.FC = () => {
         }
         toast.error('切換漏洞列表失敗，請手動展開漏洞列表面板', {
           id: toastId,
-          description: toMoreInfo(result.message || 'Extension 未回覆成功結果'),
+          description: toMoreInfo(
+            result.message || 'Extension 未回覆成功結果',
+            locale,
+          ),
         });
       })
       .catch((error) => {
         const detail = getErrorDetail(error) ?? '導航回執逾時';
         toast.error('切換漏洞列表失敗，請手動展開漏洞列表面板', {
           id: toastId,
-          description: toMoreInfo(detail),
+          description: toMoreInfo(detail, locale),
         });
       });
-  }, []);
+  }, [locale]);
 
   return (
     <CyberCard
@@ -986,7 +1046,7 @@ const RecentScanCard: React.FC = () => {
             <div className="border-cyber-border/60 bg-cyber-bg/40 flex items-center justify-between rounded border px-3 py-2">
               <span className="text-cyber-textmuted">最近更新</span>
               <span className="text-cyber-text font-mono">
-                {formatRecentTime(data.updatedAt)}
+                {formatRecentTime(data.updatedAt, locale)}
               </span>
             </div>
             <div className="border-cyber-border/60 bg-cyber-bg/40 flex items-center justify-between rounded border px-3 py-2">
@@ -1317,6 +1377,7 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
   advice,
   onAction,
 }) => {
+  const { locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const reduceMotion = useReducedMotion();
   const action = summary.action;
@@ -1330,8 +1391,8 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
       ? `${advice.triggerScore.toFixed(1)} / 100`
       : '尚無';
   const adviceCompactTime = hasAdvice
-    ? formatTimeOnly(advice?.evaluatedAt ?? undefined)
-    : formatTimeOnly(summary.dataTime ?? undefined);
+    ? formatTimeOnly(advice?.evaluatedAt ?? undefined, locale)
+    : formatTimeOnly(summary.dataTime ?? undefined, locale);
   const adviceCompactSource = hasAdvice
     ? `AI 建議（${adviceSourceEventLabel}）`
     : summary.dataSourceLabel;
@@ -1650,7 +1711,7 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
           ))}
           <p>
             • 資料來源：{summary.dataSourceLabel}
-            {summary.dataTime ? `（${formatRecentTime(summary.dataTime)}）` : ''}
+            {summary.dataTime ? `（${formatRecentTime(summary.dataTime, locale)}）` : ''}
           </p>
         </m.div>
       )}
@@ -2046,6 +2107,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
 export const Dashboard: React.FC = () => {
   const reduceMotion = useReducedMotion();
+  const { locale } = useI18n();
   const { data: stats, isLoading, isError, refetch } = useVulnStats();
   const { data: trendData } = useVulnTrend();
   const { health } = useHealth(30);
@@ -2083,7 +2145,7 @@ export const Dashboard: React.FC = () => {
 
   const handleNavigateToPreset = useCallback(
     async (preset: VulnerabilityFilterPreset, sourceLabel: string) => {
-      const targetLabel = PRESET_LABELS[preset];
+      const targetLabel = getPresetLabel(preset, locale);
 
       if (isInVscodeWebview()) {
         const toastId = toast.loading(`正在切換到漏洞列表（${targetLabel}）…`);
@@ -2101,15 +2163,13 @@ export const Dashboard: React.FC = () => {
           }
           toast.error(`${sourceLabel} 導流失敗，請手動展開漏洞列表`, {
             id: toastId,
-            description: toMoreInfo(
-              result.message || 'Extension 未回覆成功結果'
-            ),
+            description: toMoreInfo(result.message || 'Extension 未回覆成功結果', locale),
           });
         } catch (error) {
           const detail = getErrorDetail(error) ?? '等待導航回執逾時';
           toast.error(`${sourceLabel} 導流失敗，請手動展開漏洞列表`, {
             id: toastId,
-            description: toMoreInfo(detail),
+            description: toMoreInfo(detail, locale),
           });
         }
         return;
@@ -2124,7 +2184,7 @@ export const Dashboard: React.FC = () => {
       router.push('/vulnerabilities');
       toast.success(`已套用建議篩選：${targetLabel}`);
     },
-    [router, setVulnFilters, setVulnPreset]
+    [locale, router, setVulnFilters, setVulnPreset]
   );
 
   const handleExportReport = useCallback(async () => {
@@ -2145,6 +2205,7 @@ export const Dashboard: React.FC = () => {
             data: {
               filters: exportFilters,
               filename: buildFallbackFilename('pdf'),
+              locale,
             },
           });
           if (loadingToastId !== undefined) {
@@ -2160,7 +2221,7 @@ export const Dashboard: React.FC = () => {
 
         const response = await api.post(
           '/api/export',
-          { format: 'pdf', filters: exportFilters },
+          { format: 'pdf', filters: exportFilters, locale },
           { responseType: 'text', timeout: 120_000 }
         );
         const html = String(response.data ?? '');
@@ -2177,7 +2238,7 @@ export const Dashboard: React.FC = () => {
 
       const response = await api.post(
         '/api/export',
-        { format: exportFormat, filters: exportFilters },
+        { format: exportFormat, filters: exportFilters, locale },
         { responseType: 'blob', timeout: 120_000 }
       );
       const disposition = response.headers['content-disposition'] as
@@ -2194,9 +2255,9 @@ export const Dashboard: React.FC = () => {
           ? 'PDF 匯出失敗，請稍後再試'
           : '匯出失敗，請稍後再試';
       const description =
-        toMoreInfo(detail) ??
+        toMoreInfo(detail, locale) ??
         (exportFormat === 'pdf'
-          ? toMoreInfo('可改用 Markdown 或 JSON 匯出。')
+          ? toMoreInfo('可改用 Markdown 或 JSON 匯出。', locale)
           : undefined);
       if (loadingToastId !== undefined) {
         toast.error(message, { id: loadingToastId, description });
@@ -2206,7 +2267,7 @@ export const Dashboard: React.FC = () => {
     } finally {
       setIsExporting(false);
     }
-  }, [exportFilters, exportFormat]);
+  }, [exportFilters, exportFormat, locale]);
 
   if (isLoading) {
     return (
@@ -2309,8 +2370,8 @@ export const Dashboard: React.FC = () => {
     trend: trendData,
   };
 
-  const summaryCard = buildSecuritySummary(dashboardInsightInput);
-  const priorityLanes = buildRiskPriorityLanes(dashboardInsightInput);
+  const summaryCard = buildSecuritySummary(dashboardInsightInput, locale);
+  const priorityLanes = buildRiskPriorityLanes(dashboardInsightInput, locale);
 
   const statCards: CyberStatCardProps[] = [
     {
@@ -2399,7 +2460,7 @@ export const Dashboard: React.FC = () => {
       actionHint: (
         <span className="inline-flex items-center gap-1">
           <Clock3 className="h-3.5 w-3.5" />
-          更新 {formatTimeOnly(health?.evaluatedAt)}
+          更新 {formatTimeOnly(health?.evaluatedAt, locale)}
         </span>
       ),
       orbToneClass: 'border-cyber-primary/25 bg-cyber-primary/12',
