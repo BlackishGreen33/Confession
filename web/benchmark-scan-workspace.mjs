@@ -12,6 +12,8 @@ const DEFAULT_OPTIONS = {
   statusClients: 4,
   depth: 'quick',
   engineMode: 'baseline',
+  seed: 20260310,
+  workspaceRoot: '/benchmark',
   outputPath: null,
 }
 
@@ -27,6 +29,14 @@ function parseNonNegativeInteger(name, raw) {
   const value = Number.parseInt(String(raw), 10)
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`參數 --${name} 需為非負整數（目前為 ${raw}）`)
+  }
+  return value
+}
+
+function parseInteger(name, raw) {
+  const value = Number.parseInt(String(raw), 10)
+  if (!Number.isFinite(value)) {
+    throw new Error(`參數 --${name} 需為整數（目前為 ${raw}）`)
   }
   return value
 }
@@ -102,6 +112,14 @@ function parseArgs(argv) {
       options.outputPath = next
       continue
     }
+    if (key === 'seed') {
+      options.seed = parseInteger('seed', next)
+      continue
+    }
+    if (key === 'workspace-root') {
+      options.workspaceRoot = next
+      continue
+    }
 
     throw new Error(`未知參數：--${key}`)
   }
@@ -139,15 +157,44 @@ async function fetchJson(baseUrl, endpoint, init) {
   return response.json()
 }
 
-function buildSyntheticFiles(fileCount, suiteId, runId) {
+function createSeededRandom(seed) {
+  let state = (seed >>> 0) || 1
+  return () => {
+    state ^= state << 13
+    state ^= state >>> 17
+    state ^= state << 5
+    return (state >>> 0) / 4294967296
+  }
+}
+
+function hashRunLabel(runId) {
+  let hash = 2166136261
+  for (const char of String(runId)) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function buildSyntheticFiles(fileCount, suiteId, runId, seed, workspaceRoot) {
   const files = []
+  const rng = createSeededRandom(seed ^ suiteId ^ hashRunLabel(runId))
 
   for (let index = 0; index < fileCount; index += 1) {
     const suffix = String(index).padStart(5, '0')
     const variable = `value_${suiteId}_${runId}_${index}`
+    const noiseA = Math.floor(rng() * 1000000)
+    const noiseB = Math.floor(rng() * 1000000)
     files.push({
-      path: `/benchmark/src/file-${suffix}.ts`,
-      content: `export const ${variable} = ${index};\nexport function f_${index}(x: number) { return x + ${variable}; }\n`,
+      path: `${workspaceRoot}/src/file-${suffix}.ts`,
+      content: [
+        `export const ${variable} = ${index} + ${noiseA};`,
+        `export function f_${index}(x: number) {`,
+        `  const local_${index} = x + ${variable} + ${noiseB};`,
+        `  return local_${index} % 9973;`,
+        `}`,
+        '',
+      ].join('\n'),
       language: 'typescript',
     })
   }
@@ -156,7 +203,13 @@ function buildSyntheticFiles(fileCount, suiteId, runId) {
 }
 
 async function runSingleScan(options, fileCount, runLabel) {
-  const files = buildSyntheticFiles(fileCount, fileCount, runLabel)
+  const files = buildSyntheticFiles(
+    fileCount,
+    fileCount,
+    runLabel,
+    options.seed,
+    options.workspaceRoot,
+  )
   const created = await fetchJson(options.apiBaseUrl, '/api/scan', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -168,7 +221,7 @@ async function runSingleScan(options, fileCount, runLabel) {
       forceRescan: true,
       scanScope: 'workspace',
       workspaceSnapshotComplete: true,
-      workspaceRoots: ['/benchmark'],
+      workspaceRoots: [options.workspaceRoot],
     }),
   })
 
@@ -262,12 +315,15 @@ async function runBenchmark(options) {
     options: {
       ...options,
       outputPath,
+      deterministicSeed: options.seed,
+      workspaceRoot: options.workspaceRoot,
+      fixtureVersion: 'synthetic-v2',
     },
     suites: [],
   }
 
   process.stdout.write(
-    `開始掃描基準：sizes=${options.sizes.join(',')} runs=${options.runs} warmup=${options.warmupRuns} engine=${options.engineMode}\n`,
+    `開始掃描基準：sizes=${options.sizes.join(',')} runs=${options.runs} warmup=${options.warmupRuns} engine=${options.engineMode} seed=${options.seed}\n`,
   )
 
   for (const fileCount of options.sizes) {
