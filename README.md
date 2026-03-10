@@ -1,102 +1,112 @@
-# 薄暮靜析的告解詩 — Confession
+# Confession
 
 > Before the Light Fades, the Code Speaks.
 
-基於 LLM 的 VS Code 靜態程式碼漏洞分析插件。透過 AST 解析與 Gemini / NVIDIA Integrate 語義分析，偵測 Go、JavaScript、TypeScript 中的安全漏洞，並提供修復建議。
+Language: **English (Default)** | [繁體中文](./README.zh-TW.md) | [简体中文](./README.zh-CN.md)
 
-## 設計哲學
+Confession is an LLM-assisted VS Code static security analysis extension.
+It combines AST analysis with Gemini / NVIDIA Integrate semantic analysis to detect vulnerabilities in Go, JavaScript, and TypeScript, then provides remediation guidance.
 
-- **靜態而非執行** — 不執行使用者程式碼，僅分析結構與語法
-- **觀測而非干預** — 觀察程式碼的結構、流程與意圖
-- **揭露而非審判** — 揭示潛在問題，不做決定
+## Design Philosophy
 
-## 專案結構
+- **Static, not runtime execution**: never executes user code.
+- **Observation, not intervention**: inspects structure, flow, and intent.
+- **Disclosure, not judgment**: reveals risk signals, does not force decisions.
 
-```
+## i18n (Webview)
+
+- Supported UI locales: `zh-TW`, `zh-CN`, `en`
+- Product default locale: `zh-TW`
+- Config key: `confession.ui.language = auto | zh-TW | zh-CN | en`
+- `auto` continuously follows host locale (VS Code / browser), not one-time detection.
+- Localized export content: `CSV` / `Markdown` / `PDF` follow locale.
+- Machine-readable export remains stable: `JSON` / `SARIF` keys are not localized.
+
+## Project Structure
+
+```text
 confession/
-├── .github/workflows/ # GitHub Actions CI
-├── .husky/            # Git hooks（commit-msg）
-├── confession-cli/    # npm 全域 CLI（init / scan / list / status）
-├── extension/       # VS Code 擴充套件（esbuild → CJS）
-├── web/             # Next.js App Router + Hono 後端
-├── go-analyzer/     # Go AST → WASM 分析器
-├── commitlint.config.mjs # commit 訊息規則
-├── turbo.json       # Turborepo 設定
+├── .github/workflows/      # GitHub Actions CI
+├── .husky/                 # Git hooks (commit-msg)
+├── confession-cli/         # Global CLI (init / scan / list / status / verify)
+├── extension/              # VS Code extension (esbuild -> CJS)
+├── web/                    # Next.js App Router + Hono backend
+├── go-analyzer/            # Go AST -> WASM analyzer
+├── commitlint.config.mjs   # Commit message rules
+├── turbo.json              # Turborepo config
 └── pnpm-workspace.yaml
 ```
 
-## 技術棧
+## Tech Stack
 
-| 層級 | 選擇 |
+| Layer | Choice |
 |------|------|
-| 套件管理 | pnpm 9.x + Turborepo |
-| 語言 | TypeScript strict mode |
-| 前端 | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes |
-| 狀態管理 | Jotai + Bunshi |
-| 資料取得 | React Query + Axios |
-| 圖表 | Recharts |
-| 後端 | Hono（Next.js catch-all `/api/[...route]`） |
-| 驗證 | zod/v4 + @hono/zod-validator |
-| 儲存層 | 專案本地 FileStore（`.confession/*.json`） |
-| 擴充套件打包 | esbuild（CJS, external: vscode） |
-| LLM | Google Gemini API + NVIDIA Integrate（OpenAI 相容） |
-| 測試 | Vitest + fast-check（web/extension）+ Node.js `node:test`（CLI） |
+| Package manager | pnpm 9.x + Turborepo |
+| Language | TypeScript strict mode |
+| Frontend | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes |
+| State | Jotai + Bunshi |
+| Data fetching | React Query + Axios |
+| Charts | Recharts |
+| Backend | Hono (`/api/[...route]` via Next.js catch-all) |
+| Validation | zod/v4 + @hono/zod-validator |
+| Storage | Local FileStore (`.confession/*.json`) |
+| Extension bundling | esbuild (CJS, external: vscode) |
+| LLM | Google Gemini API + NVIDIA Integrate |
+| Testing | Vitest + fast-check (web/extension) + Node.js `node:test` (CLI) |
 
-## 前置需求
+## Prerequisites
 
-- Node.js ≥ 18
+- Node.js >= 18
 - pnpm 9.x
-- Go 1.21+（僅編譯 WASM 時需要）
+- Go 1.21+ (only needed when building WASM analyzer)
 
-## 快速開始
+## Quick Start
 
 ```bash
-# 安裝依賴
+# Install dependencies
 pnpm install
 
-# 安裝全域 CLI（可選）
+# Optional: install CLI globally
 npm i -g confession-cli
 
-# 初始化專案儲存（可選）
+# Optional: initialize local storage
 confession init
 
-# 啟動開發伺服器
+# Start local development
 pnpm dev
 ```
 
-## 環境變數
+## Environment Variables
 
-在 `web/.env.local` 中設定（至少提供其中一個 LLM 金鑰）：
+Set in `web/.env.local` (at least one LLM provider key is required):
 
 ```env
 GEMINI_API_KEY="your-gemini-api-key"
 NVIDIA_API_KEY="your-nvidia-api-key"
 ```
 
-## 常用指令
+## Common Commands
 
 ```bash
-# 安裝依賴
+# Install dependencies
 pnpm install
 
-# 開發模式
+# Development
 pnpm dev
 
-# 建置
+# Build
 pnpm build
 
 # Lint
 pnpm lint
 
-# 測試
+# Test
 pnpm test
 
-# CI 子檢查
+# CI checks
 pnpm check:lint
 pnpm check:build
 pnpm check:test
-
-# CI 檢查（lint + build + test）
 pnpm check:ci
 
 # CLI
@@ -105,175 +115,177 @@ confession scan
 confession list --status open
 confession status
 
-# CLI（未全域安裝時）
+# CLI (without global install)
 node confession-cli/bin/confession.js init
 node confession-cli/bin/confession.js scan
 node confession-cli/bin/confession.js list --status open
 node confession-cli/bin/confession.js status
 
-# CLI 測試
+# CLI tests
 pnpm --filter confession-cli test
 
-# Commit 訊息檢查（最近一筆）
+# Commit message checks
 pnpm commitlint --from HEAD~1 --to HEAD
-
-# Commit 訊息檢查（指定範圍）
 pnpm commitlint:range --from <from> --to <to>
 
-# 格式化
+# Formatting
 pnpm format
-
-# 格式檢查
 pnpm format:check
 ```
 
-## CI 與 Commit 規範
+## CI and Commit Rules
 
-- CI 使用 GitHub Actions，workflow 位於 `.github/workflows/ci.yml`
-- 觸發條件：`pull_request(main)` 與 `push(main)`
-- `lint` / `build` / `test` job 並行執行各自檢查
-- `quality` job 為聚合 gate（`needs: lint/build/test`），保留 required check 名稱
-- `commit-check` job 針對 commit range 執行 `pnpm commitlint:range`
-- 本機提交會由 `.husky/commit-msg` 觸發檢查
+- CI uses GitHub Actions (`.github/workflows/ci.yml`).
+- Trigger: `pull_request(main)` and `push(main)`.
+- `lint` / `build` / `test` run in parallel.
+- `quality` is the aggregate required gate.
+- `commit-check` validates commit range by `pnpm commitlint:range`.
+- Local commits are checked by `.husky/commit-msg`.
 
-## CLI 行為重點
-
-- 參數驗證為強制：未知旗標或非法列舉值（`depth/status/severity`）會直接失敗並回傳非 0 exit code
-- `scan` 在輪詢逾時或收到 `SIGINT`（Ctrl+C）時，會先嘗試呼叫 `/api/scan/cancel/:id` 再結束，避免殘留 `running` 任務
-
-### Commit 格式
-
-提交訊息必須符合：
+### Commit Format
 
 ```text
 <emoji> <type>(<scope>): <description>
 ```
 
-`type` 僅允許：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`，且 `scope` 必填。
+Allowed `type`: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+`scope` is required.
 
-## Go WASM 分析器
+## CLI Behavior Notes
+
+- Argument validation is strict: unknown flags or invalid enum values fail with non-zero exit code.
+- On polling timeout or `SIGINT` (`Ctrl+C`), `scan` attempts `POST /api/scan/cancel/:id` before exiting, to avoid stale `running` tasks.
+
+## Go WASM Analyzer
 
 ```bash
 cd go-analyzer
-make all    # 編譯 WASM + 複製 wasm_exec.js 到 web/public/
-make clean  # 清理產物
+make all    # build WASM + copy wasm_exec.js to web/public/
+make clean  # clean artifacts
 ```
 
-## 擴充套件打包
+## Extension Packaging
 
 ```bash
 cd extension
-pnpm build              # 建置
-pnpm package            # 打包 .vsix
+pnpm build
+pnpm package
 ```
 
-## API 路由
+## API Routes
 
-| 路由 | 方法 | 說明 |
+| Route | Method | Description |
 |------|------|------|
-| `/api/health` | GET | 健康檢查 |
-| `/api/config` | GET | 取得目前設定 |
-| `/api/config` | PUT | 更新設定（局部合併） |
-| `/api/scan` | POST | 觸發掃描 |
-| `/api/scan/status/:id` | GET | 掃描進度 |
-| `/api/vulnerabilities` | GET | 漏洞列表（篩選/排序/分頁） |
-| `/api/vulnerabilities/trend` | GET | 漏洞趨勢 |
-| `/api/vulnerabilities/stats` | GET | 統計數據 |
-| `/api/vulnerabilities/:id` | GET | 單筆漏洞詳情 |
-| `/api/vulnerabilities/:id/events` | GET | 單筆漏洞事件流 |
-| `/api/vulnerabilities/:id` | PATCH | 更新狀態/歸因 |
-| `/api/export` | POST | 導出報告（JSON/CSV/Markdown/PDF） |
-| `/api/monitoring/generate` | POST | 產生監測代碼 |
+| `/api/health` | GET | Health check |
+| `/api/advice/latest` | GET | Latest AI next-step advice |
+| `/api/config` | GET | Get current config |
+| `/api/config` | PUT | Partial config update (merge) |
+| `/api/scan` | POST | Trigger scan |
+| `/api/scan/status/:id` | GET | Scan status |
+| `/api/scan/stream/:id` | GET | SSE progress stream |
+| `/api/scan/recent` | GET | Most recent scan summary |
+| `/api/scan/cancel/:id` | POST | Cancel running scan |
+| `/api/vulnerabilities` | GET | Vulnerability list (filter/sort/paginate) |
+| `/api/vulnerabilities/trend` | GET | Vulnerability trend |
+| `/api/vulnerabilities/stats` | GET | Vulnerability stats |
+| `/api/vulnerabilities/:id` | GET | Vulnerability detail |
+| `/api/vulnerabilities/:id/events` | GET | Vulnerability event stream |
+| `/api/vulnerabilities/:id` | PATCH | Update status / attribution |
+| `/api/export` | POST | Export report (`json/csv/markdown/pdf/sarif`) |
+| `/api/monitoring/generate` | POST | Generate monitoring code |
 
-## 偵測能力
+## Detection Coverage
 
-### JS/TS（TypeScript Compiler API）
+### JS/TS (TypeScript Compiler API)
 
 - `eval()` / `new Function()` / `setTimeout(string)`
-- `innerHTML` / `outerHTML` 賦值
-- `req.query` / `req.body` / `req.params` 直接存取
-- `__proto__` / `Object.setPrototypeOf` / `prototype` 修改
-- 敏感關鍵詞索引（password、secret、token 等）
+- `innerHTML` / `outerHTML` assignment
+- direct access from `req.query` / `req.body` / `req.params`
+- `__proto__` / `Object.setPrototypeOf` / `prototype` mutation
+- sensitive keyword indexing (`password`, `secret`, `token`, etc.)
 
-### Go（WASM + go/ast）
+### Go (WASM + go/ast)
 
-- `exec.Command` / `exec.CommandContext`（命令注入）
-- `sql.Query` / `sql.Exec` 字串拼接（SQL 注入）
-- `os.Setenv` / `os.Getenv` 敏感環境變數
-- `md5` / `sha1` 不安全雜湊
-- `http.ListenAndServe`（無 TLS）
-- HTTP 回應未處理錯誤
+- `exec.Command` / `exec.CommandContext` (command injection)
+- string-concatenated `sql.Query` / `sql.Exec` (SQL injection)
+- sensitive environment variable operations (`os.Setenv`, `os.Getenv`)
+- weak hash usage (`md5`, `sha1`)
+- `http.ListenAndServe` without TLS
+- unhandled HTTP response errors
 
-### LLM 語義分析（Gemini / NVIDIA）
+### LLM Semantic Analysis (Gemini / NVIDIA)
 
-- quick：僅高風險 AST 點位觸發（條件式 LLM）
-- standard：交互點檔案聚合分析（每檔案單次請求）
-- deep：完整檔案宏觀掃描（每檔案單次請求）
-- Prompt 指紋快取，避免重複請求
-- 結構化 JSON 輸出（漏洞類型、CWE 編號、修復建議）
+- `quick`: conditional LLM on high-risk AST points
+- `standard`: one aggregated analysis request per file
+- `deep`: one full-file macro analysis per file
+- prompt fingerprint cache to reduce duplicate requests
+- structured JSON output (vulnerability type, CWE, remediation)
 
-### 匯出報告
+## Export Reports
 
-- 支援格式：`JSON`、`CSV`（含 UTF-8 BOM）、`Markdown`、`PDF`
-- PDF 流程為「列印版 HTML」，由前端開啟列印對話框後另存為 PDF
-- 匯出檔名格式：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
+- Formats: `JSON`, `CSV` (with UTF-8 BOM), `Markdown`, `PDF`, `SARIF 2.1.0`
+- `POST /api/export` supports `locale?: 'zh-TW' | 'zh-CN' | 'en'`
+- If `locale` is omitted, backend resolves from `config.ui.language`; falls back to `zh-TW` when undecidable
+- PDF flow returns printable HTML; user saves as PDF via browser print dialog
+- Filename pattern: `confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 
-## VS Code 擴充套件功能
+## VS Code Extension Features
 
-- **Diagnostics**：問題面板即時高亮漏洞（critical/high → Error, medium → Warning, low/info → Info）
-- **Hover**：懸浮顯示漏洞詳情與修復建議
-- **Code Actions**：一鍵修復 / 忽略
-- **狀態列**：分析狀態指示（分析中 / 完成 / 發現風險）
-- **自動分析**：檔案儲存時 debounce 觸發增量分析
-- **Webview 儀表盤**：嵌入 Next.js 安全儀表盤
+- **Diagnostics**: real-time panel highlights (critical/high -> Error, medium -> Warning, low/info -> Info)
+- **Hover**: vulnerability details and remediation guidance
+- **Code Actions**: one-click fix / ignore
+- **Status Bar**: scan state indicator
+- **Auto scan**: debounce-triggered incremental scan on save
+- **Webview Dashboard**: embedded Next.js security dashboard
 
-### 擴充套件指令
+### Extension Commands
 
-- `Confession: Scan Current File` — 掃描當前檔案
-- `Confession: Scan Workspace` — 掃描工作區
-- `Confession: Open Security Dashboard` — 開啟安全儀表盤
-- `Confession: 儀表盤` — 聚焦儀表盤視圖
-- `Confession: 漏洞列表` — 聚焦漏洞列表視圖
-- `Confession: 設定` — 開啟設定面板
+- `Confession: Scan Current File`
+- `Confession: Scan Workspace`
+- `Confession: Open Security Dashboard`
+- `Confession: 儀表盤`
+- `Confession: 漏洞列表`
+- `Confession: 設定`
 
-### 擴充套件設定（`confession.*`）
+### Extension Settings (`confession.*`)
 
-| 設定 | 預設值 | 說明 |
-|------|--------|------|
-| `confession.api.baseUrl` | `http://localhost:3000` | API 伺服器位址 |
-| `confession.api.mode` | `local` | 連線模式（local/remote） |
-| `confession.llm.apiKey` | — | Gemini API Key |
-| `confession.analysis.triggerMode` | `onSave` | 觸發方式（onSave/manual） |
-| `confession.analysis.depth` | `standard` | 分析深度（quick/standard/deep） |
-| `confession.analysis.debounceMs` | `500` | 防抖延遲（ms） |
-| `confession.ignore.paths` | `[]` | 忽略的檔案路徑 |
-| `confession.ignore.types` | `[]` | 忽略的漏洞類型 |
+| Setting | Default | Description |
+|------|------|------|
+| `confession.api.baseUrl` | `http://localhost:3000` | API server base URL |
+| `confession.api.mode` | `local` | Connection mode (`local` / `remote`) |
+| `confession.llm.apiKey` | — | Gemini API key |
+| `confession.analysis.triggerMode` | `onSave` | Trigger mode (`onSave` / `manual`) |
+| `confession.analysis.depth` | `standard` | Scan depth (`quick` / `standard` / `deep`) |
+| `confession.analysis.debounceMs` | `500` | Debounce delay (ms) |
+| `confession.ignore.paths` | `[]` | Ignored file paths |
+| `confession.ignore.types` | `[]` | Ignored vulnerability types |
+| `confession.ui.language` | `auto` | Webview locale (`auto` / `zh-TW` / `zh-CN` / `en`) |
 
-## 測試
+## Testing
 
-專案使用 Vitest + fast-check 進行單元測試與屬性基礎測試（PBT）。
+This project uses Vitest + fast-check for unit and property-based testing.
 
 ```bash
-# 執行所有測試
+# Run all tests
 pnpm test
 
-# 執行單一測試檔案
+# Run a single test file
 pnpm --filter web exec vitest run src/server/analyzers/jsts.test.ts
 ```
 
-### 正確性屬性（PBT）
+### Property-Based Checks (PBT)
 
-| 屬性 | 驗證內容 |
-|------|----------|
-| P1 | AST 分析器完整性 — 含已知模式的代碼必須返回對應交互點 |
-| P2 | 關鍵詞索引正確性 — 含敏感關鍵詞的檔案必須出現在索引中 |
-| P3 | 漏洞記錄冪等性 — 同一漏洞插入兩次只存一條 |
-| P4 | Agent 消息序列化往返 — JSON 序列化反序列化不丟失 |
-| P5 | LLM 響應解析健壯性 — 合法 JSON 成功解析，非法返回 null |
-| P6 | Orchestrator 語言路由 — Go 到 Go Agent，JS/TS 到 JS/TS Agent |
-| P7 | Diagnostics 嚴重等級映射 — critical/high → Error, medium → Warning |
-| P8 | Debounce 正確性 — 窗口內多次保存只觸發一次分析 |
+| Property | What it validates |
+|------|------|
+| P1 | AST analyzer completeness for known patterns |
+| P2 | Sensitive keyword index correctness |
+| P3 | Vulnerability idempotency (duplicate insert remains one record) |
+| P4 | Agent message serialization round-trip integrity |
+| P5 | LLM response parser robustness |
+| P6 | Orchestrator language routing correctness |
+| P7 | Diagnostics severity mapping correctness |
+| P8 | Debounce correctness (single trigger in window) |
 
-## 授權
+## License
 
 MIT
