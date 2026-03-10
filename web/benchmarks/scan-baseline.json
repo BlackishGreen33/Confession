@@ -1,30 +1,72 @@
 {
-  "generatedAt": "2026-03-10T00:00:00.000Z",
+  "generatedAt": "2026-03-10T14:14:41.243Z",
   "options": {
-    "engineMode": "baseline",
-    "depth": "quick",
-    "sizes": [1000, 3000],
+    "apiBaseUrl": "http://127.0.0.1:3000",
+    "sizes": [
+      1000,
+      3000
+    ],
     "runs": 2,
     "warmupRuns": 1,
-    "statusClients": 4
+    "pollIntervalMs": 250,
+    "statusClients": 4,
+    "depth": "quick",
+    "engineMode": "baseline",
+    "seed": 20260310,
+    "workspaceRoot": "/benchmark",
+    "outputPath": "/tmp/confession-benchmark-phase3.json",
+    "deterministicSeed": 20260310,
+    "fixtureVersion": "synthetic-v2"
   },
   "suites": [
     {
       "fileCount": 1000,
+      "runs": [
+        {
+          "run": 1,
+          "taskId": "60517df92b294d2493ae7e70fec8b3ee",
+          "durationMs": 7214,
+          "statusRequests": 108,
+          "statusApiRps": 14.970889936235098
+        },
+        {
+          "run": 2,
+          "taskId": "9e5d621905fd4a4684499ed28e8baee6",
+          "durationMs": 7215,
+          "statusRequests": 108,
+          "statusApiRps": 14.96881496881497
+        }
+      ],
       "aggregates": {
-        "scan_workspace_p95_ms": 7104,
-        "scan_workspace_avg_ms": 7043,
-        "status_api_rps_p95": 18.6,
-        "status_api_rps_avg": 18.38
+        "scan_workspace_p95_ms": 7215,
+        "scan_workspace_avg_ms": 7215,
+        "status_api_rps_p95": 14.97,
+        "status_api_rps_avg": 14.97
       }
     },
     {
       "fileCount": 3000,
+      "runs": [
+        {
+          "run": 1,
+          "taskId": "614675f69e3345a8a06e3a3f6ba01efa",
+          "durationMs": 21034,
+          "statusRequests": 321,
+          "statusApiRps": 15.261005990301417
+        },
+        {
+          "run": 2,
+          "taskId": "0d49a7e133b24adcae698a3f9fd5ed9e",
+          "durationMs": 20828,
+          "statusRequests": 320,
+          "statusApiRps": 15.363933166890725
+        }
+      ],
       "aggregates": {
-        "scan_workspace_p95_ms": 20650,
-        "scan_workspace_avg_ms": 20430,
-        "status_api_rps_p95": 19.18,
-        "status_api_rps_avg": 18.96
+        "scan_workspace_p95_ms": 21034,
+        "scan_workspace_avg_ms": 20931,
+        "status_api_rps_p95": 15.36,
+        "status_api_rps_avg": 15.31
       }
     }
   ]
