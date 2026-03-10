@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict')
+const { EventEmitter } = require('node:events')
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
@@ -13,6 +14,7 @@ const STORAGE_FILES = [
   'scan-tasks.json',
   'advice-snapshots.json',
   'advice-decisions.json',
+  'analysis-cache.json',
   'meta.json',
 ]
 
@@ -43,6 +45,30 @@ function createJsonResponse(status, payload) {
   }
 }
 
+function createSpawnChild(options = {}) {
+  const child = new EventEmitter()
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = () => {}
+
+  process.nextTick(() => {
+    if (options.error) {
+      child.emit('error', options.error)
+      return
+    }
+
+    if (options.stdout) {
+      child.stdout.emit('data', options.stdout)
+    }
+    if (options.stderr) {
+      child.stderr.emit('data', options.stderr)
+    }
+    child.emit('close', options.code ?? 0)
+  })
+
+  return child
+}
+
 async function createTempProject(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'confession-cli-test-'))
   await fs.writeFile(path.join(dir, 'sample.ts'), 'const answer = 42\n', 'utf8')
@@ -71,6 +97,7 @@ function createRuntime(cwd, options = {}) {
       stderr,
       fetchImpl: options.fetchImpl,
       sleepImpl: options.sleepImpl,
+      spawnImpl: options.spawnImpl,
       now: options.now,
       registerSigint: options.registerSigint,
       pollIntervalMs: options.pollIntervalMs,
@@ -253,6 +280,57 @@ test('參數驗證：未知旗標與非法列舉值會失敗', async (t) => {
     severity.stderr.toString(),
     /參數 --severity 僅接受：critical\|high\|medium\|low\|info/,
   )
+})
+
+test('verify web 會執行 ZAP 與 Nuclei 並輸出摘要', async (t) => {
+  const projectRoot = await createTempProject(t)
+  const spawned = []
+
+  const runtime = createRuntime(projectRoot, {
+    spawnImpl: (command, args) => {
+      spawned.push({ command, args })
+      return createSpawnChild({ code: 0 })
+    },
+  })
+
+  const code = await runCli(
+    ['verify', 'web', '--url', 'https://example.com'],
+    runtime.runtime,
+  )
+
+  assert.equal(code, 0)
+  assert.equal(spawned.length, 2)
+  assert.match(runtime.stdout.toString(), /DAST 驗證完成/)
+
+  const dastDir = path.join(projectRoot, '.confession', 'dast')
+  const files = await fs.readdir(dastDir)
+  const summaryName = files.find((name) => name.startsWith('summary-'))
+  assert.ok(summaryName)
+
+  const summary = await readJson(path.join(dastDir, summaryName))
+  assert.equal(summary.target, 'web')
+  assert.equal(summary.tools.zap.status, 'ok')
+  assert.equal(summary.tools.nuclei.status, 'ok')
+})
+
+test('verify web 在工具皆不存在時回傳失敗', async (t) => {
+  const projectRoot = await createTempProject(t)
+
+  const runtime = createRuntime(projectRoot, {
+    spawnImpl: () => {
+      const error = new Error('not found')
+      error.code = 'ENOENT'
+      return createSpawnChild({ error })
+    },
+  })
+
+  const code = await runCli(
+    ['verify', 'web', '--url', 'https://example.com'],
+    runtime.runtime,
+  )
+
+  assert.equal(code, 1)
+  assert.match(runtime.stderr.toString(), /找不到可執行的 DAST 工具/)
 })
 
 test('scan 成功完成', async (t) => {
