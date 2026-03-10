@@ -14,7 +14,8 @@ inclusion: always
 
 ## 語言偏好
 
-- 對話、程式碼註釋、文件一律使用繁體中文
+- 對話與程式碼註釋使用繁體中文
+- `README.md` 預設使用英文，並維護 `README.zh-TW.md`、`README.zh-CN.md` 作為對照文件
 - Webview UI 支援 `zh-TW` / `zh-CN` / `en`，預設 `zh-TW`
 - `ui.language = auto` 時需持續跟隨宿主語言（VS Code / 瀏覽器）
 - 精簡直白，只說必要內容

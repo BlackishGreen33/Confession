@@ -107,6 +107,8 @@ confession/
 ├── commitlint.config.mjs
 ├── package.json
 ├── pnpm-workspace.yaml    # workspaces: web, extension, confession-cli
+├── README.zh-CN.md
+├── README.zh-TW.md
 ├── turbo.json
 └── README.md
 ```
