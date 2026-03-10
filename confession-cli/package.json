@@ -33,7 +33,7 @@
     "access": "public"
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "test": "node --test bin/confession.test.js",
     "build": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('bin/confession.js','dist/confession.js')\"",
     "prepublishOnly": "pnpm build"
