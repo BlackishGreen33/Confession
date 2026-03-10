@@ -15,6 +15,8 @@ inclusion: always
 ## 語言偏好
 
 - 對話、程式碼註釋、文件一律使用繁體中文
+- Webview UI 支援 `zh-TW` / `zh-CN` / `en`，預設 `zh-TW`
+- `ui.language = auto` 時需持續跟隨宿主語言（VS Code / 瀏覽器）
 - 精簡直白，只說必要內容
 
 ## AI 觸發策略
