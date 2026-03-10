@@ -3,22 +3,35 @@
 const fs = require('node:fs/promises')
 const fsSync = require('node:fs')
 const path = require('node:path')
+const { spawn } = require('node:child_process')
 
 const CONFESSION_DIR_NAME = '.confession'
 const SCHEMA_VERSION = 'file-store-v1'
 const FILE_LIMIT = 5000
 const DEFAULT_POLL_INTERVAL_MS = 1500
 const DEFAULT_SCAN_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_VERIFY_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_DAST_RATE_LIMIT = 5
+const DEFAULT_DAST_CONCURRENCY = 4
 
 const VALID_DEPTHS = new Set(['quick', 'standard', 'deep'])
 const VALID_STATUSES = new Set(['open', 'fixed', 'ignored'])
 const VALID_SEVERITIES = new Set(['critical', 'high', 'medium', 'low', 'info'])
+const VALID_VERIFY_TARGETS = new Set(['web'])
 
 const COMMAND_FLAG_SPEC = {
   init: new Set(),
   scan: new Set(['api', 'depth']),
   list: new Set(['status', 'severity', 'search']),
   status: new Set(),
+  verify: new Set([
+    'url',
+    'zap-bin',
+    'nuclei-bin',
+    'timeout-ms',
+    'rate-limit',
+    'concurrency',
+  ]),
 }
 
 const STORAGE_FILES = {
@@ -28,6 +41,7 @@ const STORAGE_FILES = {
   scanTasks: 'scan-tasks.json',
   adviceSnapshots: 'advice-snapshots.json',
   adviceDecisions: 'advice-decisions.json',
+  analysisCache: 'analysis-cache.json',
   meta: 'meta.json',
 }
 
@@ -83,6 +97,7 @@ function createRuntime(overrides = {}) {
     cwd: normalizeCwd(overrides.cwd),
     fetchImpl: overrides.fetchImpl ?? globalThis.fetch,
     sleepImpl: overrides.sleepImpl ?? sleep,
+    spawnImpl: overrides.spawnImpl ?? spawn,
     now: overrides.now ?? Date.now,
     pollIntervalMs:
       overrides.pollIntervalMs ??
@@ -219,6 +234,16 @@ async function initProject(projectRoot) {
     { key: 'scanTasks', defaultValue: [] },
     { key: 'adviceSnapshots', defaultValue: [] },
     { key: 'adviceDecisions', defaultValue: [] },
+    {
+      key: 'analysisCache',
+      defaultValue: {
+        schemaVersion: 'analysis-cache-v1',
+        analyzerVersion: 'ast-jsts-go-keywords-v1',
+        promptVersion: 'llm-prompt-v2',
+        updatedAt: now,
+        entries: {},
+      },
+    },
     {
       key: 'meta',
       defaultValue: {
@@ -405,6 +430,91 @@ function validateEnumFlag(name, value, allowedSet) {
   return value
 }
 
+function parsePositiveIntegerFlag(name, value, fallback) {
+  if (value == null) return fallback
+  const parsed = Number.parseInt(String(value), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new CliError(`參數 --${name} 需為正整數（目前為 ${value}）`)
+  }
+  return parsed
+}
+
+function normalizeCommandPath(value, fallback) {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim()
+  }
+  return fallback
+}
+
+function isHttpUrl(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function createDastTimestamp() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+}
+
+async function runExternalCommand(command, args, runtime, options = {}) {
+  const timeoutMs = Math.max(1_000, Math.floor(options.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS))
+  const cwd = options.cwd ?? runtime.cwd()
+
+  return new Promise((resolve) => {
+    let stdout = ''
+    let stderr = ''
+    let timedOut = false
+
+    const child = runtime.spawnImpl(command, args, {
+      cwd,
+      env: runtime.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+      setTimeout(() => child.kill('SIGKILL'), 1500)
+    }, timeoutMs)
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+
+    child.once('error', (error) => {
+      clearTimeout(timeoutId)
+      resolve({
+        ok: false,
+        timedOut,
+        exitCode: null,
+        stdout,
+        stderr,
+        error,
+      })
+    })
+
+    child.once('close', (code) => {
+      clearTimeout(timeoutId)
+      resolve({
+        ok: !timedOut && code === 0,
+        timedOut,
+        exitCode: typeof code === 'number' ? code : null,
+        stdout,
+        stderr,
+        error: null,
+      })
+    })
+  })
+}
+
 function printHelp(stdout = process.stdout) {
   stdout.write('\nConfession CLI\n\n')
   stdout.write('Usage:\n')
@@ -414,6 +524,9 @@ function printHelp(stdout = process.stdout) {
     '  confession list [--status open|fixed|ignored] [--severity critical|high|medium|low|info] [--search <keyword>]\n',
   )
   stdout.write('  confession status\n\n')
+  stdout.write(
+    '  confession verify web --url <http(s)://target> [--zap-bin <path>] [--nuclei-bin <path>] [--timeout-ms <ms>] [--rate-limit <n>] [--concurrency <n>]\n\n',
+  )
 }
 
 async function commandInit(projectRoot, runtime) {
@@ -612,6 +725,161 @@ async function commandStatus(projectRoot, runtime) {
   )
 }
 
+async function commandVerify(projectRoot, target, flags, runtime) {
+  await initProject(projectRoot)
+  const normalizedTarget = validateEnumFlag('target', target, VALID_VERIFY_TARGETS)
+
+  if (normalizedTarget !== 'web') {
+    throw new CliError(`尚未支援 verify target: ${normalizedTarget}`)
+  }
+
+  const targetUrl = typeof flags.url === 'string' ? flags.url.trim() : ''
+  if (!isHttpUrl(targetUrl)) {
+    throw new CliError('verify web 需要提供合法的 --url（http:// 或 https://）')
+  }
+
+  const timeoutMs = parsePositiveIntegerFlag(
+    'timeout-ms',
+    flags['timeout-ms'],
+    DEFAULT_VERIFY_TIMEOUT_MS,
+  )
+  const rateLimit = parsePositiveIntegerFlag(
+    'rate-limit',
+    flags['rate-limit'],
+    DEFAULT_DAST_RATE_LIMIT,
+  )
+  const concurrency = parsePositiveIntegerFlag(
+    'concurrency',
+    flags.concurrency,
+    DEFAULT_DAST_CONCURRENCY,
+  )
+  const zapBin = normalizeCommandPath(
+    flags['zap-bin'],
+    runtime.env.CONFESSION_ZAP_BIN || 'zap-baseline.py',
+  )
+  const nucleiBin = normalizeCommandPath(
+    flags['nuclei-bin'],
+    runtime.env.CONFESSION_NUCLEI_BIN || 'nuclei',
+  )
+
+  const timestamp = createDastTimestamp()
+  const outputDir = path.join(getConfessionDir(projectRoot), 'dast')
+  await fs.mkdir(outputDir, { recursive: true })
+
+  const zapReportPath = path.join(outputDir, `zap-baseline-${timestamp}.json`)
+  const nucleiReportPath = path.join(outputDir, `nuclei-${timestamp}.jsonl`)
+  const summaryPath = path.join(outputDir, `summary-${timestamp}.json`)
+
+  const summary = {
+    target: normalizedTarget,
+    url: targetUrl,
+    startedAt: new Date().toISOString(),
+    timeoutMs,
+    rateLimit,
+    concurrency,
+    tools: {},
+  }
+
+  runtime.stdout.write(`開始 DAST 驗證：target=${targetUrl}\n`)
+  runtime.stdout.write(
+    `預設保守策略：timeout=${timeoutMs}ms rateLimit=${rateLimit} concurrency=${concurrency}\n`,
+  )
+
+  const zapArgs = ['-t', targetUrl, '-J', zapReportPath, '-m', '3', '-I']
+  const zapResult = await runExternalCommand(zapBin, zapArgs, runtime, {
+    timeoutMs,
+    cwd: projectRoot,
+  })
+  summary.tools.zap = normalizeToolResult('zap', zapBin, zapArgs, zapResult, zapReportPath)
+
+  const nucleiArgs = [
+    '-u',
+    targetUrl,
+    '-jsonl',
+    '-o',
+    nucleiReportPath,
+    '-rate-limit',
+    String(rateLimit),
+    '-c',
+    String(concurrency),
+  ]
+  const nucleiResult = await runExternalCommand(nucleiBin, nucleiArgs, runtime, {
+    timeoutMs,
+    cwd: projectRoot,
+  })
+  summary.tools.nuclei = normalizeToolResult(
+    'nuclei',
+    nucleiBin,
+    nucleiArgs,
+    nucleiResult,
+    nucleiReportPath,
+  )
+
+  summary.finishedAt = new Date().toISOString()
+
+  await writeJson(summaryPath, summary)
+
+  const statuses = [summary.tools.zap.status, summary.tools.nuclei.status]
+  const executedCount = statuses.filter((status) => status !== 'missing').length
+  const failedCount = statuses.filter((status) => status === 'failed').length
+
+  if (executedCount === 0) {
+    throw new CliError('找不到可執行的 DAST 工具（zap-baseline.py / nuclei）')
+  }
+
+  runtime.stdout.write(`DAST 驗證完成，摘要：${summaryPath}\n`)
+  runtime.stdout.write(
+    `工具結果：zap=${summary.tools.zap.status} nuclei=${summary.tools.nuclei.status}\n`,
+  )
+
+  if (failedCount > 0) {
+    throw new CliError('部分 DAST 工具執行失敗，請檢查摘要與錯誤輸出')
+  }
+}
+
+function normalizeToolResult(toolName, command, args, result, reportPath) {
+  const common = {
+    command,
+    args,
+    reportPath,
+  }
+
+  if (result.error && result.error.code === 'ENOENT') {
+    return {
+      ...common,
+      status: 'missing',
+      error: `${toolName} 指令不存在`,
+    }
+  }
+
+  if (result.timedOut) {
+    return {
+      ...common,
+      status: 'failed',
+      exitCode: result.exitCode,
+      error: '執行逾時',
+    }
+  }
+
+  if (!result.ok) {
+    return {
+      ...common,
+      status: 'failed',
+      exitCode: result.exitCode,
+      error:
+        result.error instanceof Error
+          ? result.error.message
+          : String(result.stderr || result.stdout || '工具執行失敗'),
+    }
+  }
+
+  return {
+    ...common,
+    status: 'ok',
+    exitCode: result.exitCode,
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -652,23 +920,39 @@ async function runCli(argv, runtimeOverrides = {}) {
       printHelp(runtime.stdout)
       return 0
     }
-
-    const flags = parseFlags(args.slice(1), COMMAND_FLAG_SPEC[command])
     const projectRoot = resolveProjectRoot(runtime)
 
     switch (command) {
-      case 'init':
+      case 'init': {
+        parseFlags(args.slice(1), COMMAND_FLAG_SPEC.init)
         await commandInit(projectRoot, runtime)
         break
-      case 'scan':
+      }
+      case 'scan': {
+        const flags = parseFlags(args.slice(1), COMMAND_FLAG_SPEC.scan)
         await commandScan(projectRoot, flags, runtime)
         break
-      case 'list':
+      }
+      case 'list': {
+        const flags = parseFlags(args.slice(1), COMMAND_FLAG_SPEC.list)
         await commandList(projectRoot, flags, runtime)
         break
+      }
       case 'status':
+        parseFlags(args.slice(1), COMMAND_FLAG_SPEC.status)
         await commandStatus(projectRoot, runtime)
         break
+      case 'verify': {
+        const target = args[1]
+        if (!target || target.startsWith('--')) {
+          throw new CliError('verify 命令需要 target（目前支援：web）', {
+            showHelp: true,
+          })
+        }
+        const flags = parseFlags(args.slice(2), COMMAND_FLAG_SPEC.verify)
+        await commandVerify(projectRoot, target, flags, runtime)
+        break
+      }
       default:
         throw new CliError(`未知命令：${command}`, { showHelp: true })
     }
@@ -694,6 +978,7 @@ module.exports = {
   commandScan,
   commandList,
   commandStatus,
+  commandVerify,
 }
 
 if (require.main === module) {
