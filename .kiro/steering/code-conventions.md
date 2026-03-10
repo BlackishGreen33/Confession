@@ -7,6 +7,15 @@ inclusion: always
 ## 通用
 
 - ESLint flat config + Prettier（根層級）
+- lint script 必須使用 `--max-warnings=0`
+- `unused-imports/*`、`simple-import-sort/*`、`no-console` 一律視為 error
+- 啟用 `@typescript-eslint/consistent-type-imports`（error）
+- `max-lines`（資料邏輯目錄）：
+  - `web/src/server/**`：600（暫不含 `*.test.*`）
+  - `extension/src/**`：600（暫不含 `*.test.*`）
+  - `confession-cli/bin/**`：600（暫不含 `*.test.*`）
+- `web/src/server/**` 不允許 `max-lines` 例外；由 `pnpm maint:check` 守門
+- `extension` / `confession-cli` 暫可保留少量例外，但需在規則中註明「待拆分」
 - 列舉以 `string` 儲存 + Zod 驗證（FileStore JSON 契約）
 - 不要引入新的 runtime 依賴而不說明理由
 - 避免 `@ts-ignore`，用正確的型別解決問題
@@ -43,7 +52,7 @@ export default function MyComponent({ children }: MyComponentProps) {
 
 ## Hooks
 
-每個 hook 檔案同時匯出 React Query hooks 與相關 Jotai atoms（同檔共置）。
+hooks 僅負責匯出 React Query hooks；Jotai atoms 統一由 `@/libs/atoms` 直接引用，禁止在 hooks 做二次導出。
 
 ## 資料模型
 

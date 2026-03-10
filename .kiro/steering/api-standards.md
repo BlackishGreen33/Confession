@@ -45,7 +45,7 @@ fileMatchPattern: '**/src/server/**/*'
   - 若最新評估未觸發 AI，`advice` 可為 `null`，但需保留決策中繼資料供 Dashboard fallback 顯示
 - 請求驗證一律使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式統一：`{ error: string, details?: unknown }`
-- 資料存取透過 FileStore 相容層（`prisma` 介面外觀），定義於 #[[file:web/src/server/db.ts]]
+- 資料存取透過 FileStore 相容層（`storage` 介面外觀），入口定義於 #[[file:web/src/server/storage/index.ts]]
 - 實際持久化為專案根目錄 `.confession/*.json`
 - 專案根目錄解析規則：`CONFESSION_PROJECT_ROOT`（有值時）否則 `process.cwd()`
 - 掃描任務需支援請求去重（fingerprint）與背景執行，不阻塞回應
@@ -64,6 +64,7 @@ fileMatchPattern: '**/src/server/**/*'
   - 若建立新掃描任務時存在 `pending/running` 舊任務，後端需先中止舊任務（標記 `failed`）再啟動新任務
 - `ScanTask` 需記錄 `engineMode`、`errorCode` 與 fallback 欄位（`fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`）
 - `GET /api/scan/status/:id` / `GET /api/scan/recent` 必須回傳 `engineMode`、`errorCode` 與 fallback 欄位
+- `GET /api/scan/status/:id` / `GET /api/scan/recent` 讀路徑需優先命中記憶體熱索引（掃描事件更新），未命中才回退 FileStore 讀取
 - `GET /api/scan/stream/:id` 回應 `text/event-stream`，需即時推送 `{ id, status, progress, totalFiles, scannedFiles, engineMode, fallbackUsed, fallbackFrom?, fallbackTo?, fallbackReason?, errorMessage, errorCode, createdAt, updatedAt }`
   - 每個進度事件需帶 `id`（遞增事件序號），`event` 固定為 `scan_progress`
   - 支援 `Last-Event-ID` 請求標頭，供中斷後續傳（resume-friendly）
@@ -98,7 +99,7 @@ fileMatchPattern: '**/src/server/**/*'
   - `status_changed`：`status` 變更時寫入
   - `scan_relocated` 事件需帶 `fromFilePath/fromLine/toFilePath/toLine`
   - 狀態更新與事件寫入需在同一 transaction，確保一致性
-  - 相容舊 DB：`vulnerability_events` 尚未存在時，`/trend` 回退舊邏輯，`/:id/events` 回空陣列
+  - 相容舊資料：事件資料不存在時，`/trend` 回退舊邏輯，`/:id/events` 回空陣列
 - 漏洞語義去重規範：
   - `upsertVulnerabilities` 寫入前需做語義去重（同一行同一敏感資料主題僅保留一筆）
   - `hardcoded_secret` 與 `keyword_*` 重疊時，優先保留 `hardcoded_secret`
@@ -121,8 +122,18 @@ fileMatchPattern: '**/src/server/**/*'
   - SARIF 需套用 `maxResults`/`maxBytes` guard，截斷時以 `X-Confession-Sarif-Warning` 回傳警告摘要
   - `Content-Disposition` 檔名格式統一：`confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
 - 掃描完成需輸出結構化 LLM 用量 log（`[Confession][LLMUsage]`），至少含 requestCount、token 用量、cacheHits、skippedByPolicy、successfulFiles、requestFailures、parseFailures、failureKinds
-- 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`、`fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_timeout_count`
-- 漏洞寫入需輸出儲存層結構化 log（`[Confession][StorageWriteMetrics]`），至少含 `taskId`、`vuln_count`、`write_ops`、`lock_wait_ms_p95`、`lock_timeout_count`、`relocation_count`
+- 掃描完成需輸出引擎結構化 log（`[Confession][EngineMetrics]`），至少含 `agentic_attempt_count`、`agentic_failure_count`、`baseline_fallback_count`、`fallback_success_rate`、`fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_hold_ms_p95`、`db_lock_timeout_count`
+- 狀態查詢需輸出讀路徑結構化 log（`[Confession][StatusReadMetrics]`），至少含 `status_cache_hit_rate`、`status_cache_reload_ms`、`status_read_elapsed_ms`
+- 漏洞寫入需輸出儲存層結構化 log（`[Confession][StorageWriteMetrics]`），至少含：
+  - `taskId`
+  - `fs_write_ops_per_scan`
+  - `db_lock_wait_ms_p95`
+  - `db_lock_hold_ms_p95`
+  - `db_lock_timeout_count`
+  - `upsert_input_count`
+  - `upsert_exact_hit_count`
+  - `upsert_relocation_count`
+  - `upsert_elapsed_ms`
 
 ## Agent 系統
 
