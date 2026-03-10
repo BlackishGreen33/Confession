@@ -119,6 +119,11 @@ const failedStats = {
   },
 };
 
+const failedStatsWithMissingApiKey = {
+  ...failedStats,
+  lastErrorMessage: 'NVIDIA API key 未設定',
+};
+
 const baselineSuccessResult = {
   vulnerabilities: [],
   summary: {
@@ -163,6 +168,29 @@ const baselineFailedResult = {
     byLanguage: {},
   },
   llmStats: failedStats,
+};
+
+const agenticFailedResultWithMissingApiKey = {
+  vulnerabilities: [],
+  summary: {
+    totalFiles: 1,
+    totalVulnerabilities: 0,
+    bySeverity: {},
+    byLanguage: {},
+  },
+  llmStats: failedStatsWithMissingApiKey,
+  agenticTrace: [],
+};
+
+const baselineFailedResultWithMissingApiKey = {
+  vulnerabilities: [],
+  summary: {
+    totalFiles: 1,
+    totalVulnerabilities: 0,
+    bySeverity: {},
+    byLanguage: {},
+  },
+  llmStats: failedStatsWithMissingApiKey,
 };
 
 async function waitForTaskStatus(
@@ -648,6 +676,40 @@ describe('Scan routes', () => {
     expect(finalTask.fallbackUsed).toBe(true);
     expect(finalTask.fallbackFrom).toBe('agentic_beta');
     expect(finalTask.fallbackTo).toBe('baseline');
+  });
+
+  it('LLM 缺少 API key 時，失敗訊息需回傳可行動原因', async () => {
+    mockOrchestrateAgenticBeta.mockResolvedValue(
+      agenticFailedResultWithMissingApiKey
+    );
+    mockOrchestrate.mockResolvedValue(baselineFailedResultWithMissingApiKey);
+
+    const res = await app.request('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          {
+            path: '/repo/a.ts',
+            content: 'const a = 1',
+            language: 'typescript',
+          },
+        ],
+        depth: 'standard',
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const created = (await res.json()) as { taskId: string };
+    const finalTask = await waitForTaskStatus(
+      taskState,
+      created.taskId,
+      'failed'
+    );
+
+    expect(finalTask.errorCode).toBe('BETA_ENGINE_FAILED');
+    expect(finalTask.errorMessage).toContain('NVIDIA API key 未設定');
+    expect(finalTask.fallbackReason).toContain('NVIDIA API key 未設定');
   });
 
   it('workspace 掃描完成後會自動關閉不在快照內的 open 漏洞', async () => {

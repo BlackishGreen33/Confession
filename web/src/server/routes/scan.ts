@@ -71,8 +71,9 @@ const USER_CANCELED_MESSAGE = '使用者已取消掃描';
 const SUPERSEDED_BY_NEW_SCAN_MESSAGE = '新掃描任務已啟動，上一個掃描已中止';
 const WORKSPACE_SNAPSHOT_AUTO_FIXED_MESSAGE =
   '來源檔案未出現在本次工作區快照，已自動標記為 fixed（可能已刪除或改名）';
-const PROGRESS_FLUSH_INTERVAL_MS = 500;
-const PROGRESS_FLUSH_FILE_STEP = 5;
+const PROGRESS_FLUSH_INTERVAL_MS = 2_000;
+const PROGRESS_FLUSH_FILE_STEP = 20;
+const SSE_KEEPALIVE_MS = 15_000;
 
 export const scanRoutes = new Hono();
 
@@ -213,8 +214,24 @@ scanRoutes.get('/stream/:id', async (c) => {
   c.header('X-Accel-Buffering', 'no');
 
   return streamSSE(c, async (stream) => {
+    let eventSeq = Math.max(
+      0,
+      Number.parseInt(c.req.header('Last-Event-ID') ?? '0', 10) || 0
+    );
+    const nextEventId = () => {
+      eventSeq += 1;
+      return String(eventSeq);
+    };
+    const writeProgress = async (event: ScanProgressEvent) => {
+      await stream.writeSSE({
+        id: nextEventId(),
+        event: 'scan_progress',
+        data: JSON.stringify(event),
+      });
+    };
+
     const initial = toScanProgressEvent(task);
-    await stream.writeSSE({ data: JSON.stringify(initial) });
+    await writeProgress(initial);
 
     if (initial.status === 'completed' || initial.status === 'failed') {
       return;
@@ -223,18 +240,38 @@ scanRoutes.get('/stream/:id', async (c) => {
     await new Promise<void>((resolve) => {
       let settled = false;
       let unsubscribe: () => void = () => {};
+      let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
       const finish = () => {
         if (settled) return;
         settled = true;
+        if (keepaliveTimer) {
+          clearInterval(keepaliveTimer);
+          keepaliveTimer = null;
+        }
         unsubscribe();
         resolve();
       };
 
+      keepaliveTimer = setInterval(() => {
+        void stream
+          .writeSSE({
+            id: nextEventId(),
+            event: 'keepalive',
+            data: JSON.stringify({
+              taskId: id,
+              ts: new Date().toISOString(),
+            }),
+          })
+          .catch(() => {
+            finish();
+          });
+      }, SSE_KEEPALIVE_MS);
+
       unsubscribe = subscribeScanProgress(id, (event) => {
         void (async () => {
           try {
-            await stream.writeSSE({ data: JSON.stringify(event) });
+            await writeProgress(event);
           } catch {
             finish();
             return;
@@ -371,16 +408,17 @@ async function runScan(
 
       const agenticFailure = agenticOutcome.errorMessage ?? '未知錯誤';
       const baselineFailure = baselineOutcome.errorMessage ?? '未知錯誤';
+      fallbackMeta = {
+        ...fallbackMeta,
+        fallbackReason: `Agentic 失敗：${agenticFailure}；Baseline 失敗：${baselineFailure}`,
+      };
       await markTaskFailed(
         taskId,
         totalFiles,
         'baseline',
         'BETA_ENGINE_FAILED',
         `Agentic 失敗：${agenticFailure}；Baseline 回退失敗：${baselineFailure}`,
-        {
-          ...fallbackMeta,
-          fallbackReason: `Agentic 失敗：${agenticFailure}；Baseline 失敗：${baselineFailure}`,
-        }
+        fallbackMeta
       );
       return;
     }
@@ -686,6 +724,7 @@ function logLlmUsage(
       successfulFiles: result.llmStats.successfulFiles,
       requestFailures: result.llmStats.requestFailures,
       parseFailures: result.llmStats.parseFailures,
+      lastErrorMessage: result.llmStats.lastErrorMessage ?? null,
       failureKinds: result.llmStats.failureKinds,
       agenticTraceCount:
         'agenticTrace' in result && Array.isArray(result.agenticTrace)
@@ -999,6 +1038,7 @@ function isLlmAnalysisFailed(stats: {
 function buildLlmFailureMessage(stats: {
   requestFailures: number;
   parseFailures: number;
+  lastErrorMessage?: string;
   failureKinds: {
     quotaExceeded: number;
     unavailable: number;
@@ -1008,6 +1048,13 @@ function buildLlmFailureMessage(stats: {
 }): string {
   if (stats.failureKinds.quotaExceeded > 0) {
     return 'LLM 分析失敗：配額已用盡（429/RESOURCE_EXHAUSTED），請稍後重試或更換 API Key/方案';
+  }
+
+  const actionableRootCause = resolveActionableLlmFailureRootCause(
+    stats.lastErrorMessage
+  );
+  if (actionableRootCause) {
+    return `LLM 分析失敗：${actionableRootCause}`;
   }
 
   const parts: string[] = [];
@@ -1023,6 +1070,42 @@ function buildLlmFailureMessage(stats: {
     parts.push(`LLM 回應解析失敗 ${stats.parseFailures} 次`);
   if (parts.length === 0) return 'LLM 分析失敗';
   return `LLM 分析失敗：${parts.join('，')}`;
+}
+
+function resolveActionableLlmFailureRootCause(
+  value: string | undefined
+): string | null {
+  if (typeof value !== 'string') return null;
+  const message = value.trim();
+  if (message.length === 0) return null;
+
+  if (message.includes('API key 未設定')) {
+    return message;
+  }
+
+  const lower = message.toLowerCase();
+  const isAuthFailed =
+    /\b401\b/.test(lower) ||
+    /\b403\b/.test(lower) ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden') ||
+    lower.includes('invalid api key') ||
+    lower.includes('invalid_api_key');
+
+  if (isAuthFailed) {
+    return 'API Key 驗證失敗（401/403），請確認 provider 與 API Key 是否有效';
+  }
+
+  const isModelOrEndpointNotFound =
+    /\b404\b/.test(lower) &&
+    (lower.includes('model') ||
+      lower.includes('endpoint') ||
+      lower.includes('not found'));
+  if (isModelOrEndpointNotFound) {
+    return '模型或端點不存在（404），請檢查 model / endpoint 設定';
+  }
+
+  return null;
 }
 
 function isMissingEventsTableError(err: unknown): boolean {

@@ -48,6 +48,8 @@ export interface LlmUsageStats {
   successfulFiles: number
   requestFailures: number
   parseFailures: number
+  /** 代表性失敗訊息（僅保留首筆，供路由層產生可行動錯誤文案） */
+  lastErrorMessage?: string
   failureKinds: {
     quotaExceeded: number
     unavailable: number
@@ -181,6 +183,7 @@ export async function analyzeWithLlm(
           // LLM 呼叫失敗時先記錄錯誤，再跳過該檔案，不中斷整體流程
           stats.requestFailures += 1
           accumulateFailureKind(stats, err)
+          rememberFirstFailureMessage(stats, err)
           transientFailure = isConcurrencyThrottleError(err)
           return { transientFailure }
         } finally {
@@ -419,6 +422,17 @@ function isAbortError(err: unknown): boolean {
 function accumulateFailureKind(stats: LlmUsageStats, err: unknown): void {
   const kind = classifyLlmError(err)
   stats.failureKinds[kind] += 1
+}
+
+function rememberFirstFailureMessage(stats: LlmUsageStats, err: unknown): void {
+  if (typeof stats.lastErrorMessage === 'string' && stats.lastErrorMessage.length > 0) {
+    return
+  }
+
+  const raw = err instanceof Error ? err.message : String(err)
+  const message = raw.trim()
+  if (message.length === 0) return
+  stats.lastErrorMessage = message.slice(0, 280)
 }
 
 function classifyLlmError(err: unknown): 'quotaExceeded' | 'unavailable' | 'timeout' | 'other' {
