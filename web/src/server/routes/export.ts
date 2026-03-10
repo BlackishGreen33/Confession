@@ -9,7 +9,7 @@ const HUMAN_STATUS_VALUES = ['pending', 'confirmed', 'rejected', 'false_positive
 const REPORT_SCHEMA_VERSION = '2.0.0'
 
 const exportBodySchema = z.object({
-  format: z.enum(['json', 'csv', 'markdown', 'pdf']),
+  format: z.enum(['json', 'csv', 'markdown', 'pdf', 'sarif']),
   filters: z
     .object({
       status: z.enum(STATUS_VALUES).optional(),
@@ -44,6 +44,8 @@ interface SerializedVulnerability {
   aiModel: string | null
   aiConfidence: number | null
   aiReasoning: string | null
+  stableFingerprint: string
+  source: 'sast' | 'dast'
   humanStatus: string
   humanComment: string | null
   humanReviewedAt: string | null
@@ -79,6 +81,7 @@ function buildExportFilename(format: ExportFormat): string {
     csv: 'csv',
     markdown: 'md',
     pdf: 'pdf',
+    sarif: 'sarif.json',
   }
   const now = new Date()
   const yyyy = now.getFullYear()
@@ -136,6 +139,11 @@ function serializeVuln(v: {
     aiModel: normalizeNullableString(v.aiModel),
     aiConfidence: typeof v.aiConfidence === 'number' ? v.aiConfidence : null,
     aiReasoning: normalizeNullableString(v.aiReasoning),
+    stableFingerprint:
+      typeof v.stableFingerprint === 'string' && v.stableFingerprint.trim().length > 0
+        ? v.stableFingerprint
+        : String(v.codeHash),
+    source: v.source === 'dast' ? 'dast' : 'sast',
     humanStatus: String(v.humanStatus),
     humanComment: normalizeNullableString(v.humanComment),
     humanReviewedAt: v.humanReviewedAt?.toISOString() ?? null,
@@ -187,6 +195,133 @@ function buildReportV2(items: SerializedVulnerability[], filters: ExportFilters)
 
 function renderJsonReport(report: ExportReportV2): string {
   return JSON.stringify(report, null, 2)
+}
+
+function renderSarif(report: ExportReportV2): string {
+  const rulesMap = new Map<
+    string,
+    {
+      id: string
+      shortDescription: { text: string }
+      fullDescription: { text: string }
+      help: { text: string }
+      properties: Record<string, unknown>
+    }
+  >()
+
+  for (const item of report.items) {
+    if (rulesMap.has(item.type)) continue
+    rulesMap.set(item.type, {
+      id: item.type,
+      shortDescription: { text: item.cweId ?? item.type },
+      fullDescription: { text: item.description || item.type },
+      help: {
+        text: item.fixExplanation ?? '請依漏洞型別與上下文調整修復策略',
+      },
+      properties: {
+        tags: [item.severity, item.source],
+        precision: 'medium',
+        'security-severity': toSarifSecuritySeverity(item.severity),
+      },
+    })
+  }
+
+  const results = report.items.map((item) => ({
+    ruleId: item.type,
+    level: toSarifLevel(item.severity),
+    message: { text: item.description },
+    locations: [
+      {
+        physicalLocation: {
+          artifactLocation: {
+            uri: item.filePath,
+            uriBaseId: '%SRCROOT%',
+          },
+          region: {
+            startLine: item.line,
+            startColumn: item.column,
+            endLine: item.endLine,
+            endColumn: item.endColumn,
+            snippet: {
+              text: item.codeSnippet,
+            },
+          },
+        },
+      },
+    ],
+    partialFingerprints: {
+      stableFingerprint: item.stableFingerprint,
+      codeHash: item.codeHash,
+    },
+    properties: {
+      severity: item.severity,
+      status: item.status,
+      humanStatus: item.humanStatus,
+      source: item.source,
+      cweId: item.cweId,
+      owaspCategory: item.owaspCategory,
+      confidence: item.aiConfidence,
+    },
+  }))
+
+  return JSON.stringify(
+    {
+      $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+      version: '2.1.0',
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: 'Confession',
+              informationUri: 'https://github.com/BlackishGreen33/Confession',
+              semanticVersion: '0.1.0',
+              rules: Array.from(rulesMap.values()),
+            },
+          },
+          invocations: [
+            {
+              executionSuccessful: true,
+            },
+          ],
+          properties: {
+            reportSchemaVersion: report.schemaVersion,
+            exportedAt: report.exportedAt,
+            filters: report.filters ?? {},
+          },
+          results,
+        },
+      ],
+    },
+    null,
+    2,
+  )
+}
+
+function toSarifLevel(severity: string): 'error' | 'warning' | 'note' {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'error'
+    case 'medium':
+      return 'warning'
+    default:
+      return 'note'
+  }
+}
+
+function toSarifSecuritySeverity(severity: string): string {
+  switch (severity) {
+    case 'critical':
+      return '9.5'
+    case 'high':
+      return '8.0'
+    case 'medium':
+      return '6.0'
+    case 'low':
+      return '3.0'
+    default:
+      return '1.0'
+  }
 }
 
 function renderCsv(items: SerializedVulnerability[]): string {
@@ -830,7 +965,7 @@ function formatCounter(counter: Record<string, number>): string {
 }
 
 /**
- * POST /api/export — 匯出漏洞報告（JSON / CSV / Markdown / PDF(列印 HTML)）
+ * POST /api/export — 匯出漏洞報告（JSON / CSV / Markdown / PDF(列印 HTML) / SARIF）
  *
  * 根據篩選條件查詢漏洞，以指定格式回傳。
  */
@@ -871,6 +1006,13 @@ exportRoutes.post('/', zValidator('json', exportBodySchema), async (c) => {
     })
   }
 
+  if (format === 'sarif') {
+    return c.text(renderSarif(report), 200, {
+      'Content-Type': 'application/sarif+json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    })
+  }
+
   return c.text(renderJsonReport(report), 200, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Disposition': `attachment; filename="${filename}"`,
@@ -900,6 +1042,8 @@ const CSV_COLUMNS = [
   'aiModel',
   'aiConfidence',
   'aiReasoning',
+  'stableFingerprint',
+  'source',
   'humanComment',
   'humanReviewedAt',
   'createdAt',

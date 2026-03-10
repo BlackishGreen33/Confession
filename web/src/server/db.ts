@@ -11,6 +11,8 @@ const LOCK_FILE_NAME = '.lock'
 const LOCK_RETRY_MS = 50
 const LOCK_TIMEOUT_MS = 8_000
 const SCHEMA_VERSION = 'file-store-v1'
+const ANALYSIS_CACHE_VERSION = 'analysis-cache-v1'
+const STABLE_FINGERPRINT_VERSION = 'stable-fingerprint-v1'
 
 const UPSERT_CHUNK_SIZE = 50
 
@@ -51,6 +53,8 @@ interface VulnerabilityRecord {
   aiModel: string | null
   aiConfidence: number | null
   aiReasoning: string | null
+  stableFingerprint: string
+  source: 'sast' | 'dast'
   humanStatus: string
   humanComment: string | null
   humanReviewedAt: Date | null
@@ -124,6 +128,8 @@ interface MetaRecord {
   schemaVersion: string
   createdAt: string
   lastMigrationAt: string | null
+  analysisCacheVersion: string
+  stableFingerprintVersion: string
 }
 
 interface Snapshot {
@@ -173,12 +179,22 @@ export interface VulnerabilityInput {
   aiModel?: string | null
   aiConfidence?: number | null
   aiReasoning?: string | null
+  stableFingerprint?: string | null
+  source?: 'sast' | 'dast'
   owaspCategory?: string | null
 }
 
 type AnyRecord = Record<string, any>
 
 const bootstrapPromises = new Map<string, Promise<void>>()
+
+interface ScanTaskSnapshotCacheEntry {
+  scanTasksMtimeMs: number
+  metaMtimeMs: number
+  snapshot: Snapshot
+}
+
+const scanTaskSnapshotCache = new Map<string, ScanTaskSnapshotCacheEntry>()
 
 function resolveProjectRoot(): string {
   const fromEnv = process.env.CONFESSION_PROJECT_ROOT?.trim()
@@ -227,6 +243,36 @@ function cloneValue<T>(value: T): T {
   return value
 }
 
+function normalizeStableFingerprintSnippet(codeSnippet: string): string {
+  return codeSnippet
+    .replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '$STR')
+    .replace(/\b\d+\b/g, '$NUM')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240)
+}
+
+function normalizeStableFingerprintPath(filePath: string): string {
+  const projectRoot = resolveProjectRoot()
+  const rel = path.relative(projectRoot, filePath)
+  const normalized = rel && !rel.startsWith('..') ? rel : filePath
+  return normalized.replace(/\\/g, '/').toLowerCase()
+}
+
+function createStableFingerprint(input: {
+  filePath: string
+  type: string
+  codeSnippet: string
+  index: number
+}): string {
+  const normalizedPath = normalizeStableFingerprintPath(input.filePath)
+  const normalizedType = input.type.trim().toLowerCase()
+  const normalizedSnippet = normalizeStableFingerprintSnippet(input.codeSnippet)
+  const normalizedIndex = Math.max(1, Math.floor(input.index))
+  const payload = `${normalizedPath}::${normalizedType}::${normalizedSnippet}::${normalizedIndex}`
+  return createHash('sha256').update(payload).digest('hex')
+}
+
 function generateId(): string {
   return randomUUID().replace(/-/g, '')
 }
@@ -249,6 +295,47 @@ function defaultMeta(): MetaRecord {
     schemaVersion: SCHEMA_VERSION,
     createdAt: now().toISOString(),
     lastMigrationAt: null,
+    analysisCacheVersion: ANALYSIS_CACHE_VERSION,
+    stableFingerprintVersion: STABLE_FINGERPRINT_VERSION,
+  }
+}
+
+function normalizeMetaRecord(raw: unknown): MetaRecord {
+  const defaults = defaultMeta()
+  if (!raw || typeof raw !== 'object') {
+    return defaults
+  }
+
+  const input = raw as {
+    schemaVersion?: unknown
+    createdAt?: unknown
+    lastMigrationAt?: unknown
+    analysisCacheVersion?: unknown
+    stableFingerprintVersion?: unknown
+  }
+
+  return {
+    schemaVersion:
+      typeof input.schemaVersion === 'string' && input.schemaVersion.trim().length > 0
+        ? input.schemaVersion
+        : defaults.schemaVersion,
+    createdAt:
+      typeof input.createdAt === 'string' && input.createdAt.trim().length > 0
+        ? input.createdAt
+        : defaults.createdAt,
+    lastMigrationAt:
+      typeof input.lastMigrationAt === 'string' && input.lastMigrationAt.trim().length > 0
+        ? input.lastMigrationAt
+        : null,
+    analysisCacheVersion:
+      typeof input.analysisCacheVersion === 'string' && input.analysisCacheVersion.trim().length > 0
+        ? input.analysisCacheVersion
+        : defaults.analysisCacheVersion,
+    stableFingerprintVersion:
+      typeof input.stableFingerprintVersion === 'string' &&
+      input.stableFingerprintVersion.trim().length > 0
+        ? input.stableFingerprintVersion
+        : defaults.stableFingerprintVersion,
   }
 }
 
@@ -327,6 +414,16 @@ function decodeSnapshot(raw: Partial<PersistedSnapshot>): Snapshot {
           aiModel: item.aiModel ?? null,
           aiConfidence: typeof item.aiConfidence === 'number' ? item.aiConfidence : null,
           aiReasoning: item.aiReasoning ?? null,
+          stableFingerprint:
+            typeof item.stableFingerprint === 'string' && item.stableFingerprint.trim().length > 0
+              ? item.stableFingerprint
+              : createStableFingerprint({
+                  filePath: item.filePath,
+                  type: item.type,
+                  codeSnippet: item.codeSnippet,
+                  index: 1,
+                }),
+          source: item.source === 'dast' ? 'dast' : 'sast',
           humanStatus: item.humanStatus ?? 'pending',
           humanComment: item.humanComment ?? null,
           humanReviewedAt: item.humanReviewedAt ? toDate(item.humanReviewedAt, now()) : null,
@@ -387,7 +484,7 @@ function decodeSnapshot(raw: Partial<PersistedSnapshot>): Snapshot {
       : [],
     config: normalizeConfigValue(raw.config),
     configUpdatedAt: raw.configUpdatedAt ? toDate(raw.configUpdatedAt, now()) : now(),
-    meta: raw.meta ?? defaultMeta(),
+    meta: normalizeMetaRecord(raw.meta),
   }
 }
 
@@ -502,6 +599,87 @@ async function loadSnapshot(projectRoot: string): Promise<Snapshot> {
   })
 }
 
+async function readFileMtimeMs(filePath: string): Promise<number> {
+  try {
+    const stat = await fs.stat(filePath)
+    return stat.mtimeMs
+  } catch {
+    return -1
+  }
+}
+
+function buildScanTaskOnlySnapshot(raw: Snapshot): Snapshot {
+  return {
+    vulnerabilities: [],
+    vulnerabilityEvents: [],
+    scanTasks: raw.scanTasks,
+    adviceSnapshots: [],
+    adviceDecisions: [],
+    config: cloneValue(DEFAULT_CONFIG),
+    configUpdatedAt: now(),
+    meta: raw.meta,
+  }
+}
+
+async function loadScanTaskOnlySnapshot(projectRoot: string): Promise<Snapshot> {
+  const scanTasksPath = getStoragePath(projectRoot, 'scanTasks')
+  const metaPath = getStoragePath(projectRoot, 'meta')
+  const [scanTasksMtimeMs, metaMtimeMs] = await Promise.all([
+    readFileMtimeMs(scanTasksPath),
+    readFileMtimeMs(metaPath),
+  ])
+
+  const cached = scanTaskSnapshotCache.get(projectRoot)
+  if (
+    cached &&
+    cached.scanTasksMtimeMs === scanTasksMtimeMs &&
+    cached.metaMtimeMs === metaMtimeMs
+  ) {
+    return cloneValue(cached.snapshot)
+  }
+
+  const [rawScanTasks, rawMeta] = await Promise.all([
+    readJsonFile<PersistedSnapshot['scanTasks']>(scanTasksPath, []),
+    readJsonFile<MetaRecord | null>(metaPath, null),
+  ])
+
+  const decoded = decodeSnapshot({
+    scanTasks: rawScanTasks,
+    meta: rawMeta ?? defaultMeta(),
+  })
+  const snapshot = buildScanTaskOnlySnapshot(decoded)
+
+  scanTaskSnapshotCache.set(projectRoot, {
+    scanTasksMtimeMs,
+    metaMtimeMs,
+    snapshot: cloneValue(snapshot),
+  })
+
+  return snapshot
+}
+
+async function saveScanTaskOnlySnapshot(projectRoot: string, snapshot: Snapshot): Promise<void> {
+  const confessionDir = getConfessionDir(projectRoot)
+  await fs.mkdir(confessionDir, { recursive: true })
+  const persisted = serializeSnapshot(snapshot)
+
+  await Promise.all([
+    writeJsonAtomic(getStoragePath(projectRoot, 'scanTasks'), persisted.scanTasks),
+    writeJsonAtomic(getStoragePath(projectRoot, 'meta'), persisted.meta),
+  ])
+
+  const [scanTasksMtimeMs, metaMtimeMs] = await Promise.all([
+    readFileMtimeMs(getStoragePath(projectRoot, 'scanTasks')),
+    readFileMtimeMs(getStoragePath(projectRoot, 'meta')),
+  ])
+
+  scanTaskSnapshotCache.set(projectRoot, {
+    scanTasksMtimeMs,
+    metaMtimeMs,
+    snapshot: cloneValue(buildScanTaskOnlySnapshot(snapshot)),
+  })
+}
+
 async function saveSnapshot(projectRoot: string, snapshot: Snapshot): Promise<void> {
   const confessionDir = getConfessionDir(projectRoot)
   await fs.mkdir(confessionDir, { recursive: true })
@@ -520,6 +698,8 @@ async function saveSnapshot(projectRoot: string, snapshot: Snapshot): Promise<vo
     getStoragePath(projectRoot, 'config'),
     normalizeConfigValue(persisted.config),
   )
+
+  scanTaskSnapshotCache.delete(projectRoot)
 }
 
 async function withFileLock<T>(projectRoot: string, callback: () => Promise<T>): Promise<T> {
@@ -672,16 +852,29 @@ function applyTakeSkip<T>(rows: T[], args: AnyRecord): T[] {
 
 function normalizeVulnerabilityCreate(data: AnyRecord): VulnerabilityRecord {
   const createdAt = now()
+  const filePath = String(data.filePath ?? '')
+  const type = String(data.type ?? '')
+  const codeSnippet = String(data.codeSnippet ?? '')
+  const stableFingerprint =
+    typeof data.stableFingerprint === 'string' && data.stableFingerprint.trim().length > 0
+      ? data.stableFingerprint
+      : createStableFingerprint({
+          filePath,
+          type,
+          codeSnippet,
+          index: typeof data.stableFingerprintIndex === 'number' ? data.stableFingerprintIndex : 1,
+        })
+
   return {
     id: typeof data.id === 'string' ? data.id : generateId(),
-    filePath: String(data.filePath ?? ''),
+    filePath,
     line: Number(data.line ?? 0),
     column: Number(data.column ?? 0),
     endLine: Number(data.endLine ?? Number(data.line ?? 0)),
     endColumn: Number(data.endColumn ?? Number(data.column ?? 0)),
-    codeSnippet: String(data.codeSnippet ?? ''),
+    codeSnippet,
     codeHash: String(data.codeHash ?? ''),
-    type: String(data.type ?? ''),
+    type,
     cweId: typeof data.cweId === 'string' ? data.cweId : null,
     severity: String(data.severity ?? 'medium'),
     description: String(data.description ?? ''),
@@ -692,6 +885,8 @@ function normalizeVulnerabilityCreate(data: AnyRecord): VulnerabilityRecord {
     aiModel: typeof data.aiModel === 'string' ? data.aiModel : null,
     aiConfidence: typeof data.aiConfidence === 'number' ? data.aiConfidence : null,
     aiReasoning: typeof data.aiReasoning === 'string' ? data.aiReasoning : null,
+    stableFingerprint,
+    source: data.source === 'dast' ? 'dast' : 'sast',
     humanStatus: typeof data.humanStatus === 'string' ? data.humanStatus : 'pending',
     humanComment: typeof data.humanComment === 'string' ? data.humanComment : null,
     humanReviewedAt:
@@ -1029,6 +1224,15 @@ async function withReadClient<T>(callback: (client: ReturnType<typeof buildScope
   return callback(buildScopedClient(snapshot))
 }
 
+async function withScanTaskReadClient<T>(
+  callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>,
+): Promise<T> {
+  const projectRoot = resolveProjectRoot()
+  await ensureBootstrapped(projectRoot)
+  const snapshot = await loadScanTaskOnlySnapshot(projectRoot)
+  return callback(buildScopedClient(snapshot))
+}
+
 async function withWriteClient<T>(callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>): Promise<T> {
   const projectRoot = resolveProjectRoot()
   await ensureBootstrapped(projectRoot)
@@ -1037,6 +1241,20 @@ async function withWriteClient<T>(callback: (client: ReturnType<typeof buildScop
     const client = buildScopedClient(snapshot)
     const result = await callback(client)
     await saveSnapshot(projectRoot, snapshot)
+    return result
+  })
+}
+
+async function withScanTaskWriteClient<T>(
+  callback: (client: ReturnType<typeof buildScopedClient>) => Promise<T>,
+): Promise<T> {
+  const projectRoot = resolveProjectRoot()
+  await ensureBootstrapped(projectRoot)
+  return withFileLock(projectRoot, async () => {
+    const snapshot = await loadScanTaskOnlySnapshot(projectRoot)
+    const client = buildScopedClient(snapshot)
+    const result = await callback(client)
+    await saveScanTaskOnlySnapshot(projectRoot, snapshot)
     return result
   })
 }
@@ -1121,6 +1339,8 @@ async function bootstrapProject(projectRoot: string): Promise<void> {
         schemaVersion: SCHEMA_VERSION,
         createdAt: now().toISOString(),
         lastMigrationAt: now().toISOString(),
+        analysisCacheVersion: ANALYSIS_CACHE_VERSION,
+        stableFingerprintVersion: STABLE_FINGERPRINT_VERSION,
       },
     }
 
@@ -1195,13 +1415,13 @@ export const prisma = {
     count: (args?: AnyRecord) => withReadClient((client) => client.vulnerabilityEvent.count(args)),
   },
   scanTask: {
-    findMany: (args?: AnyRecord) => withReadClient((client) => client.scanTask.findMany(args)),
-    findFirst: (args?: AnyRecord) => withReadClient((client) => client.scanTask.findFirst(args)),
-    findUnique: (args: AnyRecord) => withReadClient((client) => client.scanTask.findUnique(args)),
-    create: (args: AnyRecord) => withWriteClient((client) => client.scanTask.create(args)),
-    update: (args: AnyRecord) => withWriteClient((client) => client.scanTask.update(args)),
-    updateMany: (args?: AnyRecord) => withWriteClient((client) => client.scanTask.updateMany(args)),
-    count: (args?: AnyRecord) => withReadClient((client) => client.scanTask.count(args)),
+    findMany: (args?: AnyRecord) => withScanTaskReadClient((client) => client.scanTask.findMany(args)),
+    findFirst: (args?: AnyRecord) => withScanTaskReadClient((client) => client.scanTask.findFirst(args)),
+    findUnique: (args: AnyRecord) => withScanTaskReadClient((client) => client.scanTask.findUnique(args)),
+    create: (args: AnyRecord) => withScanTaskWriteClient((client) => client.scanTask.create(args)),
+    update: (args: AnyRecord) => withScanTaskWriteClient((client) => client.scanTask.update(args)),
+    updateMany: (args?: AnyRecord) => withScanTaskWriteClient((client) => client.scanTask.updateMany(args)),
+    count: (args?: AnyRecord) => withScanTaskReadClient((client) => client.scanTask.count(args)),
   },
   adviceSnapshot: {
     findFirst: (args?: AnyRecord) => withReadClient((client) => client.adviceSnapshot.findFirst(args)),
@@ -1234,9 +1454,10 @@ export const prisma = {
 
 export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
   const deduped = deduplicateVulnerabilities(vulns)
+  const normalized = normalizeVulnerabilityInputsForUpsert(deduped)
 
-  for (let start = 0; start < deduped.length; start += UPSERT_CHUNK_SIZE) {
-    const chunk = deduped.slice(start, start + UPSERT_CHUNK_SIZE).map((item) => ({
+  for (let start = 0; start < normalized.length; start += UPSERT_CHUNK_SIZE) {
+    const chunk = normalized.slice(start, start + UPSERT_CHUNK_SIZE).map((item) => ({
       vuln: item,
       codeHash: createHash('sha256').update(item.codeSnippet).digest('hex'),
     }))
@@ -1270,13 +1491,63 @@ export async function upsertVulnerabilities(vulns: VulnerabilityInput[]) {
             fixOldCode: vuln.fixOldCode,
             fixNewCode: vuln.fixNewCode,
             fixExplanation: vuln.fixExplanation,
+            stableFingerprint: vuln.stableFingerprint,
+            source: vuln.source,
           },
         })
       }
     })
   }
 
-  await prunePendingOpenDuplicates(deduped)
+  await prunePendingOpenDuplicates(normalized)
+}
+
+function normalizeVulnerabilityInputsForUpsert(
+  vulns: VulnerabilityInput[],
+): Array<VulnerabilityInput & { stableFingerprint: string; source: 'sast' | 'dast' }> {
+  const indexed = vulns
+    .map((vuln, originalIndex) => ({ vuln, originalIndex }))
+    .sort((left, right) => {
+      const fileDiff = left.vuln.filePath.localeCompare(right.vuln.filePath)
+      if (fileDiff !== 0) return fileDiff
+      const typeDiff = left.vuln.type.localeCompare(right.vuln.type)
+      if (typeDiff !== 0) return typeDiff
+      const lineDiff = left.vuln.line - right.vuln.line
+      if (lineDiff !== 0) return lineDiff
+      return left.vuln.column - right.vuln.column
+    })
+
+  const counters = new Map<string, number>()
+  const normalized = new Array<VulnerabilityInput & { stableFingerprint: string; source: 'sast' | 'dast' }>(
+    vulns.length,
+  )
+
+  for (const item of indexed) {
+    const source = item.vuln.source === 'dast' ? 'dast' : 'sast'
+    const normalizedPath = normalizeStableFingerprintPath(item.vuln.filePath)
+    const normalizedType = item.vuln.type.trim().toLowerCase()
+    const normalizedSnippet = normalizeStableFingerprintSnippet(item.vuln.codeSnippet)
+    const baseKey = `${normalizedPath}::${normalizedType}::${normalizedSnippet}`
+    const nextIndex = (counters.get(baseKey) ?? 0) + 1
+    counters.set(baseKey, nextIndex)
+    const stableFingerprint =
+      typeof item.vuln.stableFingerprint === 'string' && item.vuln.stableFingerprint.trim().length > 0
+        ? item.vuln.stableFingerprint
+        : createStableFingerprint({
+            filePath: item.vuln.filePath,
+            type: item.vuln.type,
+            codeSnippet: item.vuln.codeSnippet,
+            index: nextIndex,
+          })
+
+    normalized[item.originalIndex] = {
+      ...item.vuln,
+      stableFingerprint,
+      source,
+    }
+  }
+
+  return normalized
 }
 
 async function prunePendingOpenDuplicates(vulns: VulnerabilityInput[]): Promise<void> {

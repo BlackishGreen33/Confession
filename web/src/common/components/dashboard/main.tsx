@@ -114,6 +114,7 @@ const HUMAN_STATUS_LABELS: Record<string, string> = {
 
 const EXPORT_FORMAT_OPTIONS: Array<{ value: ExportFormat; label: string }> = [
   { value: 'pdf', label: 'PDF（列印）' },
+  { value: 'sarif', label: 'SARIF 2.1.0' },
   { value: 'markdown', label: 'Markdown' },
   { value: 'json', label: 'JSON' },
   { value: 'csv', label: 'CSV' },
@@ -124,6 +125,7 @@ const EXPORT_EXT: Record<ExportFormat, string> = {
   csv: 'csv',
   markdown: 'md',
   pdf: 'pdf',
+  sarif: 'sarif.json',
 };
 
 interface ExportDialogState {

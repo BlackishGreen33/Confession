@@ -54,6 +54,8 @@ describe('P4: Agent 消息序列化往返', () => {
     aiModel: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
     aiConfidence: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: null }),
     aiReasoning: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
+    stableFingerprint: fc.stringMatching(/^[0-9a-f]{64}$/),
+    source: fc.constantFrom('sast', 'dast') as fc.Arbitrary<Vulnerability['source']>,
     humanStatus: fc.constantFrom('pending', 'confirmed', 'rejected', 'false_positive') as fc.Arbitrary<Vulnerability['humanStatus']>,
     humanComment: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
     owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),

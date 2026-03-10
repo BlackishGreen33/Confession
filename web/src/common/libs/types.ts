@@ -40,6 +40,8 @@ export interface Vulnerability {
   aiModel: string | null;
   aiConfidence: number | null;
   aiReasoning: string | null;
+  stableFingerprint: string;
+  source: 'sast' | 'dast';
   humanStatus: 'pending' | 'confirmed' | 'rejected' | 'false_positive';
   humanComment: string | null;
   owaspCategory: string | null;
@@ -89,7 +91,7 @@ export interface ScanRequest {
   engineMode?: ScanEngineMode;
 }
 
-export type ExportFormat = 'json' | 'csv' | 'markdown' | 'pdf';
+export type ExportFormat = 'json' | 'csv' | 'markdown' | 'pdf' | 'sarif';
 
 export interface ExportFilters {
   status?: Vulnerability['status'];
