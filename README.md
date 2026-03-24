@@ -1,291 +1,220 @@
+<div align="center">
+
 # Confession
 
-> Before the Light Fades, the Code Speaks.
+### Before the Light Fades, the Code Speaks.
 
-Language: **English (Default)** | [繁體中文](./README.zh-TW.md) | [简体中文](./README.zh-CN.md)
+[![CI](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml)
+[![Code Scanning](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml)
+[![Benchmark Regression](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml)
+[![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![pnpm 9](https://img.shields.io/badge/pnpm-9-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-Confession is an LLM-assisted VS Code static security analysis extension.
-It combines AST analysis with Gemini / NVIDIA Integrate semantic analysis to detect vulnerabilities in Go, JavaScript, and TypeScript, then provides remediation guidance.
+LLM-assisted static security analysis for VS Code.  
+AST-first detection, tri-language Webview UX, local FileStore persistence, and export-ready reporting in one workflow.
 
-## Design Philosophy
+[Quick Start](#quick-start) · [Highlights](#highlights) · [Scan Modes](#scan-modes) · [API Surface](#api-surface) · [Development Workflow](#development-workflow)
 
-- **Static, not runtime execution**: never executes user code.
-- **Observation, not intervention**: inspects structure, flow, and intent.
-- **Disclosure, not judgment**: reveals risk signals, does not force decisions.
+**English** | [繁體中文](./README.zh-TW.md) | [简体中文](./README.zh-CN.md)
 
-## i18n (Webview)
+</div>
 
-- Supported UI locales: `zh-TW`, `zh-CN`, `en`
-- Product default locale: `zh-TW`
-- Config key: `confession.ui.language = auto | zh-TW | zh-CN | en`
-- `auto` continuously follows host locale (VS Code / browser), not one-time detection.
-- Localized export content: `CSV` / `Markdown` / `PDF` follow locale.
-- Machine-readable export remains stable: `JSON` / `SARIF` keys are not localized.
+## Overview
 
-## Project Structure
+Confession is a static security analysis toolkit centered on the VS Code workflow. It combines AST analyzers with LLM semantic review for Go, JavaScript, and TypeScript, then stores findings in a local `.confession/` workspace contract that the extension, dashboard, API, and CLI all share.
 
-```text
-confession/
-├── .github/workflows/      # GitHub Actions CI
-├── .husky/                 # Git hooks (commit-msg)
-├── confession-cli/         # Global CLI (init / scan / list / status / verify)
-├── extension/              # VS Code extension (esbuild -> CJS)
-├── web/                    # Next.js App Router + Hono backend
-├── go-analyzer/            # Go AST -> WASM analyzer
-├── commitlint.config.mjs   # Commit message rules
-├── turbo.json              # Turborepo config
-└── pnpm-workspace.yaml
-```
+The product follows three hard constraints: it never executes user code, it observes rather than interferes with the workspace, and it surfaces evidence and remediation guidance without forcing the final decision.
 
-## Tech Stack
+## Highlights
 
-| Layer | Choice |
-|------|------|
-| Package manager | pnpm 9.x + Turborepo |
-| Language | TypeScript strict mode |
-| Frontend | Next.js 16 App Router + Tailwind CSS 4 + shadcn/ui + sonner + next-themes |
-| State | Jotai + Bunshi |
-| Data fetching | React Query + Axios |
-| Charts | Recharts |
-| Backend | Hono (`/api/[...route]` via Next.js catch-all) |
-| Validation | zod/v4 + @hono/zod-validator |
-| Storage | Local FileStore (`.confession/*.json`) |
-| Extension bundling | esbuild (CJS, external: vscode) |
-| LLM | Google Gemini API + NVIDIA Integrate |
-| Testing | Vitest + fast-check (web/extension) + Node.js `node:test` (CLI) |
-
-## Prerequisites
-
-- Node.js >= 18
-- pnpm 9.x
-- Go 1.21+ (only needed when building WASM analyzer)
+- **AST-first, never runtime**: analysis is limited to syntax trees, structure, and model-assisted reasoning.
+- **Two-engine scan pipeline**: `agentic_beta` is the default engine, with automatic in-task fallback to `baseline` when beta fails.
+- **VS Code-native workflow**: diagnostics, hover details, code actions, status bar feedback, and a Webview dashboard stay aligned with the same backend state.
+- **Event-driven AI advice**: next-step suggestions only run after defined scan or review events and must pass score, cooldown, dedupe, and daily-limit guards.
+- **Local-first persistence**: configuration, vulnerabilities, scan tasks, advice snapshots, and analysis cache live under `.confession/*.json`.
+- **Export-ready outputs**: built-in `json`, `csv`, `markdown`, printable HTML for PDF, and SARIF 2.1.0 reporting.
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js `>= 18`
+- pnpm `9.x`
+- Go `1.21+` only when rebuilding the Go WASM analyzer
+
+### Install and run
+
 ```bash
-# Install dependencies
 pnpm install
-
-# Optional: install CLI globally
-npm i -g confession-cli
-
-# Optional: initialize local storage
-confession init
-
-# Start local development
 pnpm dev
 ```
 
-## Environment Variables
+### Configure LLM credentials
 
-Set in `web/.env.local` (at least one LLM provider key is required):
+Create `web/.env.local` and provide at least one provider key:
 
 ```env
-GEMINI_API_KEY="your-gemini-api-key"
-NVIDIA_API_KEY="your-nvidia-api-key"
+GEMINI_API_KEY="<set-in-web-env-local>"
+NVIDIA_API_KEY="<set-in-web-env-local>"
 ```
 
-## Common Commands
+### Run the CLI from this workspace
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Development
-pnpm dev
-
-# Build
-pnpm build
-
-# Lint
-pnpm lint
-
-# Test
-pnpm test
-
-# CI checks
-pnpm check:lint
-pnpm check:build
-pnpm check:test
-pnpm check:ci
-
-# CLI
-confession init
-confession scan
-confession list --status open
-confession status
-
-# CLI (without global install)
 node confession-cli/bin/confession.js init
 node confession-cli/bin/confession.js scan
 node confession-cli/bin/confession.js list --status open
 node confession-cli/bin/confession.js status
-
-# CLI tests
-pnpm --filter confession-cli test
-
-# Commit message checks
-pnpm commitlint --from HEAD~1 --to HEAD
-pnpm commitlint:range --from <from> --to <to>
-
-# Formatting
-pnpm format
-pnpm format:check
 ```
+
+## Scan Modes
+
+| Mode | LLM behavior | Best for |
+| --- | --- | --- |
+| `quick` | Conditional LLM only on high-risk AST points | Fast feedback on save |
+| `standard` | One aggregated LLM pass per file | Default day-to-day review |
+| `deep` | One full-file LLM scan per file | Broad inspection before reporting |
+
+## Architecture at a Glance
+
+| Surface | Responsibility |
+| --- | --- |
+| `extension/` | VS Code extension, diagnostics, save-triggered scans, SSE-first progress handling |
+| `web/` | Next.js App Router frontend plus Hono API mounted at `/api` |
+| `confession-cli/` | CLI for `init`, `scan`, `list`, `status`, and `verify web` |
+| `go-analyzer/` | Go AST analyzer compiled to WASM |
+| `.confession/` | Local FileStore contract shared by dashboard, API, extension, and CLI |
+
+### Local Storage Contract
+
+- `.confession/config.json`
+- `.confession/vulnerabilities.json`
+- `.confession/vulnerability-events.json`
+- `.confession/scan-tasks.json`
+- `.confession/advice-snapshots.json`
+- `.confession/advice-decisions.json`
+- `.confession/analysis-cache.json`
+- `.confession/meta.json`
+
+## API Surface
+
+### System and Config
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/health` | GET | Health check and score summary |
+| `/api/advice/latest` | GET | Latest AI next-step advice |
+| `/api/config` | GET | Read current configuration |
+| `/api/config` | PUT | Persist merged configuration updates |
+
+### Scan
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/scan` | POST | Trigger a new scan |
+| `/api/scan/status/:id` | GET | Read task status |
+| `/api/scan/stream/:id` | GET | Receive SSE progress events |
+| `/api/scan/recent` | GET | Read the most recent scan summary |
+| `/api/scan/cancel/:id` | POST | Cancel a running task |
+
+### Vulnerabilities
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/vulnerabilities` | GET | List vulnerabilities with filtering and pagination |
+| `/api/vulnerabilities/trend` | GET | Read time-series trend data |
+| `/api/vulnerabilities/stats` | GET | Read aggregate vulnerability statistics |
+| `/api/vulnerabilities/:id` | GET | Read vulnerability detail |
+| `/api/vulnerabilities/:id/events` | GET | Read the vulnerability event stream |
+| `/api/vulnerabilities/:id` | PATCH | Update status and attribution |
+
+### Export and Monitoring
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/export` | POST | Export `json`, `csv`, `markdown`, `pdf`, or `sarif` |
+| `/api/monitoring/generate` | POST | Generate embedded monitoring code |
+
+## Detection Coverage
+
+| Domain | Coverage |
+| --- | --- |
+| JavaScript / TypeScript | `eval`, `new Function`, string-based timers, `innerHTML`, direct request access, prototype mutation, sensitive keyword patterns |
+| Go | `exec.Command`, concatenated SQL calls, env-var handling, weak hashes, plain HTTP serving, unhandled HTTP response errors |
+| LLM semantic review | `quick`, `standard`, `deep` strategies with prompt fingerprint caching and structured JSON findings |
+
+## Localization and Exports
+
+- Supported Webview locales: `zh-TW`, `zh-CN`, `en`
+- Default product locale: `zh-TW`
+- Config key: `confession.ui.language = auto | zh-TW | zh-CN | en`
+- `auto` continuously follows the host locale instead of performing one-time detection
+- Localized export content: `csv`, `markdown`, and `pdf`
+- Machine-readable export remains stable: `json` and `sarif`
+- When `/api/export` omits `locale`, the backend resolves it from `config.ui.language` and falls back to `zh-TW`
+
+## Key VS Code Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `confession.api.baseUrl` | `http://localhost:3000` | API server base URL |
+| `confession.api.mode` | `local` | Switch between local and remote backend |
+| `confession.llm.provider` | `nvidia` | Select `nvidia` or `gemini` |
+| `confession.analysis.triggerMode` | `onSave` | Passive trigger mode for analysis |
+| `confession.analysis.depth` | `standard` | Choose `quick`, `standard`, or `deep` |
+| `confession.analysis.debounceMs` | `500` | Save-trigger debounce time |
+| `confession.ignore.paths` | `[]` | Excluded file path patterns |
+| `confession.ignore.types` | `[]` | Excluded vulnerability types |
+| `confession.ui.language` | `auto` | Follow host locale or pin a UI language |
+
+## Development Workflow
+
+| Purpose | Command |
+| --- | --- |
+| Install dependencies | `pnpm install` |
+| Start local development | `pnpm dev` |
+| Lint everything | `pnpm lint` |
+| Build everything | `pnpm build` |
+| Run all tests | `pnpm test` |
+| Run CI-equivalent checks | `pnpm check:ci` |
+| Run server maintenance guard | `pnpm maint:check` |
+| Package the VS Code extension | `pnpm --filter confession-extension package` |
+| Run CLI tests | `pnpm --filter confession-cli test` |
+| Run scan benchmark | `pnpm --filter web benchmark:scan` |
+| Generate SARIF in CI mode | `pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json` |
+| Rebuild the Go WASM analyzer | `cd go-analyzer && make all` |
+| Format the repository | `pnpm format` |
 
 ## CI and Commit Rules
 
-- CI uses GitHub Actions (`.github/workflows/ci.yml`).
-- Trigger: `pull_request(main)` and `push(main)`.
-- `lint` / `build` / `test` run in parallel.
-- `quality` is the aggregate required gate.
-- `commit-check` validates commit range by `pnpm commitlint:range`.
-- Local commits are checked by `.husky/commit-msg`.
+- GitHub Actions workflows: `CI`, `Code Scanning`, and `Benchmark Regression`
+- Aggregate required gate: `quality`
+- Commit range validation: `pnpm commitlint:range --from <from> --to <to>`
+- Local commit hook: `.husky/commit-msg`
 
-### Commit Format
+Commit messages must follow:
 
 ```text
 <emoji> <type>(<scope>): <description>
 ```
 
 Allowed `type`: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
-`scope` is required.
 
-## CLI Behavior Notes
+## Repository Layout
 
-- Argument validation is strict: unknown flags or invalid enum values fail with non-zero exit code.
-- On polling timeout or `SIGINT` (`Ctrl+C`), `scan` attempts `POST /api/scan/cancel/:id` before exiting, to avoid stale `running` tasks.
-
-## Go WASM Analyzer
-
-```bash
-cd go-analyzer
-make all    # build WASM + copy wasm_exec.js to web/public/
-make clean  # clean artifacts
+```text
+confession/
+├── .github/workflows/
+├── .husky/
+├── confession-cli/
+├── extension/
+├── go-analyzer/
+├── web/
+├── package.json
+├── pnpm-workspace.yaml
+├── turbo.json
+├── README.md
+├── README.zh-TW.md
+└── README.zh-CN.md
 ```
-
-## Extension Packaging
-
-```bash
-cd extension
-pnpm build
-pnpm package
-```
-
-## API Routes
-
-| Route | Method | Description |
-|------|------|------|
-| `/api/health` | GET | Health check |
-| `/api/advice/latest` | GET | Latest AI next-step advice |
-| `/api/config` | GET | Get current config |
-| `/api/config` | PUT | Partial config update (merge) |
-| `/api/scan` | POST | Trigger scan |
-| `/api/scan/status/:id` | GET | Scan status |
-| `/api/scan/stream/:id` | GET | SSE progress stream |
-| `/api/scan/recent` | GET | Most recent scan summary |
-| `/api/scan/cancel/:id` | POST | Cancel running scan |
-| `/api/vulnerabilities` | GET | Vulnerability list (filter/sort/paginate) |
-| `/api/vulnerabilities/trend` | GET | Vulnerability trend |
-| `/api/vulnerabilities/stats` | GET | Vulnerability stats |
-| `/api/vulnerabilities/:id` | GET | Vulnerability detail |
-| `/api/vulnerabilities/:id/events` | GET | Vulnerability event stream |
-| `/api/vulnerabilities/:id` | PATCH | Update status / attribution |
-| `/api/export` | POST | Export report (`json/csv/markdown/pdf/sarif`) |
-| `/api/monitoring/generate` | POST | Generate monitoring code |
-
-## Detection Coverage
-
-### JS/TS (TypeScript Compiler API)
-
-- `eval()` / `new Function()` / `setTimeout(string)`
-- `innerHTML` / `outerHTML` assignment
-- direct access from `req.query` / `req.body` / `req.params`
-- `__proto__` / `Object.setPrototypeOf` / `prototype` mutation
-- sensitive keyword indexing (`password`, `secret`, `token`, etc.)
-
-### Go (WASM + go/ast)
-
-- `exec.Command` / `exec.CommandContext` (command injection)
-- string-concatenated `sql.Query` / `sql.Exec` (SQL injection)
-- sensitive environment variable operations (`os.Setenv`, `os.Getenv`)
-- weak hash usage (`md5`, `sha1`)
-- `http.ListenAndServe` without TLS
-- unhandled HTTP response errors
-
-### LLM Semantic Analysis (Gemini / NVIDIA)
-
-- `quick`: conditional LLM on high-risk AST points
-- `standard`: one aggregated analysis request per file
-- `deep`: one full-file macro analysis per file
-- prompt fingerprint cache to reduce duplicate requests
-- structured JSON output (vulnerability type, CWE, remediation)
-
-## Export Reports
-
-- Formats: `JSON`, `CSV` (with UTF-8 BOM), `Markdown`, `PDF`, `SARIF 2.1.0`
-- `POST /api/export` supports `locale?: 'zh-TW' | 'zh-CN' | 'en'`
-- If `locale` is omitted, backend resolves from `config.ui.language`; falls back to `zh-TW` when undecidable
-- PDF flow returns printable HTML; user saves as PDF via browser print dialog
-- Filename pattern: `confession-vulnerabilities-YYYYMMDD-HHmmss.<ext>`
-
-## VS Code Extension Features
-
-- **Diagnostics**: real-time panel highlights (critical/high -> Error, medium -> Warning, low/info -> Info)
-- **Hover**: vulnerability details and remediation guidance
-- **Code Actions**: one-click fix / ignore
-- **Status Bar**: scan state indicator
-- **Auto scan**: debounce-triggered incremental scan on save
-- **Webview Dashboard**: embedded Next.js security dashboard
-
-### Extension Commands
-
-- `Confession: Scan Current File`
-- `Confession: Scan Workspace`
-- `Confession: Open Security Dashboard`
-- `Confession: 儀表盤`
-- `Confession: 漏洞列表`
-- `Confession: 設定`
-
-### Extension Settings (`confession.*`)
-
-| Setting | Default | Description |
-|------|------|------|
-| `confession.api.baseUrl` | `http://localhost:3000` | API server base URL |
-| `confession.api.mode` | `local` | Connection mode (`local` / `remote`) |
-| `confession.llm.apiKey` | — | Gemini API key |
-| `confession.analysis.triggerMode` | `onSave` | Trigger mode (`onSave` / `manual`) |
-| `confession.analysis.depth` | `standard` | Scan depth (`quick` / `standard` / `deep`) |
-| `confession.analysis.debounceMs` | `500` | Debounce delay (ms) |
-| `confession.ignore.paths` | `[]` | Ignored file paths |
-| `confession.ignore.types` | `[]` | Ignored vulnerability types |
-| `confession.ui.language` | `auto` | Webview locale (`auto` / `zh-TW` / `zh-CN` / `en`) |
-
-## Testing
-
-This project uses Vitest + fast-check for unit and property-based testing.
-
-```bash
-# Run all tests
-pnpm test
-
-# Run a single test file
-pnpm --filter web exec vitest run src/server/analyzers/jsts.test.ts
-```
-
-### Property-Based Checks (PBT)
-
-| Property | What it validates |
-|------|------|
-| P1 | AST analyzer completeness for known patterns |
-| P2 | Sensitive keyword index correctness |
-| P3 | Vulnerability idempotency (duplicate insert remains one record) |
-| P4 | Agent message serialization round-trip integrity |
-| P5 | LLM response parser robustness |
-| P6 | Orchestrator language routing correctness |
-| P7 | Diagnostics severity mapping correctness |
-| P8 | Debounce correctness (single trigger in window) |
-
-## License
-
-MIT
