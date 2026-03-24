@@ -137,6 +137,8 @@ confession/
 │       ├── health-score.ts
 │       └── monitoring.ts
 ├── go-analyzer/
+├── commitlint.config.mjs
+├── LICENSE
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── README.zh-CN.md

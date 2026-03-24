@@ -105,6 +105,7 @@ confession/
 │       └── monitoring.ts
 ├── go-analyzer/
 ├── commitlint.config.mjs
+├── LICENSE               # 專案授權（MIT）
 ├── package.json
 ├── pnpm-workspace.yaml    # workspaces: web, extension, confession-cli
 ├── README.zh-CN.md

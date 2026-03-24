@@ -7,6 +7,11 @@
 [![CI](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml)
 [![Code Scanning](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml)
 [![Benchmark Regression](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0F766E.svg)](./LICENSE)
+[![VS Code ^1.85](https://img.shields.io/badge/VS_Code-%5E1.85-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
+[![Next.js 16.1](https://img.shields.io/badge/Next.js-16.1.6-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Tailwind CSS 4.1](https://img.shields.io/badge/Tailwind_CSS-4.1.10-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Hono 4.11](https://img.shields.io/badge/Hono-4.11.9-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![pnpm 9](https://img.shields.io/badge/pnpm-9-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -14,7 +19,7 @@
 LLM-assisted static security analysis for VS Code.  
 AST-first detection, tri-language Webview UX, local FileStore persistence, and export-ready reporting in one workflow.
 
-[Quick Start](#quick-start) · [Highlights](#highlights) · [Scan Modes](#scan-modes) · [API Surface](#api-surface) · [Development Workflow](#development-workflow)
+[Quick Start](#quick-start) · [Highlights](#highlights) · [Important Tips](#important-tips) · [API Surface](#api-surface) · [Development Workflow](#development-workflow) · [License](#license)
 
 **English** | [繁體中文](./README.zh-TW.md) | [简体中文](./README.zh-CN.md)
 
@@ -34,6 +39,17 @@ The product follows three hard constraints: it never executes user code, it obse
 - **Event-driven AI advice**: next-step suggestions only run after defined scan or review events and must pass score, cooldown, dedupe, and daily-limit guards.
 - **Local-first persistence**: configuration, vulnerabilities, scan tasks, advice snapshots, and analysis cache live under `.confession/*.json`.
 - **Export-ready outputs**: built-in `json`, `csv`, `markdown`, printable HTML for PDF, and SARIF 2.1.0 reporting.
+
+## Important Tips
+
+> [!IMPORTANT]
+> Confession is strictly a static analysis workflow. It does not execute user code, launch the target app, or run runtime instrumentation in your workspace.
+
+> [!TIP]
+> Use `standard` as the default mode, keep `quick` for save-triggered feedback, and reserve `deep` for release checks, audits, or broad security reviews.
+
+> [!NOTE]
+> `agentic_beta` is the default scan engine, and the backend automatically falls back to `baseline` within the same task if beta fails. For `pdf` export, the API returns printable HTML that you save through the browser print dialog.
 
 ## Quick Start
 
@@ -210,6 +226,7 @@ confession/
 ├── confession-cli/
 ├── extension/
 ├── go-analyzer/
+├── LICENSE
 ├── web/
 ├── package.json
 ├── pnpm-workspace.yaml
@@ -218,3 +235,7 @@ confession/
 ├── README.zh-TW.md
 └── README.zh-CN.md
 ```
+
+## License
+
+This repository is released under the MIT License. See [LICENSE](./LICENSE).

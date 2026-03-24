@@ -7,6 +7,11 @@
 [![CI](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/ci.yml)
 [![Code Scanning](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/code-scanning.yml)
 [![Benchmark Regression](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml/badge.svg?branch=main)](https://github.com/BlackishGreen33/Confession/actions/workflows/benchmark-regression.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0F766E.svg)](./LICENSE)
+[![VS Code ^1.85](https://img.shields.io/badge/VS_Code-%5E1.85-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
+[![Next.js 16.1](https://img.shields.io/badge/Next.js-16.1.6-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Tailwind CSS 4.1](https://img.shields.io/badge/Tailwind_CSS-4.1.10-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Hono 4.11](https://img.shields.io/badge/Hono-4.11.9-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![pnpm 9](https://img.shields.io/badge/pnpm-9-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -29,6 +34,17 @@ Confession 是一套围绕 VS Code 工作流设计的静态安全分析工具。
 - **事件驱动 AI 建议**：只有在扫描或审核事件之后，并通过门槛、cooldown 与去重规则时才会触发。
 - **本地文件存储**：配置、漏洞、任务、建议快照与分析缓存都保存在 `.confession/*.json`。
 - **导出完整**：内建 `json`、`csv`、`markdown`、`pdf`、`sarif`。
+
+## 重要提示
+
+> [!IMPORTANT]
+> Confession 严格限制在静态分析范围内，不会执行用户代码，也不会启动目标服务或做 runtime 注入。
+
+> [!TIP]
+> 日常使用建议以 `standard` 为主，`quick` 适合保存后的即时反馈，`deep` 则保留给发版前检查、审计或完整安全 review。
+
+> [!NOTE]
+> 默认扫描引擎是 `agentic_beta`，如果失败，后端会在同一个 task 内自动回退 `baseline`。`pdf` 导出实际返回的是可打印 HTML，需要通过浏览器或 Webview 的打印流程另存为 PDF。
 
 ## 快速开始
 
@@ -98,3 +114,7 @@ node confession-cli/bin/confession.js status
 
 完整 API、架构、检测覆盖范围、CI 规则与存储契约，请参考英文主版 README：  
 [README.md](./README.md)
+
+## 授权
+
+本项目采用 MIT License，详见 [LICENSE](./LICENSE)。
