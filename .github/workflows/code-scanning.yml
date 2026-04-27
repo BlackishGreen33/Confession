@@ -10,7 +10,6 @@ on:
       - 'web/package.json'
       - 'pnpm-lock.yaml'
       - 'AGENTS.md'
-      - '.kiro/steering/**'
   push:
     branches: [main]
     paths:
@@ -20,7 +19,6 @@ on:
       - 'web/package.json'
       - 'pnpm-lock.yaml'
       - 'AGENTS.md'
-      - '.kiro/steering/**'
   workflow_dispatch:
 
 permissions:
