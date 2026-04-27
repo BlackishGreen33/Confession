@@ -4,29 +4,29 @@
 
 ## 0. 核心原則
 
-- 專案 single source of truth：`.kiro/steering/`
+- 專案 single source of truth：`AGENTS.md`
 - 任務優先順序：
-  1. 先讀 steering
-  2. 再比對實際程式碼與目錄
-  3. 修正 steering 的過時內容
-  4. 同步更新 `AGENTS.md`
-- 若 steering 與程式碼衝突：不得忽略，必須同步修正到一致
+  1. 先讀 `AGENTS.md`
+  2. 再比對實際程式碼、目錄、設定與指令
+  3. 若 `AGENTS.md` 與現況衝突，依實際程式碼修正文檔，或依任務修正程式碼
+  4. 若專案結構、規範、流程或指令有持久變更，必須同步更新 `AGENTS.md`
+- `README*.md`、論文與優化備忘屬於一般專案文件，不是 Agent 必讀來源；若未來新增長篇參考文檔，需在 `AGENTS.md` 標明用途與是否必讀
 - 全程使用繁體中文（對話、程式碼註釋）；`README.md` 預設英文並提供中譯版本
 
 ## 1. 每次任務的標準流程
 
-1. 讀取 `.kiro/steering/*.md` 全部檔案。
-2. 盤點實際專案現況（結構、路由、依賴、型別、測試）。
+1. 讀取 `AGENTS.md`。
+2. 盤點實際專案現況（結構、路由、依賴、型別、測試、package scripts、CI workflow）。
 3. 標記差異：
-   - 缺失（steering 未覆蓋）
+   - 缺失（`AGENTS.md` 未覆蓋）
    - 遺漏（新能力未記錄）
    - 過舊（與現況不符）
-4. 先更新 `.kiro/steering`。
-5. 依最新 steering 產生或更新 `AGENTS.md`。
-6. 執行品質檢查：
-   - `pnpm lint`
-   - `pnpm build`
-7. 若失敗，修復後重跑，直到全數通過。
+   - 不確定（加簡短 TODO，不自行臆測）
+4. 依任務做最小必要修改；若變更會影響後續 Agent 判斷，更新 `AGENTS.md`。
+5. 執行品質檢查：
+   - 預設至少執行 `pnpm check:lint`、`pnpm check:build`
+   - 若改到 runtime code、測試、CLI 或 extension 行為，加跑 `pnpm check:test` 或更精準的 filter 測試
+6. 若失敗，修復後重跑，直到全數通過。
 
 ## 2. 產品與邊界
 
@@ -139,6 +139,7 @@ confession/
 ├── go-analyzer/
 ├── confession-future-optimizations.md
 ├── confession-thesis.md
+├── confession-thesis-before-ai-reduction.md
 ├── commitlint.config.mjs
 ├── LICENSE
 ├── package.json
@@ -192,11 +193,15 @@ confession/
 
 ## 5.1 工作流程與常用指令
 
+- 安裝依賴：`pnpm install`
 - 全專案本地開發：`pnpm dev`
 - 品質檢查彙總（lint + build + test）：`pnpm check:ci`
+- 根層級 lint：`pnpm lint`
 - CI lint 檢查：`pnpm check:lint`
 - 維護守門（server `max-lines` 例外檢查）：`pnpm maint:check`
+- 根層級 build：`pnpm build`
 - CI build 檢查：`pnpm check:build`
+- 全部測試：`pnpm test`
 - CI test 檢查：`pnpm check:test`
 - 掃描基準（1000/3000 檔，預設 baseline）：`pnpm --filter web benchmark:scan`
 - 建議固定 benchmark 參數（可比性）：`--seed <int>`、`--workspace-root /benchmark`
@@ -205,7 +210,8 @@ confession/
 - 程式碼格式化：`pnpm format`
 - 格式檢查：`pnpm format:check`
 - Extension 打包 VSIX：`pnpm --filter confession-extension package`
-- CLI 本地執行：`node confession-cli/bin/confession.js --help`
+- CLI 本地建置：`pnpm --filter confession-cli build`
+- CLI 本地執行：`pnpm --filter confession-cli build && node confession-cli/bin/confession.js --help`
 - CLI DAST 驗證：`node confession-cli/bin/confession.js verify web --url <http(s)://target>`
 - CLI 測試：`pnpm --filter confession-cli test`
 - Commit range 檢查：`pnpm commitlint:range --from <from> --to <to>`
@@ -362,9 +368,9 @@ ignore / config 同步規範：
 - `commit-check` job：`pnpm commitlint:range --from <from> --to <to>`
 - 本機 hook：`.husky/commit-msg` 執行 `pnpm commitlint --edit "$1"`
 
-## 11. Steering 同步責任
+## 11. AGENTS.md 同步責任
 
-以下任一變更發生時，必須同步更新 `.kiro/steering` 與 `AGENTS.md`：
+以下任一變更發生時，必須同步更新 `AGENTS.md`：
 
 - 目錄結構變動
 - 路徑別名變動
@@ -372,9 +378,10 @@ ignore / config 同步規範：
 - 程式碼規範調整
 - 測試策略調整
 - API 路由或行為調整
+- 工作流程、CI、品質檢查或常用指令調整
 
 完成定義：
 
-- steering 與 `AGENTS.md` 內容一致
 - 與當前程式碼一致
-- `pnpm lint`、`pnpm build` 通過
+- `AGENTS.md` 是唯一 Agent 必讀入口
+- `pnpm check:lint`、`pnpm check:build` 通過
