@@ -41,8 +41,14 @@ function parseArgs(argv) {
       continue
     }
     if (key === 'engine-mode') {
-      if (!['baseline', 'agentic_beta'].includes(value)) {
-        throw new Error(`--engine-mode 僅接受 baseline|agentic_beta（目前 ${value}）`)
+      if (value === 'agentic_beta') {
+        options.engineMode = 'agentic'
+        continue
+      }
+      if (!['baseline', 'agentic'].includes(value)) {
+        throw new Error(
+          `--engine-mode 僅接受 baseline|agentic（目前 ${value}）`
+        )
       }
       options.engineMode = value
       continue
@@ -102,7 +108,11 @@ async function main() {
 
   const outputPath = path.resolve(options.output)
   await mkdir(path.dirname(outputPath), { recursive: true })
-  await writeFile(outputPath, `${JSON.stringify(built.payload, null, 2)}\n`, 'utf8')
+  await writeFile(
+    outputPath,
+    `${JSON.stringify(built.payload, null, 2)}\n`,
+    'utf8'
+  )
 
   const summary = {
     category,

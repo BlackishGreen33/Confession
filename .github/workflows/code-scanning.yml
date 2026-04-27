@@ -41,7 +41,7 @@ jobs:
         include:
           - engine_mode: baseline
             depth: standard
-          - engine_mode: agentic_beta
+          - engine_mode: agentic
             depth: standard
 
     steps:
