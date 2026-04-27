@@ -8,7 +8,7 @@ import {
 } from './health-score'
 
 function buildVulnerability(
-  overrides: Partial<HealthScoreInputVulnerability> = {},
+  overrides: Partial<HealthScoreInputVulnerability> = {}
 ): HealthScoreInputVulnerability {
   return {
     filePath: overrides.filePath ?? '/repo/a.ts',
@@ -28,11 +28,13 @@ function buildVulnerability(
   }
 }
 
-function buildTask(overrides: Partial<HealthScoreInputTask> = {}): HealthScoreInputTask {
+function buildTask(
+  overrides: Partial<HealthScoreInputTask> = {}
+): HealthScoreInputTask {
   return {
     id: overrides.id ?? 'task-1',
     status: overrides.status ?? 'completed',
-    engineMode: overrides.engineMode ?? 'agentic_beta',
+    engineMode: overrides.engineMode ?? 'agentic',
     fallbackUsed: overrides.fallbackUsed ?? false,
     totalFiles: overrides.totalFiles ?? 20,
     createdAt: overrides.createdAt ?? new Date('2026-03-04T00:00:00.000Z'),
@@ -40,7 +42,9 @@ function buildTask(overrides: Partial<HealthScoreInputTask> = {}): HealthScoreIn
   }
 }
 
-function buildInput(overrides: Partial<HealthScoreInput> = {}): HealthScoreInput {
+function buildInput(
+  overrides: Partial<HealthScoreInput> = {}
+): HealthScoreInput {
   return {
     vulnerabilities: overrides.vulnerabilities ?? [],
     scanTasks: overrides.scanTasks ?? [],
@@ -53,8 +57,10 @@ describe('calculateHealthScore', () => {
   it('open critical 增加時，總分不會上升', () => {
     const baseline = calculateHealthScore(
       buildInput({
-        vulnerabilities: [buildVulnerability({ severity: 'medium', aiConfidence: 0.6 })],
-      }),
+        vulnerabilities: [
+          buildVulnerability({ severity: 'medium', aiConfidence: 0.6 }),
+        ],
+      })
     )
     const withCritical = calculateHealthScore(
       buildInput({
@@ -67,7 +73,7 @@ describe('calculateHealthScore', () => {
             aiConfidence: 0.95,
           }),
         ],
-      }),
+      })
     )
 
     expect(withCritical.score.value).toBeLessThanOrEqual(baseline.score.value)
@@ -80,7 +86,7 @@ describe('calculateHealthScore', () => {
         status: index < 5 ? 'completed' : 'failed',
         createdAt: new Date('2026-03-03T00:00:00.000Z'),
         updatedAt: new Date('2026-03-03T00:05:00.000Z'),
-      }),
+      })
     )
     const highSuccessTasks = Array.from({ length: 10 }, (_, index) =>
       buildTask({
@@ -88,24 +94,24 @@ describe('calculateHealthScore', () => {
         status: index < 9 ? 'completed' : 'failed',
         createdAt: new Date('2026-03-03T00:00:00.000Z'),
         updatedAt: new Date('2026-03-03T00:05:00.000Z'),
-      }),
+      })
     )
 
     const low = calculateHealthScore(
       buildInput({
         scanTasks: lowSuccessTasks,
         latestTask: lowSuccessTasks[lowSuccessTasks.length - 1],
-      }),
+      })
     )
     const high = calculateHealthScore(
       buildInput({
         scanTasks: highSuccessTasks,
         latestTask: highSuccessTasks[highSuccessTasks.length - 1],
-      }),
+      })
     )
 
     expect(high.score.components.reliability.value).toBeGreaterThanOrEqual(
-      low.score.components.reliability.value,
+      low.score.components.reliability.value
     )
   })
 
@@ -120,7 +126,7 @@ describe('calculateHealthScore', () => {
             humanStatus: 'pending',
           }),
         ],
-      }),
+      })
     )
 
     expect(noVuln.score.components.exposure.lev).toBe(0)
@@ -156,9 +162,11 @@ describe('calculateHealthScore', () => {
     const score7d = calculateHealthScore(input, { riskWindowDays: 7 })
     const score30d = calculateHealthScore(input, { riskWindowDays: 30 })
 
-    expect(score7d.score.components.quality.value).toBeGreaterThan(score30d.score.components.quality.value)
+    expect(score7d.score.components.quality.value).toBeGreaterThan(
+      score30d.score.components.quality.value
+    )
     expect(score7d.score.components.remediation.value).toBeGreaterThan(
-      score30d.score.components.remediation.value,
+      score30d.score.components.remediation.value
     )
   })
 
@@ -169,9 +177,13 @@ describe('calculateHealthScore', () => {
         status: 'completed',
         fallbackUsed: index < 12,
         totalFiles: 30,
-        createdAt: new Date(`2026-03-04T00:${String(index).padStart(2, '0')}:00.000Z`),
-        updatedAt: new Date(`2026-03-04T02:${String(index).padStart(2, '0')}:00.000Z`),
-      }),
+        createdAt: new Date(
+          `2026-03-04T00:${String(index).padStart(2, '0')}:00.000Z`
+        ),
+        updatedAt: new Date(
+          `2026-03-04T02:${String(index).padStart(2, '0')}:00.000Z`
+        ),
+      })
     )
 
     const out = calculateHealthScore(
@@ -186,13 +198,15 @@ describe('calculateHealthScore', () => {
         ],
         scanTasks: tasks,
         latestTask: tasks[tasks.length - 1],
-      }),
+      })
     )
 
     const topKeys = out.score.topFactors.map((factor) => factor.key)
     expect(topKeys).toContain('fallback_rate')
     expect(topKeys).toContain('mttr_hours')
     expect(topKeys).toContain('workspace_p95')
-    expect(out.score.topFactors.every((factor) => factor.direction === 'negative')).toBe(true)
+    expect(
+      out.score.topFactors.every((factor) => factor.direction === 'negative')
+    ).toBe(true)
   })
 })

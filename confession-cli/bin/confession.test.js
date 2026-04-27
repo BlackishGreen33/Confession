@@ -137,7 +137,7 @@ test('list 支援篩選，無結果時回傳固定訊息', async (t) => {
   const vulnerabilitiesPath = path.join(
     projectRoot,
     '.confession',
-    'vulnerabilities.json',
+    'vulnerabilities.json'
   )
 
   await fs.writeFile(
@@ -166,23 +166,15 @@ test('list 支援篩選，無結果時回傳固定訊息', async (t) => {
         },
       ],
       null,
-      2,
+      2
     )}\n`,
-    'utf8',
+    'utf8'
   )
 
   const filtered = createRuntime(projectRoot)
   const filteredCode = await runCli(
-    [
-      'list',
-      '--status',
-      'open',
-      '--severity',
-      'high',
-      '--search',
-      'token',
-    ],
-    filtered.runtime,
+    ['list', '--status', 'open', '--severity', 'high', '--search', 'token'],
+    filtered.runtime
   )
   assert.equal(filteredCode, 0)
   assert.match(filtered.stdout.toString(), /vuln-1/)
@@ -191,7 +183,7 @@ test('list 支援篩選，無結果時回傳固定訊息', async (t) => {
   const empty = createRuntime(projectRoot)
   const emptyCode = await runCli(
     ['list', '--status', 'ignored', '--search', 'not-exist'],
-    empty.runtime,
+    empty.runtime
   )
   assert.equal(emptyCode, 0)
   assert.match(empty.stdout.toString(), /沒有符合條件的漏洞/)
@@ -212,9 +204,9 @@ test('status 會輸出最新掃描與 fallback 摘要', async (t) => {
         { status: 'fixed', severity: 'low' },
       ],
       null,
-      2,
+      2
     )}\n`,
-    'utf8',
+    'utf8'
   )
   await fs.writeFile(
     path.join(confessionDir, 'scan-tasks.json'),
@@ -223,7 +215,7 @@ test('status 會輸出最新掃描與 fallback 摘要', async (t) => {
         {
           id: 'task-old',
           status: 'completed',
-          engineMode: 'agentic_beta',
+          engineMode: 'agentic',
           fallbackUsed: false,
           updatedAt: '2026-03-09T00:00:00.000Z',
         },
@@ -236,9 +228,9 @@ test('status 會輸出最新掃描與 fallback 摘要', async (t) => {
         },
       ],
       null,
-      2,
+      2
     )}\n`,
-    'utf8',
+    'utf8'
   )
 
   const runtime = createRuntime(projectRoot)
@@ -247,7 +239,10 @@ test('status 會輸出最新掃描與 fallback 摘要', async (t) => {
 
   const output = runtime.stdout.toString()
   assert.match(output, /vulnerabilities: total=3 open=2 fixed=1 ignored=0/)
-  assert.match(output, /latest scan: id=task-new status=failed engine=baseline fallback=yes/)
+  assert.match(
+    output,
+    /latest scan: id=task-new status=failed engine=baseline fallback=yes/
+  )
 })
 
 test('參數驗證：未知旗標與非法列舉值會失敗', async (t) => {
@@ -258,27 +253,27 @@ test('參數驗證：未知旗標與非法列舉值會失敗', async (t) => {
   assert.match(unknown.stderr.toString(), /未知參數：--x/)
 
   const depth = createRuntime(projectRoot)
-  assert.equal(
-    await runCli(['scan', '--depth', 'extreme'], depth.runtime),
-    1,
+  assert.equal(await runCli(['scan', '--depth', 'extreme'], depth.runtime), 1)
+  assert.match(
+    depth.stderr.toString(),
+    /參數 --depth 僅接受：quick\|standard\|deep/
   )
-  assert.match(depth.stderr.toString(), /參數 --depth 僅接受：quick\|standard\|deep/)
 
   const status = createRuntime(projectRoot)
-  assert.equal(
-    await runCli(['list', '--status', 'all'], status.runtime),
-    1,
+  assert.equal(await runCli(['list', '--status', 'all'], status.runtime), 1)
+  assert.match(
+    status.stderr.toString(),
+    /參數 --status 僅接受：open\|fixed\|ignored/
   )
-  assert.match(status.stderr.toString(), /參數 --status 僅接受：open\|fixed\|ignored/)
 
   const severity = createRuntime(projectRoot)
   assert.equal(
     await runCli(['list', '--severity', 'urgent'], severity.runtime),
-    1,
+    1
   )
   assert.match(
     severity.stderr.toString(),
-    /參數 --severity 僅接受：critical\|high\|medium\|low\|info/,
+    /參數 --severity 僅接受：critical\|high\|medium\|low\|info/
   )
 })
 
@@ -295,7 +290,7 @@ test('verify web 會執行 ZAP 與 Nuclei 並輸出摘要', async (t) => {
 
   const code = await runCli(
     ['verify', 'web', '--url', 'https://example.com'],
-    runtime.runtime,
+    runtime.runtime
   )
 
   assert.equal(code, 0)
@@ -326,7 +321,7 @@ test('verify web 在工具皆不存在時回傳失敗', async (t) => {
 
   const code = await runCli(
     ['verify', 'web', '--url', 'https://example.com'],
-    runtime.runtime,
+    runtime.runtime
   )
 
   assert.equal(code, 1)
@@ -378,7 +373,7 @@ test('scan 成功完成', async (t) => {
 
   const code = await runCli(
     ['scan', '--api', 'http://mock-server', '--depth', 'standard'],
-    runtime.runtime,
+    runtime.runtime
   )
 
   assert.equal(code, 0)
@@ -413,7 +408,10 @@ test('scan 任務失敗時回傳非 0', async (t) => {
     scanTimeoutMs: 5_000,
   })
 
-  const code = await runCli(['scan', '--api', 'http://mock-server'], runtime.runtime)
+  const code = await runCli(
+    ['scan', '--api', 'http://mock-server'],
+    runtime.runtime
+  )
   assert.equal(code, 1)
   assert.match(runtime.stderr.toString(), /掃描失敗：模擬錯誤/)
 })
@@ -454,7 +452,10 @@ test('scan 逾時會主動 cancel 任務', async (t) => {
     scanTimeoutMs: 100,
   })
 
-  const code = await runCli(['scan', '--api', 'http://mock-server'], runtime.runtime)
+  const code = await runCli(
+    ['scan', '--api', 'http://mock-server'],
+    runtime.runtime
+  )
   assert.equal(code, 1)
   assert.equal(cancelCalled, true)
   assert.match(runtime.stderr.toString(), /掃描等待逾時/)
@@ -504,7 +505,10 @@ test('scan 收到 SIGINT 會主動 cancel 任務', async (t) => {
     },
   })
 
-  const code = await runCli(['scan', '--api', 'http://mock-server'], runtime.runtime)
+  const code = await runCli(
+    ['scan', '--api', 'http://mock-server'],
+    runtime.runtime
+  )
   assert.equal(code, 130)
   assert.equal(cancelCalled, true)
   assert.match(runtime.stderr.toString(), /掃描已中斷/)

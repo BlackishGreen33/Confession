@@ -1,6 +1,6 @@
-import type { VulnerabilityInput } from '@server/storage'
-import fc from 'fast-check'
-import { describe, expect, it } from 'vitest'
+import type { VulnerabilityInput } from '@server/storage';
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
 
 import type {
   ExtToWebMsg,
@@ -9,7 +9,7 @@ import type {
   ScanRequest,
   Vulnerability,
   WebToExtMsg,
-} from '@/libs/types'
+} from '@/libs/types';
 
 /**
  * P4: Agent 消息序列化往返（Validates: Requirements 2.5.5）
@@ -22,8 +22,15 @@ describe('P4: Agent 消息序列化往返', () => {
 
   const interactionPointArb: fc.Arbitrary<InteractionPoint> = fc.record({
     id: fc.uuid(),
-    type: fc.constantFrom('dangerous_call', 'sensitive_data', 'unsafe_pattern', 'prototype_mutation') as fc.Arbitrary<InteractionPoint['type']>,
-    language: fc.constantFrom('go', 'javascript', 'typescript') as fc.Arbitrary<InteractionPoint['language']>,
+    type: fc.constantFrom(
+      'dangerous_call',
+      'sensitive_data',
+      'unsafe_pattern',
+      'prototype_mutation'
+    ) as fc.Arbitrary<InteractionPoint['type']>,
+    language: fc.constantFrom('go', 'javascript', 'typescript') as fc.Arbitrary<
+      InteractionPoint['language']
+    >,
     filePath: fc.stringMatching(/^[a-z][a-z0-9/\-_.]{0,30}$/),
     line: fc.nat({ max: 10000 }),
     column: fc.nat({ max: 500 }),
@@ -31,8 +38,10 @@ describe('P4: Agent 消息序列化往返', () => {
     endColumn: fc.nat({ max: 500 }),
     codeSnippet: fc.string({ minLength: 1, maxLength: 200 }),
     patternName: fc.string({ minLength: 1, maxLength: 50 }),
-    confidence: fc.constantFrom('high', 'medium', 'low') as fc.Arbitrary<InteractionPoint['confidence']>,
-  })
+    confidence: fc.constantFrom('high', 'medium', 'low') as fc.Arbitrary<
+      InteractionPoint['confidence']
+    >,
+  });
 
   const vulnerabilityArb: fc.Arbitrary<Vulnerability> = fc.record({
     id: fc.uuid(),
@@ -45,24 +54,61 @@ describe('P4: Agent 消息序列化往返', () => {
     codeHash: fc.stringMatching(/^[0-9a-f]{64}$/),
     type: fc.string({ minLength: 1, maxLength: 50 }),
     cweId: fc.option(fc.stringMatching(/^CWE-\d{1,4}$/), { nil: null }),
-    severity: fc.constantFrom('critical', 'high', 'medium', 'low', 'info') as fc.Arbitrary<Vulnerability['severity']>,
+    severity: fc.constantFrom(
+      'critical',
+      'high',
+      'medium',
+      'low',
+      'info'
+    ) as fc.Arbitrary<Vulnerability['severity']>,
     description: fc.string({ minLength: 1, maxLength: 200 }),
-    riskDescription: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixOldCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixNewCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixExplanation: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    aiModel: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
-    aiConfidence: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: null }),
-    aiReasoning: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
+    riskDescription: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixOldCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixNewCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixExplanation: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    aiModel: fc.option(fc.string({ minLength: 1, maxLength: 50 }), {
+      nil: null,
+    }),
+    aiConfidence: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), {
+      nil: null,
+    }),
+    aiReasoning: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
     stableFingerprint: fc.stringMatching(/^[0-9a-f]{64}$/),
-    source: fc.constantFrom('sast', 'dast') as fc.Arbitrary<Vulnerability['source']>,
-    humanStatus: fc.constantFrom('pending', 'confirmed', 'rejected', 'false_positive') as fc.Arbitrary<Vulnerability['humanStatus']>,
-    humanComment: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
-    status: fc.constantFrom('open', 'fixed', 'ignored') as fc.Arbitrary<Vulnerability['status']>,
-    createdAt: fc.integer({ min: 946684800000, max: 4102444800000 }).map((ts) => new Date(ts).toISOString()),
-    updatedAt: fc.integer({ min: 946684800000, max: 4102444800000 }).map((ts) => new Date(ts).toISOString()),
-  })
+    source: fc.constantFrom('sast', 'dast') as fc.Arbitrary<
+      Vulnerability['source']
+    >,
+    humanStatus: fc.constantFrom(
+      'pending',
+      'confirmed',
+      'rejected',
+      'false_positive'
+    ) as fc.Arbitrary<Vulnerability['humanStatus']>,
+    humanComment: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), {
+      nil: null,
+    }),
+    status: fc.constantFrom('open', 'fixed', 'ignored') as fc.Arbitrary<
+      Vulnerability['status']
+    >,
+    createdAt: fc
+      .integer({ min: 946684800000, max: 4102444800000 })
+      .map((ts) => new Date(ts).toISOString()),
+    updatedAt: fc
+      .integer({ min: 946684800000, max: 4102444800000 })
+      .map((ts) => new Date(ts).toISOString()),
+  });
 
   const scanRequestArb: fc.Arbitrary<ScanRequest> = fc.record({
     files: fc.array(
@@ -71,62 +117,97 @@ describe('P4: Agent 消息序列化往返', () => {
         content: fc.string({ minLength: 1, maxLength: 100 }),
         language: fc.string({ minLength: 1, maxLength: 20 }),
       }),
-      { minLength: 0, maxLength: 5 },
+      { minLength: 0, maxLength: 5 }
     ),
-    depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<ScanRequest['depth']>,
+    depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<
+      ScanRequest['depth']
+    >,
     includeLlmScan: fc.option(fc.boolean(), { nil: undefined }),
     forceRescan: fc.option(fc.boolean(), { nil: undefined }),
-    scanScope: fc.option(fc.constantFrom('file', 'workspace'), { nil: undefined }),
-    engineMode: fc.option(fc.constantFrom('baseline', 'agentic_beta'), { nil: undefined }),
-  })
+    scanScope: fc.option(fc.constantFrom('file', 'workspace'), {
+      nil: undefined,
+    }),
+    engineMode: fc.option(fc.constantFrom('baseline', 'agentic'), {
+      nil: undefined,
+    }),
+  });
 
   const pluginConfigArb: fc.Arbitrary<PluginConfig> = fc.record({
     llm: fc.record({
-      provider: fc.constantFrom('gemini', 'nvidia') as fc.Arbitrary<PluginConfig['llm']['provider']>,
+      provider: fc.constantFrom(
+        'gemini',
+        'nvidia',
+        'minimax-cn'
+      ) as fc.Arbitrary<PluginConfig['llm']['provider']>,
       apiKey: fc.string({ minLength: 1, maxLength: 50 }),
-      endpoint: fc.option(fc.stringMatching(/^https?:\/\/[a-z0-9.]+$/), { nil: undefined }),
-      model: fc.option(fc.string({ minLength: 1, maxLength: 30 }), { nil: undefined }),
+      endpoint: fc.option(fc.stringMatching(/^https?:\/\/[a-z0-9.]+$/), {
+        nil: undefined,
+      }),
+      model: fc.option(fc.string({ minLength: 1, maxLength: 30 }), {
+        nil: undefined,
+      }),
     }),
     analysis: fc.record({
-      triggerMode: fc.constantFrom('onSave', 'manual') as fc.Arbitrary<PluginConfig['analysis']['triggerMode']>,
-      depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<PluginConfig['analysis']['depth']>,
+      triggerMode: fc.constantFrom('onSave', 'manual') as fc.Arbitrary<
+        PluginConfig['analysis']['triggerMode']
+      >,
+      depth: fc.constantFrom('quick', 'standard', 'deep') as fc.Arbitrary<
+        PluginConfig['analysis']['depth']
+      >,
       debounceMs: fc.nat({ max: 5000 }),
     }),
     ignore: fc.record({
-      paths: fc.array(fc.string({ minLength: 1, maxLength: 30 }), { maxLength: 5 }),
-      types: fc.array(fc.string({ minLength: 1, maxLength: 30 }), { maxLength: 5 }),
+      paths: fc.array(fc.string({ minLength: 1, maxLength: 30 }), {
+        maxLength: 5,
+      }),
+      types: fc.array(fc.string({ minLength: 1, maxLength: 30 }), {
+        maxLength: 5,
+      }),
     }),
     api: fc.record({
       baseUrl: fc.stringMatching(/^https?:\/\/[a-z0-9.:]+$/),
-      mode: fc.constantFrom('local', 'remote') as fc.Arbitrary<PluginConfig['api']['mode']>,
+      mode: fc.constantFrom('local', 'remote') as fc.Arbitrary<
+        PluginConfig['api']['mode']
+      >,
     }),
     ui: fc.record({
       language: fc.constantFrom('auto', 'zh-TW', 'zh-CN', 'en') as fc.Arbitrary<
         PluginConfig['ui']['language']
       >,
     }),
-  })
+  });
 
   const extToWebMsgArb: fc.Arbitrary<ExtToWebMsg> = fc.oneof(
     fc.record({
-      type: fc.constant('vulnerabilities_updated') as fc.Arbitrary<'vulnerabilities_updated'>,
+      type: fc.constant(
+        'vulnerabilities_updated'
+      ) as fc.Arbitrary<'vulnerabilities_updated'>,
       data: fc.array(vulnerabilityArb, { maxLength: 3 }),
     }),
     fc.record({
       type: fc.constant('scan_progress') as fc.Arbitrary<'scan_progress'>,
-      data: fc.record({ status: fc.string({ minLength: 1, maxLength: 30 }), progress: fc.double({ min: 0, max: 100, noNaN: true }) }),
+      data: fc.record({
+        status: fc.string({ minLength: 1, maxLength: 30 }),
+        progress: fc.double({ min: 0, max: 100, noNaN: true }),
+      }),
     }),
     fc.record({
       type: fc.constant('config_updated') as fc.Arbitrary<'config_updated'>,
       data: pluginConfigArb,
     }),
     fc.record({
-      type: fc.constant('apply_vulnerability_preset') as fc.Arbitrary<'apply_vulnerability_preset'>,
+      type: fc.constant(
+        'apply_vulnerability_preset'
+      ) as fc.Arbitrary<'apply_vulnerability_preset'>,
       data: fc.record({
-        preset: fc.constantFrom('critical_open', 'high_open', 'open_all') as fc.Arbitrary<
-          'critical_open' | 'high_open' | 'open_all'
-        >,
-        sourceRequestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), { nil: undefined }),
+        preset: fc.constantFrom(
+          'critical_open',
+          'high_open',
+          'open_all'
+        ) as fc.Arbitrary<'critical_open' | 'high_open' | 'open_all'>,
+        sourceRequestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), {
+          nil: undefined,
+        }),
       }),
     }),
     fc.record({
@@ -139,7 +220,7 @@ describe('P4: Agent 消息序列化往返', () => {
           'refresh_vulnerabilities',
           'update_config',
           'focus_sidebar_view',
-          'export_pdf',
+          'export_pdf'
         ) as fc.Arbitrary<
           | 'apply_fix'
           | 'ignore_vulnerability'
@@ -153,26 +234,41 @@ describe('P4: Agent 消息序列化往返', () => {
         payload: fc.option(
           fc.record({
             vulnerabilityId: fc.option(fc.uuid(), { nil: undefined }),
-            updatedVulnerability: fc.option(vulnerabilityArb, { nil: undefined }),
+            updatedVulnerability: fc.option(vulnerabilityArb, {
+              nil: undefined,
+            }),
             config: fc.option(pluginConfigArb, { nil: undefined }),
           }),
-          { nil: undefined },
+          { nil: undefined }
         ),
       }),
-    }),
-  )
+    })
+  );
 
   const webToExtMsgArb: fc.Arbitrary<WebToExtMsg> = fc.oneof(
     fc.record({
       type: fc.constant('request_scan') as fc.Arbitrary<'request_scan'>,
-      data: fc.record({ scope: fc.constantFrom('file', 'workspace') as fc.Arbitrary<'file' | 'workspace'> }),
+      data: fc.record({
+        scope: fc.constantFrom('file', 'workspace') as fc.Arbitrary<
+          'file' | 'workspace'
+        >,
+      }),
     }),
     fc.record({
-      type: fc.constant('focus_sidebar_view') as fc.Arbitrary<'focus_sidebar_view'>,
-      requestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), { nil: undefined }),
+      type: fc.constant(
+        'focus_sidebar_view'
+      ) as fc.Arbitrary<'focus_sidebar_view'>,
+      requestId: fc.option(fc.string({ minLength: 1, maxLength: 64 }), {
+        nil: undefined,
+      }),
       data: fc.record({
-        view: fc.constantFrom('dashboard', 'vulnerabilities') as fc.Arbitrary<'dashboard' | 'vulnerabilities'>,
-        preset: fc.option(fc.constantFrom('critical_open', 'high_open', 'open_all'), { nil: undefined }),
+        view: fc.constantFrom('dashboard', 'vulnerabilities') as fc.Arbitrary<
+          'dashboard' | 'vulnerabilities'
+        >,
+        preset: fc.option(
+          fc.constantFrom('critical_open', 'high_open', 'open_all'),
+          { nil: undefined }
+        ),
       }),
     }),
     fc.record({
@@ -181,12 +277,21 @@ describe('P4: Agent 消息序列化往返', () => {
       data: fc.record({ vulnerabilityId: fc.uuid() }),
     }),
     fc.record({
-      type: fc.constant('ignore_vulnerability') as fc.Arbitrary<'ignore_vulnerability'>,
+      type: fc.constant(
+        'ignore_vulnerability'
+      ) as fc.Arbitrary<'ignore_vulnerability'>,
       requestId: fc.string({ minLength: 1, maxLength: 64 }),
-      data: fc.record({ vulnerabilityId: fc.uuid(), reason: fc.option(fc.string({ minLength: 1, maxLength: 100 }), { nil: undefined }) }),
+      data: fc.record({
+        vulnerabilityId: fc.uuid(),
+        reason: fc.option(fc.string({ minLength: 1, maxLength: 100 }), {
+          nil: undefined,
+        }),
+      }),
     }),
     fc.record({
-      type: fc.constant('refresh_vulnerabilities') as fc.Arbitrary<'refresh_vulnerabilities'>,
+      type: fc.constant(
+        'refresh_vulnerabilities'
+      ) as fc.Arbitrary<'refresh_vulnerabilities'>,
       requestId: fc.string({ minLength: 1, maxLength: 64 }),
     }),
     fc.record({
@@ -204,8 +309,8 @@ describe('P4: Agent 消息序列化往返', () => {
         line: fc.nat({ max: 10000 }),
         column: fc.nat({ max: 500 }),
       }),
-    }),
-  )
+    })
+  );
 
   const vulnerabilityInputArb: fc.Arbitrary<VulnerabilityInput> = fc.record({
     filePath: fc.stringMatching(/^[a-z][a-z0-9/\-_.]{0,30}$/),
@@ -218,20 +323,36 @@ describe('P4: Agent 消息序列化往返', () => {
     cweId: fc.option(fc.stringMatching(/^CWE-\d{1,4}$/), { nil: null }),
     severity: fc.constantFrom('critical', 'high', 'medium', 'low', 'info'),
     description: fc.string({ minLength: 1, maxLength: 200 }),
-    riskDescription: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixOldCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixNewCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    fixExplanation: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    aiModel: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
-    aiConfidence: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: null }),
-    aiReasoning: fc.option(fc.string({ minLength: 1, maxLength: 200 }), { nil: null }),
-    owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: null }),
-  })
+    riskDescription: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixOldCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixNewCode: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    fixExplanation: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    aiModel: fc.option(fc.string({ minLength: 1, maxLength: 50 }), {
+      nil: null,
+    }),
+    aiConfidence: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), {
+      nil: null,
+    }),
+    aiReasoning: fc.option(fc.string({ minLength: 1, maxLength: 200 }), {
+      nil: null,
+    }),
+    owaspCategory: fc.option(fc.string({ minLength: 1, maxLength: 50 }), {
+      nil: null,
+    }),
+  });
 
   // === 往返測試函式 ===
 
   function roundTrip<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value)) as T
+    return JSON.parse(JSON.stringify(value)) as T;
   }
 
   // === 屬性測試 ===
@@ -239,54 +360,54 @@ describe('P4: Agent 消息序列化往返', () => {
   it('InteractionPoint 序列化往返不丟失', () => {
     fc.assert(
       fc.property(interactionPointArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
+      { numRuns: 300 }
+    );
+  });
 
   it('Vulnerability 序列化往返不丟失', () => {
     fc.assert(
       fc.property(vulnerabilityArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
+      { numRuns: 300 }
+    );
+  });
 
   it('ScanRequest 序列化往返不丟失', () => {
     fc.assert(
       fc.property(scanRequestArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
+      { numRuns: 300 }
+    );
+  });
 
   it('ExtToWebMsg 序列化往返不丟失', () => {
     fc.assert(
       fc.property(extToWebMsgArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
+      { numRuns: 300 }
+    );
+  });
 
   it('WebToExtMsg 序列化往返不丟失', () => {
     fc.assert(
       fc.property(webToExtMsgArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
+      { numRuns: 300 }
+    );
+  });
 
   it('VulnerabilityInput 序列化往返不丟失', () => {
     fc.assert(
       fc.property(vulnerabilityInputArb, (msg) => {
-        expect(roundTrip(msg)).toEqual(msg)
+        expect(roundTrip(msg)).toEqual(msg);
       }),
-      { numRuns: 300 },
-    )
-  })
-})
+      { numRuns: 300 }
+    );
+  });
+});

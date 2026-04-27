@@ -26,15 +26,15 @@ const mockPrisma = vi.hoisted(() => ({
 }));
 
 const mockOrchestrate = vi.hoisted(() => vi.fn());
-const mockOrchestrateAgenticBeta = vi.hoisted(() => vi.fn());
+const mockOrchestrateAgentic = vi.hoisted(() => vi.fn());
 const mockTriggerAdviceEvaluation = vi.hoisted(() => vi.fn());
 
 vi.mock('@server/storage', () => ({ storage: mockPrisma }));
 vi.mock('@server/agents/orchestrator', () => ({
   orchestrate: mockOrchestrate,
 }));
-vi.mock('@server/agents/agentic-beta/orchestrator', () => ({
-  orchestrateAgenticBeta: mockOrchestrateAgenticBeta,
+vi.mock('@server/agents/agentic/orchestrator', () => ({
+  orchestrateAgentic: mockOrchestrateAgentic,
 }));
 vi.mock('@server/advice-gate', () => ({
   triggerAdviceEvaluation: mockTriggerAdviceEvaluation,
@@ -70,7 +70,7 @@ function createDefaultTask(data: Partial<TaskRecord>): TaskRecord {
     progress: data.progress ?? 0,
     totalFiles: data.totalFiles ?? 0,
     scannedFiles: data.scannedFiles ?? 0,
-    engineMode: data.engineMode ?? 'agentic_beta',
+    engineMode: data.engineMode ?? 'agentic',
     fallbackUsed: data.fallbackUsed ?? false,
     fallbackFrom: data.fallbackFrom ?? null,
     fallbackTo: data.fallbackTo ?? null,
@@ -329,10 +329,10 @@ describe('Scan routes', () => {
     mockPrisma.scanTask.findMany.mockResolvedValue([]);
 
     mockOrchestrate.mockResolvedValue(baselineSuccessResult);
-    mockOrchestrateAgenticBeta.mockResolvedValue(agenticSuccessResult);
+    mockOrchestrateAgentic.mockResolvedValue(agenticSuccessResult);
   });
 
-  it('POST /api/scan 未傳 engineMode 時預設使用 agentic_beta', async () => {
+  it('POST /api/scan 未傳 engineMode 時預設使用 agentic', async () => {
     const res = await app.request('/api/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -354,7 +354,7 @@ describe('Scan routes', () => {
     const createArg = mockPrisma.scanTask.create.mock.calls[0]?.[0] as {
       data: TaskRecord;
     };
-    expect(createArg.data.engineMode).toBe('agentic_beta');
+    expect(createArg.data.engineMode).toBe('agentic');
   });
 
   it('GET /api/scan/recent 有最近掃描資料時回傳摘要與 fallback 欄位', async () => {
@@ -368,7 +368,7 @@ describe('Scan routes', () => {
       createdAt: new Date('2026-03-01T00:00:00.000Z'),
       updatedAt: new Date('2026-03-01T00:05:00.000Z'),
       fallbackUsed: true,
-      fallbackFrom: 'agentic_beta',
+      fallbackFrom: 'agentic',
       fallbackTo: 'baseline',
       fallbackReason: 'Agentic 引擎失敗：LLM 分析失敗',
     });
@@ -395,7 +395,7 @@ describe('Scan routes', () => {
     expect(body.totalFiles).toBe(12);
     expect(body.engineMode).toBe('baseline');
     expect(body.fallbackUsed).toBe(true);
-    expect(body.fallbackFrom).toBe('agentic_beta');
+    expect(body.fallbackFrom).toBe('agentic');
     expect(body.fallbackTo).toBe('baseline');
     expect(body.fallbackReason).toContain('Agentic 引擎失敗');
     expect(body.createdAt).toBe('2026-03-01T00:00:00.000Z');
@@ -434,7 +434,7 @@ describe('Scan routes', () => {
       id: 'task-status',
       status: 'running',
       progress: 0.5,
-      engineMode: 'agentic_beta',
+      engineMode: 'agentic',
       totalFiles: 10,
       scannedFiles: 5,
       fallbackUsed: false,
@@ -488,7 +488,7 @@ describe('Scan routes', () => {
       totalFiles: 3,
       scannedFiles: 3,
       fallbackUsed: true,
-      fallbackFrom: 'agentic_beta',
+      fallbackFrom: 'agentic',
       fallbackTo: 'baseline',
       fallbackReason: 'Agentic 引擎失敗：LLM 分析失敗',
     });
@@ -514,7 +514,7 @@ describe('Scan routes', () => {
 
     expect(payload.id).toBe('task-stream');
     expect(payload.fallbackUsed).toBe(true);
-    expect(payload.fallbackFrom).toBe('agentic_beta');
+    expect(payload.fallbackFrom).toBe('agentic');
     expect(payload.fallbackTo).toBe('baseline');
     expect(payload.fallbackReason).toContain('Agentic 引擎失敗');
   });
@@ -536,7 +536,7 @@ describe('Scan routes', () => {
       progress: 0.3,
       totalFiles: 10,
       scannedFiles: 3,
-      engineMode: 'agentic_beta',
+      engineMode: 'agentic',
     });
     taskState.set(task.id, task);
 
@@ -627,7 +627,7 @@ describe('Scan routes', () => {
       progress: 0.4,
       totalFiles: 10,
       scannedFiles: 4,
-      engineMode: 'agentic_beta',
+      engineMode: 'agentic',
     });
     taskState.set(oldTask.id, oldTask);
 
@@ -669,7 +669,7 @@ describe('Scan routes', () => {
   });
 
   it('agentic 失敗時會自動回退 baseline，最終 completed + fallbackUsed=true', async () => {
-    mockOrchestrateAgenticBeta.mockResolvedValue(agenticFailedResult);
+    mockOrchestrateAgentic.mockResolvedValue(agenticFailedResult);
     mockOrchestrate.mockResolvedValue(baselineSuccessResult);
 
     const res = await app.request('/api/scan', {
@@ -695,17 +695,17 @@ describe('Scan routes', () => {
       'completed'
     );
 
-    expect(mockOrchestrateAgenticBeta).toHaveBeenCalledOnce();
+    expect(mockOrchestrateAgentic).toHaveBeenCalledOnce();
     expect(mockOrchestrate).toHaveBeenCalledOnce();
     expect(finalTask.engineMode).toBe('baseline');
     expect(finalTask.fallbackUsed).toBe(true);
-    expect(finalTask.fallbackFrom).toBe('agentic_beta');
+    expect(finalTask.fallbackFrom).toBe('agentic');
     expect(finalTask.fallbackTo).toBe('baseline');
     expect(finalTask.errorCode).toBeNull();
   });
 
-  it('agentic 與 baseline 都失敗時，任務 failed 且 errorCode=BETA_ENGINE_FAILED', async () => {
-    mockOrchestrateAgenticBeta.mockResolvedValue(agenticFailedResult);
+  it('agentic 與 baseline 都失敗時，任務 failed 且 errorCode=AGENTIC_ENGINE_FAILED', async () => {
+    mockOrchestrateAgentic.mockResolvedValue(agenticFailedResult);
     mockOrchestrate.mockResolvedValue(baselineFailedResult);
 
     const res = await app.request('/api/scan', {
@@ -731,16 +731,16 @@ describe('Scan routes', () => {
       'failed'
     );
 
-    expect(finalTask.errorCode).toBe('BETA_ENGINE_FAILED');
+    expect(finalTask.errorCode).toBe('AGENTIC_ENGINE_FAILED');
     expect(finalTask.errorMessage).toContain('Agentic 失敗');
     expect(finalTask.errorMessage).toContain('Baseline 回退失敗');
     expect(finalTask.fallbackUsed).toBe(true);
-    expect(finalTask.fallbackFrom).toBe('agentic_beta');
+    expect(finalTask.fallbackFrom).toBe('agentic');
     expect(finalTask.fallbackTo).toBe('baseline');
   });
 
   it('LLM 缺少 API key 時，失敗訊息需回傳可行動原因', async () => {
-    mockOrchestrateAgenticBeta.mockResolvedValue(
+    mockOrchestrateAgentic.mockResolvedValue(
       agenticFailedResultWithMissingApiKey
     );
     mockOrchestrate.mockResolvedValue(baselineFailedResultWithMissingApiKey);
@@ -768,7 +768,7 @@ describe('Scan routes', () => {
       'failed'
     );
 
-    expect(finalTask.errorCode).toBe('BETA_ENGINE_FAILED');
+    expect(finalTask.errorCode).toBe('AGENTIC_ENGINE_FAILED');
     expect(finalTask.errorMessage).toContain('NVIDIA API key 未設定');
     expect(finalTask.fallbackReason).toContain('NVIDIA API key 未設定');
   });
