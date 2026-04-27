@@ -34,7 +34,7 @@ The product follows three hard constraints: it never executes user code, it obse
 ## Highlights
 
 - **AST-first, never runtime**: analysis is limited to syntax trees, structure, and model-assisted reasoning.
-- **Two-engine scan pipeline**: `agentic_beta` is the default engine, with automatic in-task fallback to `baseline` when beta fails.
+- **Two-engine scan pipeline**: `agentic` is the default engine, with automatic in-task fallback to `baseline` when the agentic engine fails.
 - **VS Code-native workflow**: diagnostics, hover details, code actions, status bar feedback, and a Webview dashboard stay aligned with the same backend state.
 - **Event-driven AI advice**: next-step suggestions only run after defined scan or review events and must pass score, cooldown, dedupe, and daily-limit guards.
 - **Local-first persistence**: configuration, vulnerabilities, scan tasks, advice snapshots, and analysis cache live under `.confession/*.json`.
@@ -49,7 +49,7 @@ The product follows three hard constraints: it never executes user code, it obse
 > Use `standard` as the default mode, keep `quick` for save-triggered feedback, and reserve `deep` for release checks, audits, or broad security reviews.
 
 > [!NOTE]
-> `agentic_beta` is the default scan engine, and the backend automatically falls back to `baseline` within the same task if beta fails. For `pdf` export, the API returns printable HTML that you save through the browser print dialog.
+> `agentic` is the default scan engine, and the backend automatically falls back to `baseline` within the same task if the agentic engine fails. For `pdf` export, the API returns printable HTML that you save through the browser print dialog.
 
 ## Quick Start
 
@@ -86,21 +86,21 @@ node confession-cli/bin/confession.js status
 
 ## Scan Modes
 
-| Mode | LLM behavior | Best for |
-| --- | --- | --- |
-| `quick` | Conditional LLM only on high-risk AST points | Fast feedback on save |
-| `standard` | One aggregated LLM pass per file | Default day-to-day review |
-| `deep` | One full-file LLM scan per file | Broad inspection before reporting |
+| Mode       | LLM behavior                                 | Best for                          |
+| ---------- | -------------------------------------------- | --------------------------------- |
+| `quick`    | Conditional LLM only on high-risk AST points | Fast feedback on save             |
+| `standard` | One aggregated LLM pass per file             | Default day-to-day review         |
+| `deep`     | One full-file LLM scan per file              | Broad inspection before reporting |
 
 ## Architecture at a Glance
 
-| Surface | Responsibility |
-| --- | --- |
-| `extension/` | VS Code extension, diagnostics, save-triggered scans, SSE-first progress handling |
-| `web/` | Next.js App Router frontend plus Hono API mounted at `/api` |
-| `confession-cli/` | CLI for `init`, `scan`, `list`, `status`, and `verify web` |
-| `go-analyzer/` | Go AST analyzer compiled to WASM |
-| `.confession/` | Local FileStore contract shared by dashboard, API, extension, and CLI |
+| Surface           | Responsibility                                                                    |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `extension/`      | VS Code extension, diagnostics, save-triggered scans, SSE-first progress handling |
+| `web/`            | Next.js App Router frontend plus Hono API mounted at `/api`                       |
+| `confession-cli/` | CLI for `init`, `scan`, `list`, `status`, and `verify web`                        |
+| `go-analyzer/`    | Go AST analyzer compiled to WASM                                                  |
+| `.confession/`    | Local FileStore contract shared by dashboard, API, extension, and CLI             |
 
 ### Local Storage Contract
 
@@ -117,48 +117,48 @@ node confession-cli/bin/confession.js status
 
 ### System and Config
 
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/api/health` | GET | Health check and score summary |
-| `/api/advice/latest` | GET | Latest AI next-step advice |
-| `/api/config` | GET | Read current configuration |
-| `/api/config` | PUT | Persist merged configuration updates |
+| Route                | Method | Purpose                              |
+| -------------------- | ------ | ------------------------------------ |
+| `/api/health`        | GET    | Health check and score summary       |
+| `/api/advice/latest` | GET    | Latest AI next-step advice           |
+| `/api/config`        | GET    | Read current configuration           |
+| `/api/config`        | PUT    | Persist merged configuration updates |
 
 ### Scan
 
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/api/scan` | POST | Trigger a new scan |
-| `/api/scan/status/:id` | GET | Read task status |
-| `/api/scan/stream/:id` | GET | Receive SSE progress events |
-| `/api/scan/recent` | GET | Read the most recent scan summary |
-| `/api/scan/cancel/:id` | POST | Cancel a running task |
+| Route                  | Method | Purpose                           |
+| ---------------------- | ------ | --------------------------------- |
+| `/api/scan`            | POST   | Trigger a new scan                |
+| `/api/scan/status/:id` | GET    | Read task status                  |
+| `/api/scan/stream/:id` | GET    | Receive SSE progress events       |
+| `/api/scan/recent`     | GET    | Read the most recent scan summary |
+| `/api/scan/cancel/:id` | POST   | Cancel a running task             |
 
 ### Vulnerabilities
 
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/api/vulnerabilities` | GET | List vulnerabilities with filtering and pagination |
-| `/api/vulnerabilities/trend` | GET | Read time-series trend data |
-| `/api/vulnerabilities/stats` | GET | Read aggregate vulnerability statistics |
-| `/api/vulnerabilities/:id` | GET | Read vulnerability detail |
-| `/api/vulnerabilities/:id/events` | GET | Read the vulnerability event stream |
-| `/api/vulnerabilities/:id` | PATCH | Update status and attribution |
+| Route                             | Method | Purpose                                            |
+| --------------------------------- | ------ | -------------------------------------------------- |
+| `/api/vulnerabilities`            | GET    | List vulnerabilities with filtering and pagination |
+| `/api/vulnerabilities/trend`      | GET    | Read time-series trend data                        |
+| `/api/vulnerabilities/stats`      | GET    | Read aggregate vulnerability statistics            |
+| `/api/vulnerabilities/:id`        | GET    | Read vulnerability detail                          |
+| `/api/vulnerabilities/:id/events` | GET    | Read the vulnerability event stream                |
+| `/api/vulnerabilities/:id`        | PATCH  | Update status and attribution                      |
 
 ### Export and Monitoring
 
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/api/export` | POST | Export `json`, `csv`, `markdown`, `pdf`, or `sarif` |
-| `/api/monitoring/generate` | POST | Generate embedded monitoring code |
+| Route                      | Method | Purpose                                             |
+| -------------------------- | ------ | --------------------------------------------------- |
+| `/api/export`              | POST   | Export `json`, `csv`, `markdown`, `pdf`, or `sarif` |
+| `/api/monitoring/generate` | POST   | Generate embedded monitoring code                   |
 
 ## Detection Coverage
 
-| Domain | Coverage |
-| --- | --- |
+| Domain                  | Coverage                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | JavaScript / TypeScript | `eval`, `new Function`, string-based timers, `innerHTML`, direct request access, prototype mutation, sensitive keyword patterns |
-| Go | `exec.Command`, concatenated SQL calls, env-var handling, weak hashes, plain HTTP serving, unhandled HTTP response errors |
-| LLM semantic review | `quick`, `standard`, `deep` strategies with prompt fingerprint caching and structured JSON findings |
+| Go                      | `exec.Command`, concatenated SQL calls, env-var handling, weak hashes, plain HTTP serving, unhandled HTTP response errors       |
+| LLM semantic review     | `quick`, `standard`, `deep` strategies with prompt fingerprint caching and structured JSON findings                             |
 
 ## Localization and Exports
 
@@ -172,35 +172,35 @@ node confession-cli/bin/confession.js status
 
 ## Key VS Code Settings
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `confession.api.baseUrl` | `http://localhost:3000` | API server base URL |
-| `confession.api.mode` | `local` | Switch between local and remote backend |
-| `confession.llm.provider` | `nvidia` | Select `nvidia` or `gemini` |
-| `confession.analysis.triggerMode` | `onSave` | Passive trigger mode for analysis |
-| `confession.analysis.depth` | `standard` | Choose `quick`, `standard`, or `deep` |
-| `confession.analysis.debounceMs` | `500` | Save-trigger debounce time |
-| `confession.ignore.paths` | `[]` | Excluded file path patterns |
-| `confession.ignore.types` | `[]` | Excluded vulnerability types |
-| `confession.ui.language` | `auto` | Follow host locale or pin a UI language |
+| Setting                           | Default                 | Purpose                                 |
+| --------------------------------- | ----------------------- | --------------------------------------- |
+| `confession.api.baseUrl`          | `http://localhost:3000` | API server base URL                     |
+| `confession.api.mode`             | `local`                 | Switch between local and remote backend |
+| `confession.llm.provider`         | `nvidia`                | Select `nvidia`, `gemini`, or `minimax-cn` |
+| `confession.analysis.triggerMode` | `onSave`                | Passive trigger mode for analysis       |
+| `confession.analysis.depth`       | `standard`              | Choose `quick`, `standard`, or `deep`   |
+| `confession.analysis.debounceMs`  | `500`                   | Save-trigger debounce time              |
+| `confession.ignore.paths`         | `[]`                    | Excluded file path patterns             |
+| `confession.ignore.types`         | `[]`                    | Excluded vulnerability types            |
+| `confession.ui.language`          | `auto`                  | Follow host locale or pin a UI language |
 
 ## Development Workflow
 
-| Purpose | Command |
-| --- | --- |
-| Install dependencies | `pnpm install` |
-| Start local development | `pnpm dev` |
-| Lint everything | `pnpm lint` |
-| Build everything | `pnpm build` |
-| Run all tests | `pnpm test` |
-| Run CI-equivalent checks | `pnpm check:ci` |
-| Run server maintenance guard | `pnpm maint:check` |
-| Package the VS Code extension | `pnpm --filter confession-extension package` |
-| Run CLI tests | `pnpm --filter confession-cli test` |
-| Run scan benchmark | `pnpm --filter web benchmark:scan` |
-| Generate SARIF in CI mode | `pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json` |
-| Rebuild the Go WASM analyzer | `cd go-analyzer && make all` |
-| Format the repository | `pnpm format` |
+| Purpose                       | Command                                                             |
+| ----------------------------- | ------------------------------------------------------------------- |
+| Install dependencies          | `pnpm install`                                                      |
+| Start local development       | `pnpm dev`                                                          |
+| Lint everything               | `pnpm lint`                                                         |
+| Build everything              | `pnpm build`                                                        |
+| Run all tests                 | `pnpm test`                                                         |
+| Run CI-equivalent checks      | `pnpm check:ci`                                                     |
+| Run server maintenance guard  | `pnpm maint:check`                                                  |
+| Package the VS Code extension | `pnpm --filter confession-extension package`                        |
+| Run CLI tests                 | `pnpm --filter confession-cli test`                                 |
+| Run scan benchmark            | `pnpm --filter web benchmark:scan`                                  |
+| Generate SARIF in CI mode     | `pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json` |
+| Rebuild the Go WASM analyzer  | `cd go-analyzer && make all`                                        |
+| Format the repository         | `pnpm format`                                                       |
 
 ## CI and Commit Rules
 

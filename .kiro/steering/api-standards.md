@@ -58,9 +58,9 @@ fileMatchPattern: '**/src/server/**/*'
   - `false`：代表快照可能截斷，後端需跳過收斂避免誤判
 - `POST /api/scan` 支援 `workspaceRoots?: string[]`（僅 `scanScope=workspace` 有效）：
   - 後端收斂僅可影響 `workspaceRoots` 範圍內的漏洞，避免跨工作區誤關閉
-- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic_beta"`：
+- `POST /api/scan` 支援 `engineMode?: "baseline" | "agentic"`：
   - 若有傳值，優先使用請求值
-  - 若未傳值，固定預設 `agentic_beta`
+  - 若未傳值，固定預設 `agentic`
   - 若建立新掃描任務時存在 `pending/running` 舊任務，後端需先中止舊任務（標記 `failed`）再啟動新任務
 - `ScanTask` 需記錄 `engineMode`、`errorCode` 與 fallback 欄位（`fallbackUsed/fallbackFrom/fallbackTo/fallbackReason`）
 - `GET /api/scan/status/:id` / `GET /api/scan/recent` 必須回傳 `engineMode`、`errorCode` 與 fallback 欄位
@@ -86,11 +86,11 @@ fileMatchPattern: '**/src/server/**/*'
   - `dynamic = "force-dynamic"`
   - `maxDuration = 300`（實際上限仍受方案限制）
 - 掃描執行時，LLM 設定（provider/apiKey/endpoint/model）優先讀取持久化 config（`config.id=default`），再回退環境變數
-  - `provider` 支援 `gemini | nvidia`，預設 `nvidia`
+  - `provider` 支援 `gemini | nvidia | minimax-cn`，預設 `nvidia`
   - `llm.endpoint` / `llm.model` 若傳 `null` 或空字串，視為清空並回退 provider 預設
 - 若 LLM 在本次任務中「所有待分析檔案皆失敗」（呼叫失敗或回應解析失敗），`/api/scan/status/:id` 必須回報 `failed`，且附帶 `errorMessage`
   - 若為 429 / `RESOURCE_EXHAUSTED`（quota exceeded），`errorMessage` 需明確提示配額用盡與後續行動
-- 若 `engineMode=agentic_beta` 失敗，需自動回退 `baseline`；僅在雙引擎都失敗時，`errorCode` 才回 `BETA_ENGINE_FAILED`
+- 若 `engineMode=agentic` 失敗，需自動回退 `baseline`；僅在雙引擎都失敗時，`errorCode` 才回 `AGENTIC_ENGINE_FAILED`
 - LLM 回應 `confidence` 需以 0..1 儲存；若模型回傳 0..100 百分制，後端需正規化後再驗證
 - 漏洞事件規範：
   - `scan_detected`：新漏洞建立時寫入
@@ -139,12 +139,12 @@ fileMatchPattern: '**/src/server/**/*'
 
 ## Agent 系統
 
-1. **Engine Router** — 根據 `engineMode` 分流到 baseline 或 agentic_beta
+1. **Engine Router** — 根據 `engineMode` 分流到 baseline 或 agentic
 2. **Orchestrator（baseline）** — 依語言分組 → 平行分派 → 合併 → LLM 分析 → 冪等寫入
-3. **Orchestrator（agentic_beta）** — ContextBundle → Planner → Skills/MCP → Analyst → Critic → Judge → 冪等寫入
+3. **Orchestrator（agentic）** — ContextBundle → Planner → Skills/MCP → Analyst → Critic → Judge → 冪等寫入
 4. **JS/TS Agent** — TypeScript Compiler API AST，偵測：eval、innerHTML、直接查詢、原型鏈變異
 5. **Go Agent** — Go WASM 沙箱（`go/ast` + `go/parser`）
-6. **Analysis Agent（baseline）** — LLM（Gemini / NVIDIA，檔案聚合策略）
+6. **Analysis Agent（baseline）** — LLM（Gemini / NVIDIA / MiniMax CN，檔案聚合策略）
    - `quick`：僅高風險 AST 點位觸發（條件式 LLM）
    - `standard`：每檔案一次聚合分析（交互點排序 + 上限 + 區塊上下文）
    - `deep`：每檔案一次完整檔案掃描（保留宏觀能力）

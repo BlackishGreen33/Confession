@@ -25,12 +25,12 @@ VSCode 擴充套件，使用 esbuild 打包為 CommonJS，external: vscode。
 - Webview：嵌入 Next.js 應用，雙向 postMessage
 - 狀態列：分析狀態（分析中 / 完成 / 發現風險 / 分析失敗）
 - AI 呼叫策略：僅被動觸發（手動掃描或 onSave 事件），不得主動背景連續呼叫模型 API
-- LLM provider：支援 `gemini` / `nvidia`，預設 `nvidia`
+- LLM provider：支援 `gemini` / `nvidia` / `minimax-cn`，預設 `nvidia`
 - 分析深度語義：
   - `quick`：AST + 條件式 LLM（僅高風險 AST 點位）
   - `standard`：AST + 檔案聚合 LLM（每檔案一次）
   - `deep`：AST + 檔案聚合 LLM + 全檔宏觀掃描（每檔案一次）
-- 掃描引擎：預設由後端以 `agentic_beta` 啟動，失敗時自動回退 `baseline`
+- 掃描引擎：預設由後端以 `agentic` 啟動，失敗時自動回退 `baseline`
 - 重試策略：
   - `掃描當前文件` / `onSave`：不重試（快速回應）
   - `掃描整個工作區`：逾時或 HTTP 503（UNAVAILABLE）重試 1 次

@@ -29,7 +29,7 @@ Confession 是一套围绕 VS Code 工作流设计的静态安全分析工具。
 ## 亮点
 
 - **静态优先**：只做 AST 与模型分析，不做 runtime 执行。
-- **双引擎扫描**：默认使用 `agentic_beta`，失败时同一 task 内自动回退 `baseline`。
+- **双引擎扫描**：默认使用 `agentic`，失败时同一 task 内自动回退 `baseline`。
 - **VS Code 原生体验**：Diagnostics、Hover、Code Actions、Status Bar 与 Webview 仪表板共享同一份状态。
 - **事件驱动 AI 建议**：只有在扫描或审核事件之后，并通过门槛、cooldown 与去重规则时才会触发。
 - **本地文件存储**：配置、漏洞、任务、建议快照与分析缓存都保存在 `.confession/*.json`。
@@ -44,7 +44,7 @@ Confession 是一套围绕 VS Code 工作流设计的静态安全分析工具。
 > 日常使用建议以 `standard` 为主，`quick` 适合保存后的即时反馈，`deep` 则保留给发版前检查、审计或完整安全 review。
 
 > [!NOTE]
-> 默认扫描引擎是 `agentic_beta`，如果失败，后端会在同一个 task 内自动回退 `baseline`。`pdf` 导出实际返回的是可打印 HTML，需要通过浏览器或 Webview 的打印流程另存为 PDF。
+> 默认扫描引擎是 `agentic`，如果失败，后端会在同一个 task 内自动回退 `baseline`。`pdf` 导出实际返回的是可打印 HTML，需要通过浏览器或 Webview 的打印流程另存为 PDF。
 
 ## 快速开始
 
@@ -81,25 +81,25 @@ node confession-cli/bin/confession.js status
 
 ## 扫描模式
 
-| 模式 | LLM 行为 | 适合场景 |
-| --- | --- | --- |
-| `quick` | 仅对高风险 AST 点位条件式调用 LLM | 保存后快速反馈 |
-| `standard` | 每文件一次聚合分析 | 日常主流程 |
-| `deep` | 每文件一次完整扫描 | 发版前或深度检查 |
+| 模式       | LLM 行为                          | 适合场景         |
+| ---------- | --------------------------------- | ---------------- |
+| `quick`    | 仅对高风险 AST 点位条件式调用 LLM | 保存后快速反馈   |
+| `standard` | 每文件一次聚合分析                | 日常主流程       |
+| `deep`     | 每文件一次完整扫描                | 发版前或深度检查 |
 
 ## 常用命令
 
-| 用途 | 命令 |
-| --- | --- |
-| 本地开发 | `pnpm dev` |
-| Lint | `pnpm lint` |
-| Build | `pnpm build` |
-| 全部测试 | `pnpm test` |
-| CI 等价检查 | `pnpm check:ci` |
-| Extension 打包 | `pnpm --filter confession-extension package` |
-| CLI 测试 | `pnpm --filter confession-cli test` |
-| 扫描 benchmark | `pnpm --filter web benchmark:scan` |
-| 生成 SARIF | `pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json` |
+| 用途           | 命令                                                                |
+| -------------- | ------------------------------------------------------------------- |
+| 本地开发       | `pnpm dev`                                                          |
+| Lint           | `pnpm lint`                                                         |
+| Build          | `pnpm build`                                                        |
+| 全部测试       | `pnpm test`                                                         |
+| CI 等价检查    | `pnpm check:ci`                                                     |
+| Extension 打包 | `pnpm --filter confession-extension package`                        |
+| CLI 测试       | `pnpm --filter confession-cli test`                                 |
+| 扫描 benchmark | `pnpm --filter web benchmark:scan`                                  |
+| 生成 SARIF     | `pnpm --filter web sarif:ci -- --output /tmp/confession.sarif.json` |
 
 ## 语言与导出
 

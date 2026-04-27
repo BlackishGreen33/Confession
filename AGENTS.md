@@ -46,9 +46,9 @@
   - `quick`：僅高風險 AST 點位觸發 LLM（條件式）
   - `standard`：交互點聚合為每檔案單次 LLM（區塊上下文）
   - `deep`：每檔案單次 LLM 完整掃描（保留宏觀分析）
-  - 引擎模式：`baseline` / `agentic_beta`
-  - 正式預設引擎為 `agentic_beta`
-  - `agentic_beta` 失敗時，後端需在同一 task 內自動回退 `baseline`
+  - 引擎模式：`baseline` / `agentic`
+  - 正式預設引擎為 `agentic`
+  - `agentic` 失敗時，後端需在同一 task 內自動回退 `baseline`
 
 ## 3. 專案結構（最新）
 
@@ -137,6 +137,8 @@ confession/
 │       ├── health-score.ts
 │       └── monitoring.ts
 ├── go-analyzer/
+├── confession-future-optimizations.md
+├── confession-thesis.md
 ├── commitlint.config.mjs
 ├── LICENSE
 ├── package.json
@@ -239,7 +241,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 儲存來源固定為 `.confession/*.json`
 - project root 解析：`CONFESSION_PROJECT_ROOT`（有值時）否則 `process.cwd()`
 - 掃描流程需保留去重（fingerprint）與背景執行
-- `agentic_beta` 失敗需自動回退 `baseline`
+- `agentic` 失敗需自動回退 `baseline`
 - `/api/scan/status/:id`、`/api/scan/recent` 需回傳 `engineMode`、`errorCode`、fallback 欄位
 - `/api/scan/status/:id`、`/api/scan/recent` 讀路徑需優先命中記憶體熱索引，未命中再回退 FileStore
 - `/api/scan/stream/:id` 需：
@@ -262,7 +264,7 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - 打包：esbuild，格式 CJS，`external: vscode`
 - 指令前綴：`codeVuln.*`
 - 設定前綴：`confession.*`
-- LLM provider：`gemini` / `nvidia`（預設 `nvidia`）
+- LLM provider：`gemini` / `nvidia` / `minimax-cn`（預設 `nvidia`）
 - 嚴重度映射：critical/high → Error，medium → Warning，low/info → Information
 - 儲存觸發：`onDidSaveTextDocument` + debounce（預設 500ms）
 - 手動掃描（當前檔案/工作區）需使用 `forceRescan=true`
@@ -310,6 +312,7 @@ ignore / config 同步規範：
 
 - 測試框架：Vitest（web/extension）+ Node.js `node:test`（CLI）
 - 屬性測試：fast-check
+- Agentic 需覆蓋 Planner/Skill/MCP policy、`engineMode` / `errorCode` API、SSE 進度串流
 - 命名：
   - 單元測試：`<name>.test.ts`
   - 屬性測試：`<name>.pbt.test.ts`

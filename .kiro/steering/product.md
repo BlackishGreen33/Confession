@@ -39,10 +39,10 @@ inclusion: always
 - 同一 Prompt 需透過指紋快取回應，避免重複消耗
 - 支援引擎路由：
   - `baseline`：既有單層 LLM 分析流程
-  - `agentic_beta`：多代理流程（Planner → Skills/MCP → Analyst → Critic → Judge）
-- `agentic_beta` 為正式預設引擎（使用者端不提供手動開關）
+  - `agentic`：多代理流程（Planner → Skills/MCP → Analyst → Critic → Judge）
+- `agentic` 為正式預設引擎（使用者端不提供手動開關）
 - `baseline` 保留為內部保險回退引擎，不作為一般設定項暴露
-- 當 `agentic_beta` 失敗時，後端需在同一 task 內自動回退 `baseline`
+- 當 `agentic` 失敗時，後端需在同一 task 內自動回退 `baseline`
 - 掃描前端輪詢若逾時，需主動送出取消請求中止任務，避免殘留 `running` 任務造成狀態誤導
 - 工作區掃描需以「快照一致性」收斂舊漏洞：
   - 僅在來源檔案不在最新工作區快照，且同 `stableFingerprint` 未於本輪掃描再次出現時，才自動將漏洞由 `open` 收斂為 `fixed`

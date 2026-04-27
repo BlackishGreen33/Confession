@@ -104,6 +104,8 @@ confession/
 │       ├── health-score.ts
 │       └── monitoring.ts
 ├── go-analyzer/
+├── confession-future-optimizations.md # 項目後續優化備忘
+├── confession-thesis.md # Confession 論文草稿（簡體中文）
 ├── commitlint.config.mjs
 ├── LICENSE               # 專案授權（MIT）
 ├── package.json

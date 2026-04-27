@@ -19,7 +19,7 @@ fileMatchPattern: '**/*.test.*'
 - CLI 測試命名為 `<name>.test.js`（Node `node:test`）
 - 修 bug 時先寫失敗測試，再修復
 - 不要 mock 不必要的東西，優先使用真實實作
-- Beta 能力需補齊：
+- Agentic 能力需補齊：
   - Agentic Planner/Skill/MCP policy 單元測試
   - `engineMode` 與 `errorCode` API 回傳測試
   - SSE 進度串流測試（含 keepalive 與斷線重連/降級）
