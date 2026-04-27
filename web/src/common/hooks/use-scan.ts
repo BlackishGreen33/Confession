@@ -29,7 +29,7 @@ export interface ScanStatusResponse {
   scannedFiles: number;
   engineMode: ScanEngineMode;
   fallbackUsed: boolean;
-  fallbackFrom?: 'agentic_beta';
+  fallbackFrom?: 'agentic';
   fallbackTo?: 'baseline';
   fallbackReason?: string;
   errorMessage: string | null;

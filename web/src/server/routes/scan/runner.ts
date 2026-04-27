@@ -1,5 +1,5 @@
 import { triggerAdviceEvaluation } from '@server/advice-gate'
-import { orchestrateAgenticBeta } from '@server/agents/agentic-beta/orchestrator'
+import { orchestrateAgentic } from '@server/agents/agentic/orchestrator'
 import { orchestrate } from '@server/agents/orchestrator'
 import type { LlmClientConfig } from '@server/llm/client'
 import { emitScanProgress } from '@server/scan-progress-bus'
@@ -29,7 +29,7 @@ import type { ScanBody } from './schema'
 
 interface FallbackMetadata {
   fallbackUsed: boolean
-  fallbackFrom: 'agentic_beta' | null
+  fallbackFrom: 'agentic' | null
   fallbackTo: 'baseline' | null
   fallbackReason: string | null
 }
@@ -54,7 +54,7 @@ export async function runScan(
   body: ScanBody,
   fingerprint: string,
   requestedEngineMode: ScanEngineMode,
-  llmConfig?: LlmClientConfig,
+  llmConfig?: LlmClientConfig
 ): Promise<void> {
   const totalFiles = body.files.length
   const startedAt = Date.now()
@@ -72,11 +72,11 @@ export async function runScan(
     storageMetrics.fs_write_ops_per_scan += next.fs_write_ops_per_scan
     storageMetrics.db_lock_wait_ms_p95 = Math.max(
       storageMetrics.db_lock_wait_ms_p95,
-      next.db_lock_wait_ms_p95,
+      next.db_lock_wait_ms_p95
     )
     storageMetrics.db_lock_hold_ms_p95 = Math.max(
       storageMetrics.db_lock_hold_ms_p95,
-      next.db_lock_hold_ms_p95,
+      next.db_lock_hold_ms_p95
     )
     storageMetrics.db_lock_timeout_count += next.db_lock_timeout_count
   }
@@ -85,12 +85,12 @@ export async function runScan(
   try {
     assertNotCanceled()
 
-    if (requestedEngineMode === 'agentic_beta') {
+    if (requestedEngineMode === 'agentic') {
       agenticAttemptCount += 1
       const agenticOutcome = await executeEngineAttempt({
         taskId,
         body,
-        engineMode: 'agentic_beta',
+        engineMode: 'agentic',
         totalFiles,
         llmConfig,
         fallbackMeta,
@@ -104,9 +104,9 @@ export async function runScan(
           taskId,
           body,
           assertNotCanceled,
-          agenticOutcome.observedStableFingerprints,
+          agenticOutcome.observedStableFingerprints
         )
-        await markTaskCompleted(taskId, totalFiles, 'agentic_beta', fallbackMeta)
+        await markTaskCompleted(taskId, totalFiles, 'agentic', fallbackMeta)
         return
       }
 
@@ -115,7 +115,7 @@ export async function runScan(
 
       fallbackMeta = {
         fallbackUsed: true,
-        fallbackFrom: 'agentic_beta',
+        fallbackFrom: 'agentic',
         fallbackTo: 'baseline',
         fallbackReason: `Agentic 引擎失敗：${agenticOutcome.errorMessage ?? '未知錯誤'}`,
       }
@@ -153,7 +153,7 @@ export async function runScan(
           taskId,
           body,
           assertNotCanceled,
-          baselineOutcome.observedStableFingerprints,
+          baselineOutcome.observedStableFingerprints
         )
         await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta)
         return
@@ -169,9 +169,9 @@ export async function runScan(
         taskId,
         totalFiles,
         'baseline',
-        'BETA_ENGINE_FAILED',
+        'AGENTIC_ENGINE_FAILED',
         `Agentic 失敗：${agenticFailure}；Baseline 回退失敗：${baselineFailure}`,
-        fallbackMeta,
+        fallbackMeta
       )
       return
     }
@@ -193,7 +193,7 @@ export async function runScan(
         taskId,
         body,
         assertNotCanceled,
-        baselineOutcome.observedStableFingerprints,
+        baselineOutcome.observedStableFingerprints
       )
       await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta)
       return
@@ -205,14 +205,14 @@ export async function runScan(
       'baseline',
       baselineOutcome.errorCode ?? 'UNKNOWN',
       baselineOutcome.errorMessage ?? '未知錯誤',
-      fallbackMeta,
+      fallbackMeta
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : '未知錯誤'
     const errorCode: ScanErrorCode = isScanCanceledError(err)
       ? 'UNKNOWN'
-      : activeEngineMode === 'agentic_beta'
-        ? 'BETA_ENGINE_FAILED'
+      : activeEngineMode === 'agentic'
+        ? 'AGENTIC_ENGINE_FAILED'
         : 'UNKNOWN'
 
     await markTaskFailed(
@@ -221,7 +221,7 @@ export async function runScan(
       activeEngineMode,
       errorCode,
       message,
-      fallbackMeta,
+      fallbackMeta
     )
   } finally {
     clearInflightReferences(taskId)
@@ -247,7 +247,7 @@ export async function runScan(
         db_lock_hold_ms_p95: storageMetrics.db_lock_hold_ms_p95,
         db_lock_timeout_count: storageMetrics.db_lock_timeout_count,
         scan_latency_ms: Date.now() - startedAt,
-      })}\n`,
+      })}\n`
     )
   }
 }
@@ -335,7 +335,9 @@ async function executeEngineAttempt(params: {
     await flushRunningProgress(true)
   }
 
-  async function updateRunningProgress(nextCompletedFiles: number): Promise<void> {
+  async function updateRunningProgress(
+    nextCompletedFiles: number
+  ): Promise<void> {
     assertNotCanceled()
     const normalized = Math.max(0, Math.min(totalFiles, nextCompletedFiles))
     const previous = completedFiles
@@ -390,8 +392,8 @@ async function executeEngineAttempt(params: {
   try {
     assertNotCanceled()
     const result =
-      engineMode === 'agentic_beta'
-        ? await orchestrateAgenticBeta(
+      engineMode === 'agentic'
+        ? await orchestrateAgentic(
             {
               files: body.files,
               depth: body.depth,
@@ -408,7 +410,7 @@ async function executeEngineAttempt(params: {
               onFilteredFiles: handleFilteredFiles,
               onFileCompleted: handleFileCompleted,
               assertNotCanceled,
-            },
+            }
           )
         : await orchestrate(
             {
@@ -427,7 +429,7 @@ async function executeEngineAttempt(params: {
               onFilteredFiles: handleFilteredFiles,
               onFileCompleted: handleFileCompleted,
               assertNotCanceled,
-            },
+            }
           )
 
     assertNotCanceled()
@@ -440,8 +442,8 @@ async function executeEngineAttempt(params: {
         observedStableFingerprints: new Set(result.stableFingerprints),
         storageMetrics: result.storageMetrics,
         errorCode:
-          engineMode === 'agentic_beta'
-            ? 'BETA_ENGINE_FAILED'
+          engineMode === 'agentic'
+            ? 'AGENTIC_ENGINE_FAILED'
             : 'LLM_ANALYSIS_FAILED',
         errorMessage: buildLlmFailureMessage(result.llmStats),
       }
@@ -462,8 +464,7 @@ async function executeEngineAttempt(params: {
       ok: false,
       observedStableFingerprints: new Set<string>(),
       storageMetrics: { ...NO_STORAGE_METRICS },
-      errorCode:
-        engineMode === 'agentic_beta' ? 'BETA_ENGINE_FAILED' : 'UNKNOWN',
+      errorCode: engineMode === 'agentic' ? 'AGENTIC_ENGINE_FAILED' : 'UNKNOWN',
       errorMessage: message,
     }
   }
@@ -473,7 +474,7 @@ async function markTaskCompleted(
   taskId: string,
   totalFiles: number,
   engineMode: ScanEngineMode,
-  fallbackMeta: FallbackMetadata,
+  fallbackMeta: FallbackMetadata
 ): Promise<void> {
   const completed = await storage.scanTask.update({
     where: { id: taskId },
@@ -500,7 +501,7 @@ async function markTaskFailed(
   engineMode: ScanEngineMode,
   errorCode: ScanErrorCode,
   errorMessage: string,
-  fallbackMeta: FallbackMetadata,
+  fallbackMeta: FallbackMetadata
 ): Promise<void> {
   const failed = await storage.scanTask.update({
     where: { id: taskId },

@@ -1,20 +1,16 @@
-import { createHash } from 'node:crypto'
-import path from 'node:path'
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 
-import { z } from 'zod/v4'
+import { z } from 'zod/v4';
 
-import type { PluginConfig } from '@/libs/types'
+import type { PluginConfig } from '@/libs/types';
 
-import { resolveProjectRoot } from './bootstrap'
-import type {
-  MetaRecord,
-  PersistedSnapshot,
-  Snapshot,
-} from './types'
+import { resolveProjectRoot } from './bootstrap';
+import type { MetaRecord, PersistedSnapshot, Snapshot } from './types';
 
-const SCHEMA_VERSION = 'file-store-v1'
-const ANALYSIS_CACHE_VERSION = 'analysis-cache-v1'
-const STABLE_FINGERPRINT_VERSION = 'stable-fingerprint-v1'
+const SCHEMA_VERSION = 'file-store-v1';
+const ANALYSIS_CACHE_VERSION = 'analysis-cache-v1';
+const STABLE_FINGERPRINT_VERSION = 'stable-fingerprint-v1';
 
 export const DEFAULT_CONFIG: PluginConfig = {
   llm: { provider: 'nvidia', apiKey: '' },
@@ -22,7 +18,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
   ui: { language: 'auto' },
-}
+};
 
 const persistedSnapshotSchema = z
   .object({
@@ -35,39 +31,41 @@ const persistedSnapshotSchema = z
     configUpdatedAt: z.union([z.string(), z.null()]).optional(),
     meta: z.record(z.string(), z.unknown()).optional(),
   })
-  .partial()
+  .partial();
 
 export function now(): Date {
-  return new Date()
+  return new Date();
 }
 
 export function toDate(value: unknown, fallback = new Date(0)): Date {
-  if (value instanceof Date) return new Date(value.getTime())
+  if (value instanceof Date) return new Date(value.getTime());
   if (typeof value === 'string') {
-    const parsed = new Date(value)
-    if (!Number.isNaN(parsed.getTime())) return parsed
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
   }
-  return new Date(fallback.getTime())
+  return new Date(fallback.getTime());
 }
 
 export function cloneValue<T>(value: T): T {
   if (value instanceof Date) {
-    return new Date(value.getTime()) as T
+    return new Date(value.getTime()) as T;
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => cloneValue(item)) as T
+    return value.map((item) => cloneValue(item)) as T;
   }
 
   if (value && typeof value === 'object') {
-    const output: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = cloneValue(item)
+    const output: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(
+      value as Record<string, unknown>
+    )) {
+      output[key] = cloneValue(item);
     }
-    return output as T
+    return output as T;
   }
 
-  return value
+  return value;
 }
 
 function normalizeStableFingerprintSnippet(codeSnippet: string): string {
@@ -76,28 +74,30 @@ function normalizeStableFingerprintSnippet(codeSnippet: string): string {
     .replace(/\b\d+\b/g, '$NUM')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 240)
+    .slice(0, 240);
 }
 
 function normalizeStableFingerprintPath(filePath: string): string {
-  const projectRoot = resolveProjectRoot()
-  const rel = path.relative(projectRoot, filePath)
-  const normalized = rel && !rel.startsWith('..') ? rel : filePath
-  return normalized.replace(/\\/g, '/').toLowerCase()
+  const projectRoot = resolveProjectRoot();
+  const rel = path.relative(projectRoot, filePath);
+  const normalized = rel && !rel.startsWith('..') ? rel : filePath;
+  return normalized.replace(/\\/g, '/').toLowerCase();
 }
 
 export function createStableFingerprint(input: {
-  filePath: string
-  type: string
-  codeSnippet: string
-  index: number
+  filePath: string;
+  type: string;
+  codeSnippet: string;
+  index: number;
 }): string {
-  const normalizedPath = normalizeStableFingerprintPath(input.filePath)
-  const normalizedType = input.type.trim().toLowerCase()
-  const normalizedSnippet = normalizeStableFingerprintSnippet(input.codeSnippet)
-  const normalizedIndex = Math.max(1, Math.floor(input.index))
-  const payload = `${normalizedPath}::${normalizedType}::${normalizedSnippet}::${normalizedIndex}`
-  return createHash('sha256').update(payload).digest('hex')
+  const normalizedPath = normalizeStableFingerprintPath(input.filePath);
+  const normalizedType = input.type.trim().toLowerCase();
+  const normalizedSnippet = normalizeStableFingerprintSnippet(
+    input.codeSnippet
+  );
+  const normalizedIndex = Math.max(1, Math.floor(input.index));
+  const payload = `${normalizedPath}::${normalizedType}::${normalizedSnippet}::${normalizedIndex}`;
+  return createHash('sha256').update(payload).digest('hex');
 }
 
 function defaultMeta(): MetaRecord {
@@ -107,26 +107,27 @@ function defaultMeta(): MetaRecord {
     lastMigrationAt: null,
     analysisCacheVersion: ANALYSIS_CACHE_VERSION,
     stableFingerprintVersion: STABLE_FINGERPRINT_VERSION,
-  }
+  };
 }
 
 export function normalizeMetaRecord(raw: unknown): MetaRecord {
-  const defaults = defaultMeta()
+  const defaults = defaultMeta();
   if (!raw || typeof raw !== 'object') {
-    return defaults
+    return defaults;
   }
 
   const input = raw as {
-    schemaVersion?: unknown
-    createdAt?: unknown
-    lastMigrationAt?: unknown
-    analysisCacheVersion?: unknown
-    stableFingerprintVersion?: unknown
-  }
+    schemaVersion?: unknown;
+    createdAt?: unknown;
+    lastMigrationAt?: unknown;
+    analysisCacheVersion?: unknown;
+    stableFingerprintVersion?: unknown;
+  };
 
   return {
     schemaVersion:
-      typeof input.schemaVersion === 'string' && input.schemaVersion.trim().length > 0
+      typeof input.schemaVersion === 'string' &&
+      input.schemaVersion.trim().length > 0
         ? input.schemaVersion
         : defaults.schemaVersion,
     createdAt:
@@ -134,7 +135,8 @@ export function normalizeMetaRecord(raw: unknown): MetaRecord {
         ? input.createdAt
         : defaults.createdAt,
     lastMigrationAt:
-      typeof input.lastMigrationAt === 'string' && input.lastMigrationAt.trim().length > 0
+      typeof input.lastMigrationAt === 'string' &&
+      input.lastMigrationAt.trim().length > 0
         ? input.lastMigrationAt
         : null,
     analysisCacheVersion:
@@ -147,7 +149,34 @@ export function normalizeMetaRecord(raw: unknown): MetaRecord {
       input.stableFingerprintVersion.trim().length > 0
         ? input.stableFingerprintVersion
         : defaults.stableFingerprintVersion,
+  };
+}
+
+export function normalizeScanTaskEngineMode(value: unknown): string {
+  if (value === 'baseline') return 'baseline';
+  if (value === 'agentic' || value === 'agentic_beta') return 'agentic';
+  return 'agentic';
+}
+
+export function normalizeScanTaskFallbackFrom(value: unknown): string | null {
+  if (value === 'agentic' || value === 'agentic_beta') return 'agentic';
+  return typeof value === 'string' ? value : null;
+}
+
+export function normalizeScanTaskErrorCode(value: unknown): string | null {
+  if (value === 'AGENTIC_ENGINE_FAILED' || value === 'BETA_ENGINE_FAILED') {
+    return 'AGENTIC_ENGINE_FAILED';
   }
+  return typeof value === 'string' ? value : null;
+}
+
+export function normalizeLlmProvider(
+  value: unknown
+): PluginConfig['llm']['provider'] {
+  if (value === 'gemini' || value === 'nvidia' || value === 'minimax-cn') {
+    return value;
+  }
+  return 'nvidia';
 }
 
 export function defaultSnapshot(): Snapshot {
@@ -160,7 +189,7 @@ export function defaultSnapshot(): Snapshot {
     config: cloneValue(DEFAULT_CONFIG),
     configUpdatedAt: now(),
     meta: defaultMeta(),
-  }
+  };
 }
 
 export function serializeSnapshot(snapshot: Snapshot): PersistedSnapshot {
@@ -169,7 +198,9 @@ export function serializeSnapshot(snapshot: Snapshot): PersistedSnapshot {
       ...item,
       createdAt: item.createdAt.toISOString(),
       updatedAt: item.updatedAt.toISOString(),
-      humanReviewedAt: item.humanReviewedAt ? item.humanReviewedAt.toISOString() : null,
+      humanReviewedAt: item.humanReviewedAt
+        ? item.humanReviewedAt.toISOString()
+        : null,
     })),
     vulnerabilityEvents: snapshot.vulnerabilityEvents.map((item) => ({
       ...item,
@@ -190,34 +221,37 @@ export function serializeSnapshot(snapshot: Snapshot): PersistedSnapshot {
       createdAt: item.createdAt.toISOString(),
     })),
     config: snapshot.config,
-    configUpdatedAt: snapshot.configUpdatedAt ? snapshot.configUpdatedAt.toISOString() : null,
+    configUpdatedAt: snapshot.configUpdatedAt
+      ? snapshot.configUpdatedAt.toISOString()
+      : null,
     meta: snapshot.meta,
-  }
+  };
 }
 
-function emitDecodeWarning(reason: string, details?: Record<string, unknown>): void {
+function emitDecodeWarning(
+  reason: string,
+  details?: Record<string, unknown>
+): void {
   process.stdout.write(
     `[Confession][StorageSnapshotDecodeWarning] ${JSON.stringify({
       reason,
       ...(details ?? {}),
-    })}\n`,
-  )
+    })}\n`
+  );
 }
 
 export function decodeSnapshot(raw: unknown): Snapshot {
-  const parsed = persistedSnapshotSchema.safeParse(raw)
+  const parsed = persistedSnapshotSchema.safeParse(raw);
   if (!parsed.success) {
     emitDecodeWarning('schema_validation_failed', {
       issueCount: parsed.error.issues.length,
       firstIssuePath: parsed.error.issues[0]?.path ?? [],
-    })
+    });
   }
 
-  const input = (parsed.success
-    ? parsed.data
-    : raw && typeof raw === 'object'
-      ? raw
-      : {}) as Partial<PersistedSnapshot>
+  const input = (
+    parsed.success ? parsed.data : raw && typeof raw === 'object' ? raw : {}
+  ) as Partial<PersistedSnapshot>;
 
   return {
     vulnerabilities: Array.isArray(input.vulnerabilities)
@@ -229,7 +263,8 @@ export function decodeSnapshot(raw: unknown): Snapshot {
           fixNewCode: item.fixNewCode ?? null,
           fixExplanation: item.fixExplanation ?? null,
           aiModel: item.aiModel ?? null,
-          aiConfidence: typeof item.aiConfidence === 'number' ? item.aiConfidence : null,
+          aiConfidence:
+            typeof item.aiConfidence === 'number' ? item.aiConfidence : null,
           aiReasoning: item.aiReasoning ?? null,
           stableFingerprint:
             typeof item.stableFingerprint === 'string' &&
@@ -244,7 +279,9 @@ export function decodeSnapshot(raw: unknown): Snapshot {
           source: item.source === 'dast' ? 'dast' : 'sast',
           humanStatus: item.humanStatus ?? 'pending',
           humanComment: item.humanComment ?? null,
-          humanReviewedAt: item.humanReviewedAt ? toDate(item.humanReviewedAt, now()) : null,
+          humanReviewedAt: item.humanReviewedAt
+            ? toDate(item.humanReviewedAt, now())
+            : null,
           owaspCategory: item.owaspCategory ?? null,
           status: item.status ?? 'open',
           createdAt: toDate(item.createdAt, now()),
@@ -269,16 +306,17 @@ export function decodeSnapshot(raw: unknown): Snapshot {
       ? input.scanTasks.map((item) => ({
           ...item,
           status: item.status ?? 'pending',
-          engineMode: item.engineMode ?? 'agentic_beta',
+          engineMode: normalizeScanTaskEngineMode(item.engineMode),
           progress: typeof item.progress === 'number' ? item.progress : 0,
           totalFiles: typeof item.totalFiles === 'number' ? item.totalFiles : 0,
-          scannedFiles: typeof item.scannedFiles === 'number' ? item.scannedFiles : 0,
+          scannedFiles:
+            typeof item.scannedFiles === 'number' ? item.scannedFiles : 0,
           fallbackUsed: Boolean(item.fallbackUsed),
-          fallbackFrom: item.fallbackFrom ?? null,
+          fallbackFrom: normalizeScanTaskFallbackFrom(item.fallbackFrom),
           fallbackTo: item.fallbackTo ?? null,
           fallbackReason: item.fallbackReason ?? null,
           errorMessage: item.errorMessage ?? null,
-          errorCode: item.errorCode ?? null,
+          errorCode: normalizeScanTaskErrorCode(item.errorCode),
           createdAt: toDate(item.createdAt, now()),
           updatedAt: toDate(item.updatedAt, now()),
         }))
@@ -305,45 +343,48 @@ export function decodeSnapshot(raw: unknown): Snapshot {
         }))
       : [],
     config: normalizeConfigValue(input.config),
-    configUpdatedAt: input.configUpdatedAt ? toDate(input.configUpdatedAt, now()) : now(),
+    configUpdatedAt: input.configUpdatedAt
+      ? toDate(input.configUpdatedAt, now())
+      : now(),
     meta: normalizeMetaRecord(input.meta),
-  }
+  };
 }
 
 export function normalizeConfigValue(raw: unknown): PluginConfig {
-  if (!raw || typeof raw !== 'object') return cloneValue(DEFAULT_CONFIG)
+  if (!raw || typeof raw !== 'object') return cloneValue(DEFAULT_CONFIG);
   const input = raw as {
     llm?: {
-      provider?: PluginConfig['llm']['provider']
-      apiKey?: string
-      endpoint?: string | null
-      model?: string | null
-    }
+      provider?: PluginConfig['llm']['provider'];
+      apiKey?: string;
+      endpoint?: string | null;
+      model?: string | null;
+    };
     analysis?: {
-      triggerMode?: PluginConfig['analysis']['triggerMode']
-      depth?: PluginConfig['analysis']['depth']
-      debounceMs?: number
-    }
+      triggerMode?: PluginConfig['analysis']['triggerMode'];
+      depth?: PluginConfig['analysis']['depth'];
+      debounceMs?: number;
+    };
     ignore?: {
-      paths?: string[]
-      types?: string[]
-    }
+      paths?: string[];
+      types?: string[];
+    };
     api?: {
-      baseUrl?: string
-      mode?: PluginConfig['api']['mode']
-    }
+      baseUrl?: string;
+      mode?: PluginConfig['api']['mode'];
+    };
     ui?: {
-      language?: PluginConfig['ui']['language']
-    }
-  }
+      language?: PluginConfig['ui']['language'];
+    };
+  };
 
   const config: PluginConfig = {
     llm: {
-      provider: input.llm?.provider === 'gemini' ? 'gemini' : 'nvidia',
+      provider: normalizeLlmProvider(input.llm?.provider),
       apiKey: typeof input.llm?.apiKey === 'string' ? input.llm.apiKey : '',
     },
     analysis: {
-      triggerMode: input.analysis?.triggerMode === 'manual' ? 'manual' : 'onSave',
+      triggerMode:
+        input.analysis?.triggerMode === 'manual' ? 'manual' : 'onSave',
       depth:
         input.analysis?.depth === 'quick' || input.analysis?.depth === 'deep'
           ? input.analysis.depth
@@ -372,28 +413,28 @@ export function normalizeConfigValue(raw: unknown): PluginConfig {
           ? input.ui.language
           : 'auto',
     },
-  }
+  };
 
   if (typeof input.llm?.endpoint === 'string' && input.llm.endpoint.trim()) {
-    config.llm.endpoint = input.llm.endpoint.trim()
+    config.llm.endpoint = input.llm.endpoint.trim();
   }
   if (typeof input.llm?.model === 'string' && input.llm.model.trim()) {
-    config.llm.model = input.llm.model.trim()
+    config.llm.model = input.llm.model.trim();
   }
 
-  return config
+  return config;
 }
 
 export function extractConfigData(raw: unknown): PluginConfig {
-  if (!raw || typeof raw !== 'object') return cloneValue(DEFAULT_CONFIG)
-  const candidate = raw as { data?: unknown }
+  if (!raw || typeof raw !== 'object') return cloneValue(DEFAULT_CONFIG);
+  const candidate = raw as { data?: unknown };
   if (typeof candidate.data === 'string') {
     try {
-      return normalizeConfigValue(JSON.parse(candidate.data))
+      return normalizeConfigValue(JSON.parse(candidate.data));
     } catch {
-      emitDecodeWarning('config_json_parse_failed')
-      return cloneValue(DEFAULT_CONFIG)
+      emitDecodeWarning('config_json_parse_failed');
+      return cloneValue(DEFAULT_CONFIG);
     }
   }
-  return normalizeConfigValue(raw)
+  return normalizeConfigValue(raw);
 }

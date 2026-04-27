@@ -6,7 +6,12 @@ import type { VulnerabilityInput } from '@server/storage'
 
 import type { ScanRequest } from '@/libs/types'
 
-import type { AnalystResult, ContextBundle, PlannerPlan, SkillExecutionRecord } from './types'
+import type {
+  AnalystResult,
+  ContextBundle,
+  PlannerPlan,
+  SkillExecutionRecord,
+} from './types'
 
 const LLM_TIMEOUT_MS = 45_000
 const RETRY_BASE_DELAY_MS = 1_000
@@ -21,14 +26,14 @@ export async function runAnalyst(
   bundle: ContextBundle,
   plan: PlannerPlan,
   skills: SkillExecutionRecord[],
-  options: AnalystOptions,
+  options: AnalystOptions
 ): Promise<AnalystResult> {
   const config = options.llmConfig ?? configFromEnv()
   const modelName = config.model ?? resolveDefaultModel(config.provider)
   const prompt = buildAnalystPrompt(bundle, plan, skills, options.depth)
   const key = computeLlmPromptFingerprint(prompt, modelName, options.depth, {
-    strategyVersion: 'agentic-beta-v1',
-    engineMode: 'agentic_beta',
+    strategyVersion: 'agentic-v1',
+    engineMode: 'agentic',
     agentRole: 'analyst',
     contextDigest: bundle.contentDigest,
   })
@@ -37,14 +42,20 @@ export async function runAnalyst(
   if (cached) {
     const parsed = parseLlmResponse(cached.text)
     return {
-      candidates: parsed ? parsed.map((item) => toInput(item, bundle, modelName)) : [],
+      candidates: parsed
+        ? parsed.map((item) => toInput(item, bundle, modelName))
+        : [],
       usage: cached.usage,
       cacheHit: true,
       parseFailed: !parsed,
     }
   }
 
-  const result = await callLlmWithRetry(prompt, config, options.maxRetryAttempts)
+  const result = await callLlmWithRetry(
+    prompt,
+    config,
+    options.maxRetryAttempts
+  )
   llmResponseCache.set(key, { text: result.text, usage: result.usage })
 
   const parsed = parseLlmResponse(result.text)
@@ -69,15 +80,16 @@ function buildAnalystPrompt(
   bundle: ContextBundle,
   plan: PlannerPlan,
   skills: SkillExecutionRecord[],
-  depth: ScanRequest['depth'],
+  depth: ScanRequest['depth']
 ): string {
-  const hypothesisText = plan.hypotheses.length > 0 ? plan.hypotheses.join('\n- ') : '（無）'
+  const hypothesisText =
+    plan.hypotheses.length > 0 ? plan.hypotheses.join('\n- ') : '（無）'
   const hotspotText =
     bundle.hotspots.length > 0
       ? bundle.hotspots
           .map(
             (point, index) =>
-              `${index + 1}. ${point.type} ${point.patternName} @ ${point.line}:${point.column} confidence=${point.confidence}`,
+              `${index + 1}. ${point.type} ${point.patternName} @ ${point.line}:${point.column} confidence=${point.confidence}`
           )
           .join('\n')
       : '（無）'
@@ -93,7 +105,7 @@ function buildAnalystPrompt(
     .slice(0, depth === 'quick' ? 2 : depth === 'standard' ? 4 : 6)
     .map(
       (block) =>
-        `### ${block.id} (${block.startLine}-${block.endLine})\n${'```'}${bundle.language}\n${block.content}\n${'```'}`,
+        `### ${block.id} (${block.startLine}-${block.endLine})\n${'```'}${bundle.language}\n${block.content}\n${'```'}`
     )
     .join('\n\n')
 
@@ -118,7 +130,7 @@ function toInput(
     reasoning: string
   },
   bundle: ContextBundle,
-  modelName: string,
+  modelName: string
 ): VulnerabilityInput {
   return {
     filePath: bundle.filePath,
@@ -141,17 +153,24 @@ function toInput(
   }
 }
 
-function extractSnippet(content: string, startLine: number, endLine: number): string {
+function extractSnippet(
+  content: string,
+  startLine: number,
+  endLine: number
+): string {
   const lines = content.split('\n')
   const from = Math.max(1, startLine)
   const to = Math.max(from, endLine)
-  return lines.slice(from - 1, to).join('\n').trim()
+  return lines
+    .slice(from - 1, to)
+    .join('\n')
+    .trim()
 }
 
 async function callLlmWithRetry(
   prompt: string,
   config: LlmClientConfig,
-  maxRetryAttempts: number,
+  maxRetryAttempts: number
 ): Promise<LlmCallResult> {
   let lastError: unknown
 
@@ -167,12 +186,14 @@ async function callLlmWithRetry(
     }
   }
 
-  throw (lastError instanceof Error ? lastError : new Error('Analyst LLM 呼叫失敗'))
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Analyst LLM 呼叫失敗')
 }
 
 async function callLlmWithTimeout(
   prompt: string,
-  config: LlmClientConfig,
+  config: LlmClientConfig
 ): Promise<LlmCallResult> {
   const abortController = new globalThis.AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -208,8 +229,8 @@ function sleep(ms: number): Promise<void> {
 function isAbortError(err: unknown): boolean {
   return Boolean(
     err &&
-      typeof err === 'object' &&
-      'name' in err &&
-      (err as { name?: unknown }).name === 'AbortError',
+    typeof err === 'object' &&
+    'name' in err &&
+    (err as { name?: unknown }).name === 'AbortError'
   )
 }

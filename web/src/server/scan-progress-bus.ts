@@ -8,7 +8,7 @@ export interface ScanProgressEvent {
   scannedFiles: number
   engineMode: ScanEngineMode
   fallbackUsed: boolean
-  fallbackFrom?: 'agentic_beta'
+  fallbackFrom?: 'agentic'
   fallbackTo?: 'baseline'
   fallbackReason?: string
   errorMessage: string | null
@@ -39,7 +39,9 @@ export function rememberScanProgress(event: ScanProgressEvent): void {
   }
 }
 
-export function getLatestScanProgress(taskId: string): ScanProgressEvent | null {
+export function getLatestScanProgress(
+  taskId: string
+): ScanProgressEvent | null {
   const found = latestEventByTaskId.get(taskId)
   return found ? cloneProgressEvent(found) : null
 }
@@ -59,7 +61,7 @@ export function resetScanProgressState(): void {
 
 export function subscribeScanProgress(
   taskId: string,
-  listener: ProgressListener,
+  listener: ProgressListener
 ): () => void {
   const listeners = listenersByTaskId.get(taskId) ?? new Set<ProgressListener>()
   listeners.add(listener)

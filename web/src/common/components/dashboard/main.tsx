@@ -640,10 +640,14 @@ function toRecentScanAvailabilityView(params: {
 
 function formatRecentTime(
   iso: string | undefined,
-  locale: ResolvedLocale,
+  locale: ResolvedLocale
 ): string {
   if (!iso) {
-    return locale === 'en' ? 'No Data' : locale === 'zh-CN' ? '暂无数据' : '尚無資料';
+    return locale === 'en'
+      ? 'No Data'
+      : locale === 'zh-CN'
+        ? '暂无数据'
+        : '尚無資料';
   }
   return new Date(iso).toLocaleString(locale === 'en' ? 'en-US' : locale, {
     hour12: false,
@@ -652,10 +656,14 @@ function formatRecentTime(
 
 function formatTimeOnly(
   iso: string | undefined,
-  locale: ResolvedLocale,
+  locale: ResolvedLocale
 ): string {
   if (!iso) {
-    return locale === 'en' ? 'Not Updated' : locale === 'zh-CN' ? '未更新' : '未更新';
+    return locale === 'en'
+      ? 'Not Updated'
+      : locale === 'zh-CN'
+        ? '未更新'
+        : '未更新';
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso.slice(5).replace('-', '/');
   return new Date(iso).toLocaleTimeString(locale === 'en' ? 'en-US' : locale, {
@@ -676,7 +684,7 @@ const TECH_HELP_CONTENT = {
     title: '掃描引擎是什麼？',
     description:
       '掃描引擎代表本次漏洞分析採用的策略。智慧多代理引擎會多步驟交叉判斷，基準引擎則偏向穩定與快速。',
-    footnote: '代號僅供技術追查：agentic_beta / baseline',
+    footnote: '代號僅供技術追查：agentic / baseline',
   },
   fallback: {
     title: '自動回退是什麼？',
@@ -693,13 +701,13 @@ const TECH_HELP_CONTENT = {
 
 function toEngineModeLabel(
   mode: ScanEngineMode,
-  locale: ResolvedLocale = 'zh-TW',
+  locale: ResolvedLocale = 'zh-TW'
 ): {
   display: string;
   detail: string;
   code: string;
 } {
-  if (mode === 'agentic_beta') {
+  if (mode === 'agentic') {
     return {
       display: getEngineModeLabel(mode, locale),
       detail:
@@ -708,7 +716,7 @@ function toEngineModeLabel(
           : locale === 'zh-CN'
             ? '规划→技能→分析→审查，多步骤交叉判断'
             : '規劃→技能→分析→審核，多步驟交叉判斷',
-      code: 'agentic_beta',
+      code: 'agentic',
     };
   }
   return {
@@ -726,7 +734,7 @@ function toEngineModeLabel(
 function toFallbackLabel(params: {
   locale?: ResolvedLocale;
   fallbackUsed: boolean;
-  fallbackFrom?: 'agentic_beta';
+  fallbackFrom?: 'agentic';
   fallbackTo?: 'baseline';
   fallbackReason?: string;
 }): {
@@ -752,7 +760,7 @@ function toFallbackLabel(params: {
       tone: 'normal',
     };
   }
-  const from = toEngineModeLabel(params.fallbackFrom ?? 'agentic_beta', locale);
+  const from = toEngineModeLabel(params.fallbackFrom ?? 'agentic', locale);
   const to = toEngineModeLabel(params.fallbackTo ?? 'baseline', locale);
   return {
     display:
@@ -764,10 +772,10 @@ function toFallbackLabel(params: {
 
 function toErrorCodeLabel(
   code: ScanErrorCode | null,
-  locale: ResolvedLocale = 'zh-TW',
+  locale: ResolvedLocale = 'zh-TW'
 ): string | null {
   if (!code) return null;
-  if (code === 'BETA_ENGINE_FAILED') {
+  if (code === 'AGENTIC_ENGINE_FAILED') {
     return locale === 'en'
       ? 'Agentic flow failed (including fallback failure)'
       : locale === 'zh-CN'
@@ -781,7 +789,11 @@ function toErrorCodeLabel(
         ? '模型分析响应失败'
         : '模型分析回應失敗';
   }
-  return locale === 'en' ? 'Unknown Error' : locale === 'zh-CN' ? '未知错误' : '未知錯誤';
+  return locale === 'en'
+    ? 'Unknown Error'
+    : locale === 'zh-CN'
+      ? '未知错误'
+      : '未知錯誤';
 }
 
 function toGradeView(grade: HealthGrade): {
@@ -1003,7 +1015,7 @@ const RecentScanCard: React.FC = () => {
           id: toastId,
           description: toMoreInfo(
             result.message || 'Extension 未回覆成功結果',
-            locale,
+            locale
           ),
         });
       })
@@ -1609,7 +1621,10 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
                 <p className="text-cyber-textmuted text-xs">
                   信心分數：
                   <span className="text-cyber-text ml-1 font-mono">
-                    {(Math.max(0, Math.min(1, advicePayload.confidence)) * 100).toFixed(0)}%
+                    {(
+                      Math.max(0, Math.min(1, advicePayload.confidence)) * 100
+                    ).toFixed(0)}
+                    %
                   </span>
                   {advice?.stale && (
                     <span className="ml-2 rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-black tracking-[0.08em] text-amber-700 uppercase dark:text-amber-200">
@@ -1618,7 +1633,10 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
                   )}
                 </p>
                 {advicePayload.actions.slice(0, 2).map((next, index) => (
-                  <p key={`${next.title}-${index}`} className="text-cyber-textmuted text-xs">
+                  <p
+                    key={`${next.title}-${index}`}
+                    className="text-cyber-textmuted text-xs"
+                  >
                     <span className="text-cyber-text font-black">
                       {index + 1}. {next.title}
                     </span>
@@ -1711,7 +1729,9 @@ const SecuritySummaryCard: React.FC<SecuritySummaryCardProps> = ({
           ))}
           <p>
             • 資料來源：{summary.dataSourceLabel}
-            {summary.dataTime ? `（${formatRecentTime(summary.dataTime, locale)}）` : ''}
+            {summary.dataTime
+              ? `（${formatRecentTime(summary.dataTime, locale)}）`
+              : ''}
           </p>
         </m.div>
       )}
@@ -2163,7 +2183,10 @@ export const Dashboard: React.FC = () => {
           }
           toast.error(`${sourceLabel} 導流失敗，請手動展開漏洞列表`, {
             id: toastId,
-            description: toMoreInfo(result.message || 'Extension 未回覆成功結果', locale),
+            description: toMoreInfo(
+              result.message || 'Extension 未回覆成功結果',
+              locale
+            ),
           });
         } catch (error) {
           const detail = getErrorDetail(error) ?? '等待導航回執逾時';

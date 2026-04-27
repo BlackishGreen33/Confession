@@ -96,14 +96,22 @@ function parseArgs(argv) {
     }
     if (key === 'depth') {
       if (!['quick', 'standard', 'deep'].includes(next)) {
-        throw new Error(`參數 --depth 僅接受 quick|standard|deep（目前為 ${next}）`)
+        throw new Error(
+          `參數 --depth 僅接受 quick|standard|deep（目前為 ${next}）`
+        )
       }
       options.depth = next
       continue
     }
     if (key === 'engine-mode') {
-      if (!['baseline', 'agentic_beta'].includes(next)) {
-        throw new Error(`參數 --engine-mode 僅接受 baseline|agentic_beta（目前為 ${next}）`)
+      if (next === 'agentic_beta') {
+        options.engineMode = 'agentic'
+        continue
+      }
+      if (!['baseline', 'agentic'].includes(next)) {
+        throw new Error(
+          `參數 --engine-mode 僅接受 baseline|agentic（目前為 ${next}）`
+        )
       }
       options.engineMode = next
       continue
@@ -158,7 +166,7 @@ async function fetchJson(baseUrl, endpoint, init) {
 }
 
 function createSeededRandom(seed) {
-  let state = (seed >>> 0) || 1
+  let state = seed >>> 0 || 1
   return () => {
     state ^= state << 13
     state ^= state >>> 17
@@ -208,7 +216,7 @@ async function runSingleScan(options, fileCount, runLabel) {
     fileCount,
     runLabel,
     options.seed,
-    options.workspaceRoot,
+    options.workspaceRoot
   )
   const created = await fetchJson(options.apiBaseUrl, '/api/scan', {
     method: 'POST',
@@ -236,19 +244,24 @@ async function runSingleScan(options, fileCount, runLabel) {
   let extraRequests = 0
 
   const startMs = Date.now()
-  const extraPollers = Array.from({ length: Math.max(0, options.statusClients - 1) }, () =>
-    (async () => {
-      while (!done) {
-        await sleep(options.pollIntervalMs)
-        if (done) break
-        try {
-          await fetchJson(options.apiBaseUrl, `/api/scan/status/${encodeURIComponent(taskId)}`)
-          extraRequests += 1
-        } catch {
-          // 壓測中斷線不影響主流程判定，由主輪詢負責狀態收斂。
+  const extraPollers = Array.from(
+    { length: Math.max(0, options.statusClients - 1) },
+    () =>
+      (async () => {
+        while (!done) {
+          await sleep(options.pollIntervalMs)
+          if (done) break
+          try {
+            await fetchJson(
+              options.apiBaseUrl,
+              `/api/scan/status/${encodeURIComponent(taskId)}`
+            )
+            extraRequests += 1
+          } catch {
+            // 壓測中斷線不影響主流程判定，由主輪詢負責狀態收斂。
+          }
         }
-      }
-    })(),
+      })()
   )
 
   try {
@@ -257,7 +270,7 @@ async function runSingleScan(options, fileCount, runLabel) {
 
       const status = await fetchJson(
         options.apiBaseUrl,
-        `/api/scan/status/${encodeURIComponent(taskId)}`,
+        `/api/scan/status/${encodeURIComponent(taskId)}`
       )
       primaryRequests += 1
 
@@ -269,7 +282,8 @@ async function runSingleScan(options, fileCount, runLabel) {
       if (status.status === 'failed') {
         done = true
         failedMessage =
-          typeof status.errorMessage === 'string' && status.errorMessage.trim().length > 0
+          typeof status.errorMessage === 'string' &&
+          status.errorMessage.trim().length > 0
             ? status.errorMessage.trim()
             : 'unknown error'
         break
@@ -299,16 +313,18 @@ async function runSingleScan(options, fileCount, runLabel) {
 function defaultOutputPath() {
   const now = new Date()
   const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
-    now.getDate(),
+    now.getDate()
   ).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(
-    now.getMinutes(),
+    now.getMinutes()
   ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
   return path.resolve(process.cwd(), `scan-benchmark-${stamp}.json`)
 }
 
 async function runBenchmark(options) {
   await fetchJson(options.apiBaseUrl, '/api/health')
-  const outputPath = options.outputPath ? path.resolve(options.outputPath) : defaultOutputPath()
+  const outputPath = options.outputPath
+    ? path.resolve(options.outputPath)
+    : defaultOutputPath()
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -323,14 +339,16 @@ async function runBenchmark(options) {
   }
 
   process.stdout.write(
-    `開始掃描基準：sizes=${options.sizes.join(',')} runs=${options.runs} warmup=${options.warmupRuns} engine=${options.engineMode} seed=${options.seed}\n`,
+    `開始掃描基準：sizes=${options.sizes.join(',')} runs=${options.runs} warmup=${options.warmupRuns} engine=${options.engineMode} seed=${options.seed}\n`
   )
 
   for (const fileCount of options.sizes) {
     process.stdout.write(`\n== 檔案數 ${fileCount} ==\n`)
 
     for (let warmup = 1; warmup <= options.warmupRuns; warmup += 1) {
-      process.stdout.write(`[warmup ${warmup}/${options.warmupRuns}] 執行中...\n`)
+      process.stdout.write(
+        `[warmup ${warmup}/${options.warmupRuns}] 執行中...\n`
+      )
       await runSingleScan(options, fileCount, `warmup-${warmup}`)
     }
 
@@ -341,8 +359,8 @@ async function runBenchmark(options) {
       runs.push({ run, ...result })
       process.stdout.write(
         `  duration=${Math.round(result.durationMs)}ms status_rps=${result.statusApiRps.toFixed(
-          2,
-        )}\n`,
+          2
+        )}\n`
       )
     }
 
@@ -363,7 +381,7 @@ async function runBenchmark(options) {
     })
 
     process.stdout.write(
-      `  => p95=${aggregates.scan_workspace_p95_ms}ms avg=${aggregates.scan_workspace_avg_ms}ms status_rps_p95=${aggregates.status_api_rps_p95}\n`,
+      `  => p95=${aggregates.scan_workspace_p95_ms}ms avg=${aggregates.scan_workspace_avg_ms}ms status_rps_p95=${aggregates.status_api_rps_p95}\n`
     )
   }
 

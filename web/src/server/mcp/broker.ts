@@ -37,7 +37,7 @@ export async function invokeMcpTool(input: McpInvocation): Promise<McpResult> {
       : runBuiltinCodeGraphLookup(input)
   }
 
-  // Beta 第一版先保留白名單治理，外部 connector 預設降級為可觀測失敗。
+  // 目前先保留白名單治理，外部 connector 預設降級為可觀測失敗。
   return {
     ok: false,
     source: 'external',
@@ -52,17 +52,29 @@ function runBuiltinPatternScan(input: McpInvocation): McpResult {
   const evidence: string[] = []
 
   for (const [index, line] of lines.entries()) {
-    const hasEvalLike = /\beval\s*\(/.test(line) || /innerHTML\s*=/.test(line) || /exec\.Command/.test(line)
+    const hasEvalLike =
+      /\beval\s*\(/.test(line) ||
+      /innerHTML\s*=/.test(line) ||
+      /exec\.Command/.test(line)
     const hasSqlConcat =
-      /\b(select|insert|update|delete|replace|drop|union|where|from|into|like)\b/i.test(line) &&
+      /\b(select|insert|update|delete|replace|drop|union|where|from|into|like)\b/i.test(
+        line
+      ) &&
       (/\+/.test(line) || /\$\{/.test(line))
     const hasHardcodedSecret =
-      /(secret|token|api[_-]?key|password|passwd|jwt|private[_-]?key)/i.test(line) &&
-      /['"`][^'"`]{8,}['"`]/.test(line)
+      /(secret|token|api[_-]?key|password|passwd|jwt|private[_-]?key)/i.test(
+        line
+      ) && /['"`][^'"`]{8,}['"`]/.test(line)
     const hasPrototypePollution =
-      /Object\.assign\s*\(\s*Object\.prototype\b/.test(line) || /__proto__/.test(line)
+      /Object\.assign\s*\(\s*Object\.prototype\b/.test(line) ||
+      /__proto__/.test(line)
 
-    if (hasEvalLike || hasSqlConcat || hasHardcodedSecret || hasPrototypePollution) {
+    if (
+      hasEvalLike ||
+      hasSqlConcat ||
+      hasHardcodedSecret ||
+      hasPrototypePollution
+    ) {
       evidence.push(`pattern_hit line=${index + 1}: ${line.trim()}`)
     }
   }

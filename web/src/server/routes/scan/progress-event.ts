@@ -19,7 +19,9 @@ interface ScanTaskRecordLike {
   updatedAt?: unknown
 }
 
-export function toScanProgressEvent(task: ScanTaskRecordLike): ScanProgressEvent {
+export function toScanProgressEvent(
+  task: ScanTaskRecordLike
+): ScanProgressEvent {
   const fallbackUsed = Boolean(task.fallbackUsed)
   const createdAt = toDateOrNow(task.createdAt)
   const updatedAt = toDateOrNow(task.updatedAt)
@@ -33,22 +35,23 @@ export function toScanProgressEvent(task: ScanTaskRecordLike): ScanProgressEvent
     fallbackUsed,
     fallbackFrom: fallbackUsed
       ? normalizeFallbackFrom(
-          typeof task.fallbackFrom === 'string' ? task.fallbackFrom : null,
+          typeof task.fallbackFrom === 'string' ? task.fallbackFrom : null
         )
       : undefined,
     fallbackTo: fallbackUsed
       ? normalizeFallbackTo(
-          typeof task.fallbackTo === 'string' ? task.fallbackTo : null,
+          typeof task.fallbackTo === 'string' ? task.fallbackTo : null
         )
       : undefined,
     fallbackReason: fallbackUsed
       ? normalizeFallbackReason(
-          typeof task.fallbackReason === 'string' ? task.fallbackReason : null,
+          typeof task.fallbackReason === 'string' ? task.fallbackReason : null
         )
       : undefined,
-    errorMessage: typeof task.errorMessage === 'string' ? task.errorMessage : null,
+    errorMessage:
+      typeof task.errorMessage === 'string' ? task.errorMessage : null,
     errorCode: normalizeErrorCode(
-      typeof task.errorCode === 'string' ? task.errorCode : null,
+      typeof task.errorCode === 'string' ? task.errorCode : null
     ),
     createdAt: createdAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
@@ -63,7 +66,8 @@ function normalizeTaskStatus(value: unknown): ScanProgressEvent['status'] {
 }
 
 function normalizeEngineMode(value: unknown): ScanEngineMode {
-  return value === 'agentic_beta' ? 'agentic_beta' : 'baseline'
+  if (value === 'agentic' || value === 'agentic_beta') return 'agentic'
+  return 'baseline'
 }
 
 function toDateOrNow(value: unknown): Date {
@@ -76,16 +80,15 @@ function toDateOrNow(value: unknown): Date {
 }
 
 function normalizeErrorCode(value: string | null): ScanErrorCode | null {
-  if (value === 'BETA_ENGINE_FAILED') return value
+  if (value === 'AGENTIC_ENGINE_FAILED') return value
+  if (value === 'BETA_ENGINE_FAILED') return 'AGENTIC_ENGINE_FAILED'
   if (value === 'LLM_ANALYSIS_FAILED') return value
   if (value === 'UNKNOWN') return value
   return null
 }
 
-function normalizeFallbackFrom(
-  value: string | null,
-): 'agentic_beta' | undefined {
-  return value === 'agentic_beta' ? 'agentic_beta' : undefined
+function normalizeFallbackFrom(value: string | null): 'agentic' | undefined {
+  return value === 'agentic' || value === 'agentic_beta' ? 'agentic' : undefined
 }
 
 function normalizeFallbackTo(value: string | null): 'baseline' | undefined {

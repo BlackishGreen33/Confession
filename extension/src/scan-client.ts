@@ -26,7 +26,7 @@ interface ScanTaskStatus {
   progress: number
   engineMode: ScanEngineMode
   fallbackUsed?: boolean
-  fallbackFrom?: 'agentic_beta'
+  fallbackFrom?: 'agentic'
   fallbackTo?: 'baseline'
   fallbackReason?: string
   errorMessage?: string | null
@@ -49,7 +49,7 @@ export class ScanTaskFailedError extends Error {
   constructor(
     message: string,
     errorCode: ScanErrorCode | null,
-    engineMode: ScanEngineMode | null,
+    engineMode: ScanEngineMode | null
   ) {
     super(message)
     this.name = 'ScanTaskFailedError'
@@ -87,7 +87,7 @@ function scanDedupeKey(files: ScanFileInput[]): string {
 export async function triggerScan(
   baseUrl: string,
   files: ScanFileInput[],
-  options: ScanOptions,
+  options: ScanOptions
 ): Promise<string> {
   const key = `${scanDedupeKey(files)}::${options.depth}::${options.scanScope ?? 'file'}::${options.engineMode ?? 'auto'}`
   const existing = inflightRequests.get(key)
@@ -107,7 +107,7 @@ export async function triggerScan(
 async function doTriggerScan(
   baseUrl: string,
   files: ScanFileInput[],
-  options: ScanOptions,
+  options: ScanOptions
 ): Promise<string> {
   const url = `${baseUrl.replace(/\/+$/, '')}/api/scan`
   const res = await fetch(url, {
@@ -136,7 +136,10 @@ async function doTriggerScan(
 /**
  * 取消指定掃描任務（POST /api/scan/cancel/:id）。
  */
-export async function cancelScanTask(baseUrl: string, taskId: string): Promise<void> {
+export async function cancelScanTask(
+  baseUrl: string,
+  taskId: string
+): Promise<void> {
   const base = baseUrl.replace(/\/+$/, '')
   const res = await fetch(`${base}/api/scan/cancel/${taskId}`, {
     method: 'POST',
@@ -146,7 +149,6 @@ export async function cancelScanTask(baseUrl: string, taskId: string): Promise<v
   }
 }
 
-
 /**
  * 以 SSE 為主、輪詢為備援，等待掃描完成或失敗。
  */
@@ -154,11 +156,17 @@ export async function pollUntilDone(
   baseUrl: string,
   taskId: string,
   onProgress?: (progress: number) => void,
-  options: PollUntilDoneOptions = {},
+  options: PollUntilDoneOptions = {}
 ): Promise<void> {
   const base = baseUrl.replace(/\/+$/, '')
-  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS)
-  const intervalMs = Math.max(200, options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS)
+  const timeoutMs = Math.max(
+    5_000,
+    options.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS
+  )
+  const intervalMs = Math.max(
+    200,
+    options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS
+  )
   const startedAt = Date.now()
 
   try {
@@ -178,7 +186,7 @@ export async function pollUntilDone(
     startedAt,
     timeoutMs,
     intervalMs,
-    onProgress,
+    onProgress
   )
 }
 
@@ -186,7 +194,7 @@ async function waitUntilDoneViaSse(
   base: string,
   taskId: string,
   timeoutMs: number,
-  onProgress?: (progress: number) => void,
+  onProgress?: (progress: number) => void
 ): Promise<void> {
   const startedAt = Date.now()
   let retryCount = 0
@@ -211,7 +219,9 @@ async function waitUntilDoneViaSse(
       })
 
       if (!res.ok) {
-        throw new ScanStreamUnavailableError(`SSE 掃描串流不可用: ${res.status}`)
+        throw new ScanStreamUnavailableError(
+          `SSE 掃描串流不可用: ${res.status}`
+        )
       }
 
       const reader = res.body?.getReader()
@@ -245,7 +255,7 @@ async function waitUntilDoneViaSse(
             throw new ScanTaskFailedError(
               task.errorMessage ?? '掃描失敗',
               task.errorCode ?? null,
-              task.engineMode ?? null,
+              task.engineMode ?? null
             )
           }
         }
@@ -257,7 +267,7 @@ async function waitUntilDoneViaSse(
       }
       if (!isRetryableSseError(error)) {
         throw new ScanStreamUnavailableError(
-          error instanceof Error ? error.message : 'SSE 掃描串流失敗',
+          error instanceof Error ? error.message : 'SSE 掃描串流失敗'
         )
       }
     } finally {
@@ -265,12 +275,10 @@ async function waitUntilDoneViaSse(
     }
 
     const retryDelay =
-      SSE_RETRY_DELAYS_MS[
-        Math.min(retryCount, SSE_RETRY_DELAYS_MS.length - 1)
-      ]
+      SSE_RETRY_DELAYS_MS[Math.min(retryCount, SSE_RETRY_DELAYS_MS.length - 1)]
     retryCount += 1
     await sleep(
-      Math.min(retryDelay, Math.max(200, timeoutMs - (Date.now() - startedAt))),
+      Math.min(retryDelay, Math.max(200, timeoutMs - (Date.now() - startedAt)))
     )
   }
 
@@ -283,7 +291,7 @@ async function waitUntilDoneViaPolling(
   startedAt: number,
   timeoutMs: number,
   intervalMs: number,
-  onProgress?: (progress: number) => void,
+  onProgress?: (progress: number) => void
 ): Promise<void> {
   while (Date.now() - startedAt < timeoutMs) {
     await sleep(intervalMs)
@@ -300,7 +308,7 @@ async function waitUntilDoneViaPolling(
       throw new ScanTaskFailedError(
         task.errorMessage ?? '掃描失敗',
         task.errorCode ?? null,
-        task.engineMode ?? null,
+        task.engineMode ?? null
       )
     }
   }
@@ -314,7 +322,10 @@ interface ParsedSseMessage {
   data: string
 }
 
-function drainSseMessages(payload: string): { messages: ParsedSseMessage[]; rest: string } {
+function drainSseMessages(payload: string): {
+  messages: ParsedSseMessage[]
+  rest: string
+} {
   const normalized = payload.replace(/\r\n/g, '\n')
   const messages: ParsedSseMessage[] = []
   let cursor = 0
@@ -363,9 +374,9 @@ function parseStreamTaskStatus(raw: string): ScanTaskStatus | null {
 function isAbortError(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === 'object' &&
-      'name' in error &&
-      (error as { name?: unknown }).name === 'AbortError',
+    typeof error === 'object' &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
   )
 }
 
@@ -385,10 +396,14 @@ function isRetryableSseError(error: unknown): boolean {
  */
 export async function fetchFileVulnerabilities(
   baseUrl: string,
-  filePath: string,
+  filePath: string
 ): Promise<Vulnerability[]> {
   const base = baseUrl.replace(/\/+$/, '')
-  const params = new URLSearchParams({ filePath, status: 'open', pageSize: '100' })
+  const params = new URLSearchParams({
+    filePath,
+    status: 'open',
+    pageSize: '100',
+  })
   const res = await fetch(`${base}/api/vulnerabilities?${params.toString()}`)
   if (!res.ok) return []
 
@@ -400,7 +415,7 @@ export async function fetchFileVulnerabilities(
  * 取得所有開放漏洞
  */
 export async function fetchAllOpenVulnerabilities(
-  baseUrl: string,
+  baseUrl: string
 ): Promise<Vulnerability[]> {
   const base = baseUrl.replace(/\/+$/, '')
   const params = new URLSearchParams({ status: 'open', pageSize: '100' })
@@ -416,7 +431,7 @@ export async function fetchAllOpenVulnerabilities(
  */
 export async function ignoreVulnerability(
   baseUrl: string,
-  vulnId: string,
+  vulnId: string
 ): Promise<boolean> {
   return updateVulnerabilityStatus(baseUrl, vulnId, 'ignored')
 }
@@ -427,7 +442,7 @@ export async function ignoreVulnerability(
 export async function updateVulnerabilityStatus(
   baseUrl: string,
   vulnId: string,
-  status: Vulnerability['status'],
+  status: Vulnerability['status']
 ): Promise<boolean> {
   const base = baseUrl.replace(/\/+$/, '')
   const res = await fetch(`${base}/api/vulnerabilities/${vulnId}`, {
@@ -443,7 +458,7 @@ export async function updateVulnerabilityStatus(
  */
 export async function fetchVulnerabilityById(
   baseUrl: string,
-  vulnId: string,
+  vulnId: string
 ): Promise<Vulnerability | null> {
   const base = baseUrl.replace(/\/+$/, '')
   const res = await fetch(`${base}/api/vulnerabilities/${vulnId}`)

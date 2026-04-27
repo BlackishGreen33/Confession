@@ -105,7 +105,8 @@
           "type": "string",
           "enum": [
             "nvidia",
-            "gemini"
+            "gemini",
+            "minimax-cn"
           ],
           "default": "nvidia",
           "description": "LLM provider for vulnerability analysis"

@@ -74,7 +74,10 @@ export class TtlCache<T> {
 
 export const FILE_ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
-export function buildFileAnalysisCacheKey(filePath: string, contentHash: string): string {
+export function buildFileAnalysisCacheKey(
+  filePath: string,
+  contentHash: string
+): string {
   return `${filePath}:${contentHash}`
 }
 
@@ -93,14 +96,16 @@ export function computeScanFingerprint(
   files: Array<{ path: string; content: string }>,
   depth: string,
   forceRescan = false,
-  engineMode = 'baseline',
+  engineMode = 'baseline'
 ): string {
   const parts = files
     .map((f) => `${f.path}:${computeContentHash(f.content)}`)
     .sort()
     .join('|')
   return createHash('sha256')
-    .update(`${parts}::${depth}::force=${forceRescan ? 1 : 0}::engine=${engineMode}`)
+    .update(
+      `${parts}::${depth}::force=${forceRescan ? 1 : 0}::engine=${engineMode}`
+    )
     .digest('hex')
 }
 
@@ -114,10 +119,10 @@ export function computeLlmPromptFingerprint(
   depth: string,
   options: {
     strategyVersion?: string
-    engineMode?: 'baseline' | 'agentic_beta'
+    engineMode?: 'baseline' | 'agentic'
     agentRole?: string
     contextDigest?: string
-  } = {},
+  } = {}
 ): string {
   const {
     strategyVersion = 'v2',
@@ -126,14 +131,18 @@ export function computeLlmPromptFingerprint(
     contextDigest = '',
   } = options
   return createHash('sha256')
-    .update(`${strategyVersion}::${engineMode}::${agentRole}::${contextDigest}::${modelName}::${depth}::${prompt}`)
+    .update(
+      `${strategyVersion}::${engineMode}::${agentRole}::${contextDigest}::${modelName}::${depth}::${prompt}`
+    )
     .digest('hex')
 }
 
 // === 全域快取實例 ===
 
 /** 檔案分析結果快取：key = filePath:contentHash，value = 是否已分析（預設 24 小時 TTL） */
-export const fileAnalysisCache = new TtlCache<boolean>(FILE_ANALYSIS_CACHE_TTL_MS)
+export const fileAnalysisCache = new TtlCache<boolean>(
+  FILE_ANALYSIS_CACHE_TTL_MS
+)
 
 /** 進行中的掃描任務去重：key = scanFingerprint，value = taskId（10 分鐘 TTL） */
 export const inflightScans = new TtlCache<string>(10 * 60 * 1000)

@@ -72,9 +72,9 @@ export interface VulnerabilityEvent {
   createdAt: string;
 }
 
-export type ScanEngineMode = 'baseline' | 'agentic_beta';
+export type ScanEngineMode = 'baseline' | 'agentic';
 export type ScanErrorCode =
-  | 'BETA_ENGINE_FAILED'
+  | 'AGENTIC_ENGINE_FAILED'
   | 'LLM_ANALYSIS_FAILED'
   | 'UNKNOWN';
 
@@ -92,7 +92,7 @@ export interface ScanRequest {
   workspaceSnapshotComplete?: boolean;
   /** 工作區根路徑（用於限制快照收斂影響範圍） */
   workspaceRoots?: string[];
-  /** 掃描引擎模式：baseline（現行）或 agentic_beta（Beta 多代理） */
+  /** 掃描引擎模式：baseline（保險回退）或 agentic（正式多代理） */
   engineMode?: ScanEngineMode;
 }
 
@@ -130,7 +130,7 @@ export interface RecentScanSummary {
   scannedFiles: number;
   engineMode: ScanEngineMode;
   fallbackUsed: boolean;
-  fallbackFrom?: 'agentic_beta';
+  fallbackFrom?: 'agentic';
   fallbackTo?: 'baseline';
   fallbackReason?: string;
   errorMessage: string | null;
@@ -317,7 +317,7 @@ export type WebToExtMsg =
 
 // === 配置（Plugin Config） ===
 
-export type LlmProvider = 'gemini' | 'nvidia';
+export type LlmProvider = 'gemini' | 'nvidia' | 'minimax-cn';
 export type UiLanguage = 'auto' | 'zh-TW' | 'zh-CN' | 'en';
 
 export interface PluginConfig {

@@ -38,6 +38,10 @@ const DEFAULT_CONFIDENCE_BY_SEVERITY: Record<string, number> = {
   info: 0.3,
 }
 
+function isAgenticEngineMode(value: string): boolean {
+  return value === 'agentic' || value === 'agentic_beta'
+}
+
 export interface HealthScoreInputVulnerability {
   filePath: string
   line: number
@@ -79,7 +83,7 @@ export interface HealthScoreBuildOptions {
 
 export function computeExposureScore(
   items: HealthScoreInputVulnerability[],
-  nowTs: number,
+  nowTs: number
 ): {
   value: number
   orb: number
@@ -97,7 +101,7 @@ export function computeExposureScore(
     const probability = estimateExploitProbability(
       item.aiConfidence,
       item.severity,
-      item.humanStatus,
+      item.humanStatus
     )
     const ageDays = Math.max(0, (nowTs - item.createdAt.getTime()) / DAY_MS)
     const ageFactor = 1 + (Math.min(ageDays, 30) / 30) * 0.5
@@ -118,15 +122,14 @@ export function computeExposureScore(
 export function computeRemediationScore(
   deduped: HealthScoreInputVulnerability[],
   recentDetected: HealthScoreInputVulnerability[],
-  recent30d: Date,
+  recent30d: Date
 ): { value: number; mttrHours: number; closureRate: number } {
   const fixedRecently = deduped.filter(
     (item) =>
-      item.status === 'fixed' &&
-      item.updatedAt.getTime() >= recent30d.getTime(),
+      item.status === 'fixed' && item.updatedAt.getTime() >= recent30d.getTime()
   )
   const mttrSamples = fixedRecently.map((item) =>
-    Math.max(0, (item.updatedAt.getTime() - item.createdAt.getTime()) / HOUR_MS),
+    Math.max(0, (item.updatedAt.getTime() - item.createdAt.getTime()) / HOUR_MS)
   )
   const mttrHours = percentile(mttrSamples, 0.5)
   const closureRate =
@@ -145,7 +148,7 @@ export function computeRemediationScore(
 }
 
 export function computeQualityScore(
-  recentDetected: HealthScoreInputVulnerability[],
+  recentDetected: HealthScoreInputVulnerability[]
 ): {
   value: number
   efficiency: number
@@ -155,10 +158,14 @@ export function computeQualityScore(
     return { value: 100, efficiency: 1, coverage: 1 }
   }
 
-  const reviewed = recentDetected.filter((item) => item.humanStatus !== 'pending')
-  const confirmed = reviewed.filter((item) => item.humanStatus === 'confirmed').length
+  const reviewed = recentDetected.filter(
+    (item) => item.humanStatus !== 'pending'
+  )
+  const confirmed = reviewed.filter(
+    (item) => item.humanStatus === 'confirmed'
+  ).length
   const falsePositive = reviewed.filter(
-    (item) => item.humanStatus === 'false_positive',
+    (item) => item.humanStatus === 'false_positive'
   ).length
 
   const efficiencyDen = confirmed + falsePositive
@@ -192,7 +199,7 @@ export function computeReliabilityScore(tasks: HealthScoreInputTask[]): {
   const successRate = completed / tasks.length
 
   const agenticScans = tasks.filter(
-    (item) => item.engineMode === 'agentic_beta' || item.fallbackUsed,
+    (item) => isAgenticEngineMode(item.engineMode) || item.fallbackUsed
   ).length
   const fallbackCount = tasks.filter((item) => item.fallbackUsed).length
   const fallbackRate = agenticScans > 0 ? fallbackCount / agenticScans : 0
@@ -254,7 +261,7 @@ export function toHealthGrade(score: number): HealthGrade {
 export function toHealthStatus(
   score: number,
   successRate: number,
-  latestTaskStatus: string | null,
+  latestTaskStatus: string | null
 ): HealthStatus {
   if (latestTaskStatus === 'failed' && successRate < 0.5) {
     return 'down'
@@ -266,7 +273,7 @@ export function toHealthStatus(
 }
 
 export function normalizeTaskStatus(
-  value: string | undefined,
+  value: string | undefined
 ): 'pending' | 'running' | 'completed' | 'failed' | undefined {
   if (!value) return undefined
   if (
@@ -281,10 +288,10 @@ export function normalizeTaskStatus(
 }
 
 export function normalizeEngineMode(
-  value: string | undefined,
+  value: string | undefined
 ): ScanEngineMode | undefined {
   if (!value) return undefined
-  return value === 'agentic_beta' ? 'agentic_beta' : 'baseline'
+  return isAgenticEngineMode(value) ? 'agentic' : 'baseline'
 }
 
 export function round(value: number, digits = 2): number {
@@ -294,7 +301,7 @@ export function round(value: number, digits = 2): number {
 
 export function normalizeWindowDays(
   value: number | undefined,
-  fallback: number,
+  fallback: number
 ): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   const normalized = Math.floor(value)
@@ -306,7 +313,11 @@ interface TopFactorSource {
   exposure: { lev: number }
   remediation: { mttrHours: number; closureRate: number }
   quality: { efficiency: number; coverage: number }
-  reliability: { successRate: number; fallbackRate: number; workspaceP95Ms: number }
+  reliability: {
+    successRate: number
+    fallbackRate: number
+    workspaceP95Ms: number
+  }
 }
 
 export function buildTopFactors(source: TopFactorSource): HealthTopFactor[] {
@@ -404,7 +415,10 @@ export function buildTopFactors(source: TopFactorSource): HealthTopFactor[] {
       ? negatives.slice(0, 3)
       : [...negatives, ...positives.slice(0, Math.max(0, 3 - negatives.length))]
 
-  return picked.map((item) => ({ ...item, impactScore: round(item.impactScore, 4) }))
+  return picked.map((item) => ({
+    ...item,
+    impactScore: round(item.impactScore, 4),
+  }))
 }
 
 function buildFactorCandidate(params: {
@@ -419,7 +433,8 @@ function buildFactorCandidate(params: {
   const normalizedBenefit = clamp(params.beneficialScore, 0, 1)
   const direction: HealthTopFactor['direction'] =
     normalizedBenefit >= params.target ? 'positive' : 'negative'
-  const denominator = direction === 'positive' ? 1 - params.target : params.target
+  const denominator =
+    direction === 'positive' ? 1 - params.target : params.target
   const impactScore =
     denominator > 0
       ? clamp(Math.abs(normalizedBenefit - params.target) / denominator, 0, 1)
@@ -441,12 +456,12 @@ function buildFactorCandidate(params: {
 function estimateExploitProbability(
   aiConfidence: number | null,
   severity: string,
-  humanStatus: string,
+  humanStatus: string
 ): number {
   const baseConfidence =
     typeof aiConfidence === 'number' && Number.isFinite(aiConfidence)
       ? normalizeConfidence(aiConfidence)
-      : DEFAULT_CONFIDENCE_BY_SEVERITY[severity] ?? 0.5
+      : (DEFAULT_CONFIDENCE_BY_SEVERITY[severity] ?? 0.5)
 
   const humanMultiplier = HUMAN_STATUS_MULTIPLIER[humanStatus] ?? 1
   const calibrated = baseConfidence * humanMultiplier

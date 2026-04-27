@@ -51,7 +51,7 @@ export function clearInflightReferences(taskId: string): void {
 
 export function tryGetInflightTaskId(
   body: ScanBody,
-  engineMode: 'baseline' | 'agentic_beta',
+  engineMode: 'baseline' | 'agentic'
 ): {
   fingerprint: string
   existingTaskId: string | undefined
@@ -60,7 +60,7 @@ export function tryGetInflightTaskId(
     body.files,
     body.depth,
     body.forceRescan ?? false,
-    engineMode,
+    engineMode
   )
 
   return {
@@ -69,7 +69,10 @@ export function tryGetInflightTaskId(
   }
 }
 
-export function registerInflightTask(taskId: string, fingerprint: string): void {
+export function registerInflightTask(
+  taskId: string,
+  fingerprint: string
+): void {
   inflightScans.set(taskId, taskId)
   inflightScans.set(fingerprint, taskId)
 }

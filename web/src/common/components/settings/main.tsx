@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import { m, useReducedMotion } from 'framer-motion'
+import { m, useReducedMotion } from 'framer-motion';
 import {
   Bot,
   CircleHelp,
@@ -14,58 +14,73 @@ import {
   ScanLine,
   ShieldOff,
   Trash2,
-} from 'lucide-react'
-import { useTheme } from 'next-themes'
-import React, { useCallback, useEffect, useState } from 'react'
-import { toast } from 'sonner'
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
+import React, { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
-import { GlowButton } from '@/components/glow-button'
-import { StickyActionBar } from '@/components/sticky-action-bar'
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { GlowButton } from '@/components/glow-button';
+import { StickyActionBar } from '@/components/sticky-action-bar';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useConfig, useConfigQuery, useSaveConfig, useUpdateConfig } from '@/hooks/use-config'
-import { useExtensionBridge } from '@/hooks/use-extension-bridge'
-import { useI18n } from '@/hooks/use-i18n'
-import type { ResolvedLocale } from '@/libs/i18n'
-import type { PluginConfig } from '@/libs/types'
-import { getSyncPhaseLabel, toMoreInfo } from '@/libs/ui-messages'
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  useConfig,
+  useConfigQuery,
+  useSaveConfig,
+  useUpdateConfig,
+} from '@/hooks/use-config';
+import { useExtensionBridge } from '@/hooks/use-extension-bridge';
+import { useI18n } from '@/hooks/use-i18n';
+import type { ResolvedLocale } from '@/libs/i18n';
+import type { PluginConfig } from '@/libs/types';
+import { getSyncPhaseLabel, toMoreInfo } from '@/libs/ui-messages';
 
 // === 兩欄表單列元件 ===
 
 interface InlineHelpContent {
-  title: string
-  description: string
-  points?: string[]
+  title: string;
+  description: string;
+  points?: string[];
 }
 
 function tx(
   locale: ResolvedLocale,
-  text: { 'zh-TW': string; 'zh-CN': string; en: string },
+  text: { 'zh-TW': string; 'zh-CN': string; en: string }
 ): string {
-  return text[locale]
+  return text[locale];
 }
 
-const InlineHelp: React.FC<{ content: InlineHelpContent; ariaLabel: string }> = ({
-  content,
-  ariaLabel,
-}) => (
+const InlineHelp: React.FC<{
+  content: InlineHelpContent;
+  ariaLabel: string;
+}> = ({ content, ariaLabel }) => (
   <Tooltip>
     <TooltipTrigger asChild>
       <button
         type="button"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyber-border text-cyber-textmuted transition-colors hover:border-cyber-primary hover:text-cyber-primary"
+        className="border-cyber-border text-cyber-textmuted hover:border-cyber-primary hover:text-cyber-primary inline-flex h-4 w-4 items-center justify-center rounded-full border transition-colors"
         aria-label={ariaLabel}
       >
         <CircleHelp className="h-3 w-3" />
@@ -75,14 +90,16 @@ const InlineHelp: React.FC<{ content: InlineHelpContent; ariaLabel: string }> = 
       side="top"
       align="start"
       collisionPadding={12}
-      className="w-[min(20rem,calc(100vw-2rem))] rounded-lg border-cyber-border bg-cyber-surface2 p-3 text-left text-xs leading-relaxed text-cyber-text"
+      className="border-cyber-border bg-cyber-surface2 text-cyber-text w-[min(20rem,calc(100vw-2rem))] rounded-lg p-3 text-left text-xs leading-relaxed"
     >
-      <span className="block text-xs font-black uppercase tracking-[0.08em] text-cyber-primary">
+      <span className="text-cyber-primary block text-xs font-black tracking-[0.08em] uppercase">
         {content.title}
       </span>
-      <span className="mt-1 block text-cyber-textmuted">{content.description}</span>
+      <span className="text-cyber-textmuted mt-1 block">
+        {content.description}
+      </span>
       {content.points && content.points.length > 0 && (
-        <ul className="mt-2 space-y-1 text-cyber-textmuted">
+        <ul className="text-cyber-textmuted mt-2 space-y-1">
           {content.points.map((point) => (
             <li key={point}>• {point}</li>
           ))}
@@ -90,43 +107,59 @@ const InlineHelp: React.FC<{ content: InlineHelpContent; ariaLabel: string }> = 
       )}
     </TooltipContent>
   </Tooltip>
-)
+);
 
 interface FormRowProps {
-  label: string
-  description?: string
-  htmlFor?: string
-  labelHelp?: React.ReactNode
-  children: React.ReactNode
+  label: string;
+  description?: string;
+  htmlFor?: string;
+  labelHelp?: React.ReactNode;
+  children: React.ReactNode;
 }
 
 /** 兩欄網格列：左側標籤描述、右側輸入控制項 */
-const FormRow: React.FC<FormRowProps> = ({ label, description, htmlFor, labelHelp, children }) => (
-  <div className="grid grid-cols-[1fr_1.2fr] items-start gap-4 border-b border-border/50 py-4 last:border-b-0">
+const FormRow: React.FC<FormRowProps> = ({
+  label,
+  description,
+  htmlFor,
+  labelHelp,
+  children,
+}) => (
+  <div className="border-border/50 grid grid-cols-[1fr_1.2fr] items-start gap-4 border-b py-4 last:border-b-0">
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1.5">
-        <Label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        <Label
+          htmlFor={htmlFor}
+          className="text-foreground text-sm font-medium"
+        >
           {label}
         </Label>
         {labelHelp}
       </div>
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      {description && (
+        <p className="text-muted-foreground text-xs">{description}</p>
+      )}
     </div>
     <div>{children}</div>
   </div>
-)
+);
 
 // === LLM 配置分頁 ===
 
 interface LlmTabProps {
-  locale: ResolvedLocale
-  llm: PluginConfig['llm']
-  onChange: (llm: Partial<PluginConfig['llm']>) => void
+  locale: ResolvedLocale;
+  llm: PluginConfig['llm'];
+  onChange: (llm: Partial<PluginConfig['llm']>) => void;
 }
 
 const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
-  const [showKey, setShowKey] = useState(false)
-  const providerLabel = llm.provider === 'nvidia' ? 'NVIDIA Integrate' : 'Google Gemini'
+  const [showKey, setShowKey] = useState(false);
+  const providerLabel =
+    llm.provider === 'nvidia'
+      ? 'NVIDIA Integrate'
+      : llm.provider === 'minimax-cn'
+        ? 'MiniMax CN'
+        : 'Google Gemini';
   const apiKeyPlaceholder =
     llm.provider === 'nvidia'
       ? tx(locale, {
@@ -134,22 +167,38 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
           'zh-CN': '输入 NVIDIA API Key…',
           en: 'Enter NVIDIA API Key…',
         })
-      : tx(locale, {
-          'zh-TW': '輸入 Gemini API Key…',
-          'zh-CN': '输入 Gemini API Key…',
-          en: 'Enter Gemini API Key…',
-        })
+      : llm.provider === 'minimax-cn'
+        ? tx(locale, {
+            'zh-TW': '輸入 MiniMax CN API Key…',
+            'zh-CN': '输入 MiniMax CN API Key…',
+            en: 'Enter MiniMax CN API Key…',
+          })
+        : tx(locale, {
+            'zh-TW': '輸入 Gemini API Key…',
+            'zh-CN': '输入 Gemini API Key…',
+            en: 'Enter Gemini API Key…',
+          });
   const endpointPlaceholder =
     llm.provider === 'nvidia'
       ? 'https://integrate.api.nvidia.com/v1'
-      : 'https://generativelanguage.googleapis.com/v1beta/models'
+      : llm.provider === 'minimax-cn'
+        ? 'https://api.minimaxi.com/v1'
+        : 'https://generativelanguage.googleapis.com/v1beta/models';
   const modelPlaceholder =
-    llm.provider === 'nvidia' ? 'qwen/qwen2.5-coder-32b-instruct' : 'gemini-3-flash-preview'
+    llm.provider === 'nvidia'
+      ? 'qwen/qwen2.5-coder-32b-instruct'
+      : llm.provider === 'minimax-cn'
+        ? 'MiniMax-M2.7'
+        : 'gemini-3-flash-preview';
 
   return (
     <div className="flex flex-col">
       <FormRow
-        label={tx(locale, { 'zh-TW': '提供商', 'zh-CN': '提供商', en: 'Provider' })}
+        label={tx(locale, {
+          'zh-TW': '提供商',
+          'zh-CN': '提供商',
+          en: 'Provider',
+        })}
         description={tx(locale, {
           'zh-TW': '選擇 LLM 服務提供商',
           'zh-CN': '选择 LLM 服务提供商',
@@ -159,7 +208,13 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
       >
         <Select
           value={llm.provider}
-          onValueChange={(v) => onChange({ provider: v as PluginConfig['llm']['provider'] })}
+          onValueChange={(v) =>
+            onChange({
+              provider: v as PluginConfig['llm']['provider'],
+              endpoint: undefined,
+              model: undefined,
+            })
+          }
         >
           <SelectTrigger id="llm-provider" className="w-full">
             <SelectValue />
@@ -167,6 +222,7 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
           <SelectContent>
             <SelectItem value="nvidia">NVIDIA Integrate</SelectItem>
             <SelectItem value="gemini">Google Gemini</SelectItem>
+            <SelectItem value="minimax-cn">MiniMax CN</SelectItem>
           </SelectContent>
         </Select>
       </FormRow>
@@ -197,19 +253,31 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
             onClick={() => setShowKey((p) => !p)}
             aria-label={
               showKey
-                ? tx(locale, { 'zh-TW': '隱藏 API Key', 'zh-CN': '隐藏 API Key', en: 'Hide API key' })
-                : tx(locale, { 'zh-TW': '顯示 API Key', 'zh-CN': '显示 API Key', en: 'Show API key' })
+                ? tx(locale, {
+                    'zh-TW': '隱藏 API Key',
+                    'zh-CN': '隐藏 API Key',
+                    en: 'Hide API key',
+                  })
+                : tx(locale, {
+                    'zh-TW': '顯示 API Key',
+                    'zh-CN': '显示 API Key',
+                    en: 'Show API key',
+                  })
             }
           >
-            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showKey ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
           </Button>
         </div>
       </FormRow>
 
-      <div className="mt-3 rounded-lg border border-cyber-border bg-cyber-bg/35 px-4">
+      <div className="border-cyber-border bg-cyber-bg/35 mt-3 rounded-lg border px-4">
         <Accordion type="single" collapsible>
           <AccordionItem value="llm-advanced" className="border-none">
-            <AccordionTrigger className="text-xs font-black uppercase tracking-[0.08em] text-cyber-textmuted">
+            <AccordionTrigger className="text-cyber-textmuted text-xs font-black tracking-[0.08em] uppercase">
               {tx(locale, {
                 'zh-TW': '進階：端點與模型覆寫',
                 'zh-CN': '高级：端点与模型覆写',
@@ -218,7 +286,11 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
             </AccordionTrigger>
             <AccordionContent className="space-y-1">
               <FormRow
-                label={tx(locale, { 'zh-TW': '端點', 'zh-CN': '端点', en: 'Endpoint' })}
+                label={tx(locale, {
+                  'zh-TW': '端點',
+                  'zh-CN': '端点',
+                  en: 'Endpoint',
+                })}
                 description={
                   locale === 'en'
                     ? `Custom ${providerLabel} API endpoint (optional)`
@@ -231,13 +303,19 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
                 <Input
                   id="llm-endpoint"
                   value={llm.endpoint ?? ''}
-                  onChange={(e) => onChange({ endpoint: e.target.value || undefined })}
+                  onChange={(e) =>
+                    onChange({ endpoint: e.target.value || undefined })
+                  }
                   placeholder={endpointPlaceholder}
                 />
               </FormRow>
 
               <FormRow
-                label={tx(locale, { 'zh-TW': '模型', 'zh-CN': '模型', en: 'Model' })}
+                label={tx(locale, {
+                  'zh-TW': '模型',
+                  'zh-CN': '模型',
+                  en: 'Model',
+                })}
                 description={tx(locale, {
                   'zh-TW': '指定使用的模型名稱（選填）',
                   'zh-CN': '指定使用的模型名称（选填）',
@@ -248,7 +326,9 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
                 <Input
                   id="llm-model"
                   value={llm.model ?? ''}
-                  onChange={(e) => onChange({ model: e.target.value || undefined })}
+                  onChange={(e) =>
+                    onChange({ model: e.target.value || undefined })
+                  }
                   placeholder={modelPlaceholder}
                 />
               </FormRow>
@@ -257,19 +337,19 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
         </Accordion>
       </div>
     </div>
-  )
-}
+  );
+};
 
 // === 分析觸發分頁 ===
 
 interface AnalysisTabProps {
-  locale: ResolvedLocale
-  analysis: PluginConfig['analysis']
-  onChange: (analysis: Partial<PluginConfig['analysis']>) => void
+  locale: ResolvedLocale;
+  analysis: PluginConfig['analysis'];
+  onChange: (analysis: Partial<PluginConfig['analysis']>) => void;
 }
 
 function getAnalysisDepthMeta(
-  locale: ResolvedLocale,
+  locale: ResolvedLocale
 ): Record<PluginConfig['analysis']['depth'], { label: string; hint: string }> {
   switch (locale) {
     case 'zh-CN':
@@ -286,7 +366,7 @@ function getAnalysisDepthMeta(
           label: '完整扫描（优先覆盖）',
           hint: '加入全文件宏观分析，覆盖更完整，但耗时与成本更高。',
         },
-      }
+      };
     case 'en':
       return {
         quick: {
@@ -301,7 +381,7 @@ function getAnalysisDepthMeta(
           label: 'Deep Scan (Coverage First)',
           hint: 'Adds full-file analysis for better coverage with higher cost.',
         },
-      }
+      };
     default:
       return {
         quick: {
@@ -316,18 +396,26 @@ function getAnalysisDepthMeta(
           label: '完整掃描（優先覆蓋）',
           hint: '加入全檔案宏觀分析，覆蓋更完整，但耗時與成本較高。',
         },
-      }
+      };
   }
 }
 
-const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange }) => {
-  const ANALYSIS_DEPTH_META = getAnalysisDepthMeta(locale)
-  const currentDepthMeta = ANALYSIS_DEPTH_META[analysis.depth]
+const AnalysisTab: React.FC<AnalysisTabProps> = ({
+  locale,
+  analysis,
+  onChange,
+}) => {
+  const ANALYSIS_DEPTH_META = getAnalysisDepthMeta(locale);
+  const currentDepthMeta = ANALYSIS_DEPTH_META[analysis.depth];
 
   return (
     <div className="flex flex-col">
       <FormRow
-        label={tx(locale, { 'zh-TW': '觸發方式', 'zh-CN': '触发方式', en: 'Trigger Mode' })}
+        label={tx(locale, {
+          'zh-TW': '觸發方式',
+          'zh-CN': '触发方式',
+          en: 'Trigger Mode',
+        })}
         description={tx(locale, {
           'zh-TW': '設定漏洞分析的觸發時機',
           'zh-CN': '设置漏洞分析的触发时机',
@@ -338,7 +426,9 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange })
         <Select
           value={analysis.triggerMode}
           onValueChange={(v) =>
-            onChange({ triggerMode: v as PluginConfig['analysis']['triggerMode'] })
+            onChange({
+              triggerMode: v as PluginConfig['analysis']['triggerMode'],
+            })
           }
         >
           <SelectTrigger id="trigger-mode" className="w-full">
@@ -346,17 +436,29 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange })
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="onSave">
-              {tx(locale, { 'zh-TW': '儲存時自動分析', 'zh-CN': '保存时自动分析', en: 'Auto on Save' })}
+              {tx(locale, {
+                'zh-TW': '儲存時自動分析',
+                'zh-CN': '保存时自动分析',
+                en: 'Auto on Save',
+              })}
             </SelectItem>
             <SelectItem value="manual">
-              {tx(locale, { 'zh-TW': '手動觸發', 'zh-CN': '手动触发', en: 'Manual Trigger' })}
+              {tx(locale, {
+                'zh-TW': '手動觸發',
+                'zh-CN': '手动触发',
+                en: 'Manual Trigger',
+              })}
             </SelectItem>
           </SelectContent>
         </Select>
       </FormRow>
 
       <FormRow
-        label={tx(locale, { 'zh-TW': '分析深度', 'zh-CN': '分析深度', en: 'Scan Depth' })}
+        label={tx(locale, {
+          'zh-TW': '分析深度',
+          'zh-CN': '分析深度',
+          en: 'Scan Depth',
+        })}
         description={tx(locale, {
           'zh-TW': '控制掃描的精細程度與耗時',
           'zh-CN': '控制扫描精细度与耗时',
@@ -365,7 +467,11 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange })
         htmlFor="analysis-depth"
         labelHelp={
           <InlineHelp
-            ariaLabel={tx(locale, { 'zh-TW': '分析深度說明', 'zh-CN': '分析深度说明', en: 'Scan depth help' })}
+            ariaLabel={tx(locale, {
+              'zh-TW': '分析深度說明',
+              'zh-CN': '分析深度说明',
+              en: 'Scan depth help',
+            })}
             content={{
               title: tx(locale, {
                 'zh-TW': '分析深度怎麼選？',
@@ -402,18 +508,26 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange })
         <div className="space-y-2">
           <Select
             value={analysis.depth}
-            onValueChange={(v) => onChange({ depth: v as PluginConfig['analysis']['depth'] })}
+            onValueChange={(v) =>
+              onChange({ depth: v as PluginConfig['analysis']['depth'] })
+            }
           >
             <SelectTrigger id="analysis-depth" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="quick">{ANALYSIS_DEPTH_META.quick.label}</SelectItem>
-              <SelectItem value="standard">{ANALYSIS_DEPTH_META.standard.label}</SelectItem>
-              <SelectItem value="deep">{ANALYSIS_DEPTH_META.deep.label}</SelectItem>
+              <SelectItem value="quick">
+                {ANALYSIS_DEPTH_META.quick.label}
+              </SelectItem>
+              <SelectItem value="standard">
+                {ANALYSIS_DEPTH_META.standard.label}
+              </SelectItem>
+              <SelectItem value="deep">
+                {ANALYSIS_DEPTH_META.deep.label}
+              </SelectItem>
             </SelectContent>
           </Select>
-          <p className="rounded-md border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2 text-xs leading-relaxed text-cyber-textmuted">
+          <p className="border-cyber-border/60 bg-cyber-bg/40 text-cyber-textmuted rounded-md border px-3 py-2 text-xs leading-relaxed">
             {currentDepthMeta.hint}
           </p>
         </div>
@@ -439,61 +553,67 @@ const AnalysisTab: React.FC<AnalysisTabProps> = ({ locale, analysis, onChange })
           max={5000}
           step={100}
           value={analysis.debounceMs}
-          onChange={(e) => onChange({ debounceMs: Number(e.target.value) || 500 })}
+          onChange={(e) =>
+            onChange({ debounceMs: Number(e.target.value) || 500 })
+          }
         />
       </FormRow>
     </div>
-  )
-}
+  );
+};
 
 // === 忽略規則分頁 ===
 
 interface IgnoreTabProps {
-  locale: ResolvedLocale
-  ignore: PluginConfig['ignore']
-  onChange: (ignore: Partial<PluginConfig['ignore']>) => void
+  locale: ResolvedLocale;
+  ignore: PluginConfig['ignore'];
+  onChange: (ignore: Partial<PluginConfig['ignore']>) => void;
 }
 
 const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
-  const [newPath, setNewPath] = useState('')
-  const [newType, setNewType] = useState('')
+  const [newPath, setNewPath] = useState('');
+  const [newType, setNewType] = useState('');
 
   const addPath = useCallback(() => {
-    const trimmed = newPath.trim()
+    const trimmed = newPath.trim();
     if (trimmed && !ignore.paths.includes(trimmed)) {
-      onChange({ paths: [...ignore.paths, trimmed] })
-      setNewPath('')
+      onChange({ paths: [...ignore.paths, trimmed] });
+      setNewPath('');
     }
-  }, [newPath, ignore.paths, onChange])
+  }, [newPath, ignore.paths, onChange]);
 
   const removePath = useCallback(
     (path: string) => {
-      onChange({ paths: ignore.paths.filter((p) => p !== path) })
+      onChange({ paths: ignore.paths.filter((p) => p !== path) });
     },
-    [ignore.paths, onChange],
-  )
+    [ignore.paths, onChange]
+  );
 
   const addType = useCallback(() => {
-    const trimmed = newType.trim()
+    const trimmed = newType.trim();
     if (trimmed && !ignore.types.includes(trimmed)) {
-      onChange({ types: [...ignore.types, trimmed] })
-      setNewType('')
+      onChange({ types: [...ignore.types, trimmed] });
+      setNewType('');
     }
-  }, [newType, ignore.types, onChange])
+  }, [newType, ignore.types, onChange]);
 
   const removeType = useCallback(
     (type: string) => {
-      onChange({ types: ignore.types.filter((t) => t !== type) })
+      onChange({ types: ignore.types.filter((t) => t !== type) });
     },
-    [ignore.types, onChange],
-  )
+    [ignore.types, onChange]
+  );
 
   return (
     <div className="flex flex-col">
-      <div className="rounded-lg border border-cyber-border bg-cyber-bg/35 px-4">
+      <div className="border-cyber-border bg-cyber-bg/35 rounded-lg border px-4">
         <div className="space-y-1">
           <FormRow
-            label={tx(locale, { 'zh-TW': '忽略路徑', 'zh-CN': '忽略路径', en: 'Ignored Paths' })}
+            label={tx(locale, {
+              'zh-TW': '忽略路徑',
+              'zh-CN': '忽略路径',
+              en: 'Ignored Paths',
+            })}
             description={tx(locale, {
               'zh-TW': '不需要分析的檔案路徑模式',
               'zh-CN': '不需要分析的文件路径模式',
@@ -511,7 +631,7 @@ const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
                     en: 'e.g. node_modules/**',
                   })}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') addPath()
+                    if (e.key === 'Enter') addPath();
                   }}
                 />
                 <Button
@@ -531,7 +651,11 @@ const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
               {ignore.paths.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {ignore.paths.map((path) => (
-                    <Badge key={path} variant="secondary" className="gap-1 font-mono text-xs">
+                    <Badge
+                      key={path}
+                      variant="secondary"
+                      className="gap-1 font-mono text-xs"
+                    >
                       {path}
                       <button
                         type="button"
@@ -577,7 +701,7 @@ const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
                     en: 'e.g. eval_usage',
                   })}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') addType()
+                    if (e.key === 'Enter') addType();
                   }}
                 />
                 <Button
@@ -597,7 +721,11 @@ const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
               {ignore.types.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {ignore.types.map((type) => (
-                    <Badge key={type} variant="secondary" className="gap-1 font-mono text-xs">
+                    <Badge
+                      key={type}
+                      variant="secondary"
+                      className="gap-1 font-mono text-xs"
+                    >
                       {type}
                       <button
                         type="button"
@@ -622,21 +750,25 @@ const IgnoreTab: React.FC<IgnoreTabProps> = ({ locale, ignore, onChange }) => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
 // === API 地址分頁 ===
 
 interface ApiTabProps {
-  locale: ResolvedLocale
-  api: PluginConfig['api']
-  onChange: (api: Partial<PluginConfig['api']>) => void
+  locale: ResolvedLocale;
+  api: PluginConfig['api'];
+  onChange: (api: Partial<PluginConfig['api']>) => void;
 }
 
 const ApiTab: React.FC<ApiTabProps> = ({ locale, api, onChange }) => (
   <div className="flex flex-col">
     <FormRow
-      label={tx(locale, { 'zh-TW': '連線模式', 'zh-CN': '连接模式', en: 'Connection Mode' })}
+      label={tx(locale, {
+        'zh-TW': '連線模式',
+        'zh-CN': '连接模式',
+        en: 'Connection Mode',
+      })}
       description={tx(locale, {
         'zh-TW': '選擇本地開發或遠端伺服器',
         'zh-CN': '选择本地开发或远端服务器',
@@ -646,24 +778,38 @@ const ApiTab: React.FC<ApiTabProps> = ({ locale, api, onChange }) => (
     >
       <Select
         value={api.mode}
-        onValueChange={(v) => onChange({ mode: v as PluginConfig['api']['mode'] })}
+        onValueChange={(v) =>
+          onChange({ mode: v as PluginConfig['api']['mode'] })
+        }
       >
         <SelectTrigger id="api-mode" className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="local">
-            {tx(locale, { 'zh-TW': '本地開發', 'zh-CN': '本地开发', en: 'Local' })}
+            {tx(locale, {
+              'zh-TW': '本地開發',
+              'zh-CN': '本地开发',
+              en: 'Local',
+            })}
           </SelectItem>
           <SelectItem value="remote">
-            {tx(locale, { 'zh-TW': '遠端伺服器', 'zh-CN': '远端服务器', en: 'Remote' })}
+            {tx(locale, {
+              'zh-TW': '遠端伺服器',
+              'zh-CN': '远端服务器',
+              en: 'Remote',
+            })}
           </SelectItem>
         </SelectContent>
       </Select>
     </FormRow>
 
     <FormRow
-      label={tx(locale, { 'zh-TW': 'API 基礎 URL', 'zh-CN': 'API 基础 URL', en: 'API Base URL' })}
+      label={tx(locale, {
+        'zh-TW': 'API 基礎 URL',
+        'zh-CN': 'API 基础 URL',
+        en: 'API Base URL',
+      })}
       description={tx(locale, {
         'zh-TW': '後端 API 的連線位址',
         'zh-CN': '后端 API 的连接地址',
@@ -679,47 +825,51 @@ const ApiTab: React.FC<ApiTabProps> = ({ locale, api, onChange }) => (
       />
     </FormRow>
   </div>
-)
+);
 
-type ThemeMode = 'light' | 'dark' | 'system'
+type ThemeMode = 'light' | 'dark' | 'system';
 
 // === 同步狀態指示器 ===
 
 interface SyncIndicatorProps {
-  locale: ResolvedLocale
+  locale: ResolvedLocale;
   phase:
     | 'idle'
     | 'syncing_extension'
     | 'extension_failed'
     | 'syncing_backend'
     | 'backend_failed'
-    | 'synced'
-  detail?: string | null
+    | 'synced';
+  detail?: string | null;
 }
 
-const SyncIndicator: React.FC<SyncIndicatorProps> = ({ locale, phase, detail }) => {
+const SyncIndicator: React.FC<SyncIndicatorProps> = ({
+  locale,
+  phase,
+  detail,
+}) => {
   if (phase === 'syncing_extension' || phase === 'syncing_backend') {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-cyber-primary">
+      <div className="text-cyber-primary flex items-center gap-1.5 text-xs">
         <Loader2 className="h-3 w-3 animate-spin" />
         <span>{getSyncPhaseLabel(phase, locale)}</span>
       </div>
-    )
+    );
   }
 
   if (phase === 'synced') {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-safe">
-        <span className="h-2 w-2 rounded-full bg-safe animate-pulse-glow" />
+      <div className="text-safe flex items-center gap-1.5 text-xs">
+        <span className="bg-safe animate-pulse-glow h-2 w-2 rounded-full" />
         <span>{getSyncPhaseLabel(phase, locale)}</span>
       </div>
-    )
+    );
   }
 
   if (phase === 'extension_failed' || phase === 'backend_failed') {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-severity-medium">
-        <span className="h-2 w-2 rounded-full bg-severity-medium" />
+      <div className="text-severity-medium flex items-center gap-1.5 text-xs">
+        <span className="bg-severity-medium h-2 w-2 rounded-full" />
         <span>{getSyncPhaseLabel(phase, locale)}</span>
         {detail && (
           <InlineHelp
@@ -739,16 +889,16 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({ locale, phase, detail }) 
           />
         )}
       </div>
-    )
+    );
   }
 
   return (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="h-2 w-2 rounded-full bg-muted-foreground/50" />
+    <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+      <span className="bg-muted-foreground/50 h-2 w-2 rounded-full" />
       <span>{getSyncPhaseLabel(phase, locale)}</span>
     </div>
-  )
-}
+  );
+};
 
 // === 設定面板主元件 ===
 
@@ -759,49 +909,63 @@ const DEFAULT_CONFIG: PluginConfig = {
   ignore: { paths: [], types: [] },
   api: { baseUrl: 'http://localhost:3000', mode: 'local' },
   ui: { language: 'auto' },
-}
+};
 
 function getErrorDetail(error: unknown, fallback = '未知錯誤'): string {
-  if (error instanceof Error && error.message.trim()) return error.message.trim()
-  return fallback
+  if (error instanceof Error && error.message.trim())
+    return error.message.trim();
+  return fallback;
 }
 
 export const SettingsPanel: React.FC = () => {
-  const reduceMotion = useReducedMotion()
-  const { theme, resolvedTheme, setTheme } = useTheme()
-  const config = useConfig()
-  const { locale, t, languageOptions } = useI18n()
-  const updateConfig = useUpdateConfig()
-  const { sendConfigToExtensionAndWait, isInVscodeWebview } = useExtensionBridge({ passive: true })
-  const [themeMounted, setThemeMounted] = useState(false)
+  const reduceMotion = useReducedMotion();
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const config = useConfig();
+  const { locale, t, languageOptions } = useI18n();
+  const updateConfig = useUpdateConfig();
+  const { sendConfigToExtensionAndWait, isInVscodeWebview } =
+    useExtensionBridge({ passive: true });
+  const [themeMounted, setThemeMounted] = useState(false);
   const [syncPhase, setSyncPhase] = useState<
-    'idle' | 'syncing_extension' | 'extension_failed' | 'syncing_backend' | 'backend_failed' | 'synced'
-  >('idle')
-  const [syncDetail, setSyncDetail] = useState<string | null>(null)
+    | 'idle'
+    | 'syncing_extension'
+    | 'extension_failed'
+    | 'syncing_backend'
+    | 'backend_failed'
+    | 'synced'
+  >('idle');
+  const [syncDetail, setSyncDetail] = useState<string | null>(null);
 
   useEffect(() => {
-    setThemeMounted(true)
-  }, [])
+    setThemeMounted(true);
+  }, []);
 
   // 掛載時從後端載入配置
-  useConfigQuery()
+  useConfigQuery();
 
-  const saveConfig = useSaveConfig()
+  const saveConfig = useSaveConfig();
 
   const handleSave = useCallback(async () => {
-    if (syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend') return
+    if (syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend')
+      return;
 
     if (!isInVscodeWebview) {
-      setSyncPhase('syncing_backend')
-      setSyncDetail(null)
+      setSyncPhase('syncing_backend');
+      setSyncDetail(null);
       try {
-        await saveConfig.mutateAsync(config)
-        setSyncPhase('synced')
-        setSyncDetail(null)
-        toast.success(t({ 'zh-TW': '設定已儲存', 'zh-CN': '设置已保存', en: 'Settings saved' }))
+        await saveConfig.mutateAsync(config);
+        setSyncPhase('synced');
+        setSyncDetail(null);
+        toast.success(
+          t({
+            'zh-TW': '設定已儲存',
+            'zh-CN': '设置已保存',
+            en: 'Settings saved',
+          })
+        );
         setTimeout(() => {
-          setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev))
-        }, 2500)
+          setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev));
+        }, 2500);
       } catch (error) {
         const detail = getErrorDetail(
           error,
@@ -809,10 +973,10 @@ export const SettingsPanel: React.FC = () => {
             'zh-TW': '後端服務暫時無回應',
             'zh-CN': '后端服务暂时无响应',
             en: 'Backend service is temporarily unavailable',
-          }),
-        )
-        setSyncPhase('backend_failed')
-        setSyncDetail(`後端：${detail}`)
+          })
+        );
+        setSyncPhase('backend_failed');
+        setSyncDetail(`後端：${detail}`);
         toast.error(
           t({
             'zh-TW': '設定同步失敗，請稍後再試',
@@ -821,16 +985,16 @@ export const SettingsPanel: React.FC = () => {
           }),
           {
             description: toMoreInfo(detail, locale),
-          },
-        )
+          }
+        );
       }
-      return
+      return;
     }
 
-    setSyncPhase('syncing_extension')
-    setSyncDetail(null)
+    setSyncPhase('syncing_extension');
+    setSyncDetail(null);
     try {
-      const extResult = await sendConfigToExtensionAndWait(config)
+      const extResult = await sendConfigToExtensionAndWait(config);
       if (!extResult.success) {
         const detail =
           extResult.message?.trim() ||
@@ -838,9 +1002,9 @@ export const SettingsPanel: React.FC = () => {
             'zh-TW': 'Extension 未回覆同步結果',
             'zh-CN': 'Extension 未返回同步结果',
             en: 'Extension did not return a sync result',
-          })
-        setSyncPhase('extension_failed')
-        setSyncDetail(`Extension：${detail}`)
+          });
+        setSyncPhase('extension_failed');
+        setSyncDetail(`Extension：${detail}`);
         toast.error(
           t({
             'zh-TW': '設定同步失敗，請稍後再試',
@@ -849,9 +1013,9 @@ export const SettingsPanel: React.FC = () => {
           }),
           {
             description: toMoreInfo(detail, locale),
-          },
-        )
-        return
+          }
+        );
+        return;
       }
       toast.success(
         t({
@@ -859,7 +1023,7 @@ export const SettingsPanel: React.FC = () => {
           'zh-CN': '设置已应用到编辑器',
           en: 'Settings applied to editor',
         })
-      )
+      );
     } catch (err) {
       const msg = getErrorDetail(
         err,
@@ -867,10 +1031,10 @@ export const SettingsPanel: React.FC = () => {
           'zh-TW': 'Extension 未回覆同步結果',
           'zh-CN': 'Extension 未返回同步结果',
           en: 'Extension did not return a sync result',
-        }),
-      )
-      setSyncPhase('extension_failed')
-      setSyncDetail(`Extension：${msg}`)
+        })
+      );
+      setSyncPhase('extension_failed');
+      setSyncDetail(`Extension：${msg}`);
       toast.error(
         t({
           'zh-TW': '設定同步失敗，請稍後再試',
@@ -879,27 +1043,27 @@ export const SettingsPanel: React.FC = () => {
         }),
         {
           description: toMoreInfo(msg, locale),
-        },
-      )
-      return
+        }
+      );
+      return;
     }
 
-    setSyncPhase('syncing_backend')
-    setSyncDetail(null)
+    setSyncPhase('syncing_backend');
+    setSyncDetail(null);
     try {
-      await saveConfig.mutateAsync(config)
-      setSyncPhase('synced')
-      setSyncDetail(null)
+      await saveConfig.mutateAsync(config);
+      setSyncPhase('synced');
+      setSyncDetail(null);
       toast.success(
         t({
           'zh-TW': '設定已完成同步',
           'zh-CN': '设置已完成同步',
           en: 'Settings fully synced',
-        }),
-      )
+        })
+      );
       setTimeout(() => {
-        setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev))
-      }, 2500)
+        setSyncPhase((prev) => (prev === 'synced' ? 'idle' : prev));
+      }, 2500);
     } catch (error) {
       const detail = getErrorDetail(
         error,
@@ -907,10 +1071,10 @@ export const SettingsPanel: React.FC = () => {
           'zh-TW': '後端服務暫時無回應',
           'zh-CN': '后端服务暂时无响应',
           en: 'Backend service is temporarily unavailable',
-        }),
-      )
-      setSyncPhase('backend_failed')
-      setSyncDetail(`後端：${detail}`)
+        })
+      );
+      setSyncPhase('backend_failed');
+      setSyncDetail(`後端：${detail}`);
       toast.warning(
         t({
           'zh-TW': '設定已套用到編輯器，但完整同步尚未完成',
@@ -919,68 +1083,77 @@ export const SettingsPanel: React.FC = () => {
         }),
         {
           description: toMoreInfo(detail, locale),
-        },
-      )
+        }
+      );
     }
-  }, [config, isInVscodeWebview, locale, saveConfig, sendConfigToExtensionAndWait, syncPhase, t])
+  }, [
+    config,
+    isInVscodeWebview,
+    locale,
+    saveConfig,
+    sendConfigToExtensionAndWait,
+    syncPhase,
+    t,
+  ]);
 
   const handleReset = useCallback(() => {
-    updateConfig(DEFAULT_CONFIG)
-    setSyncPhase('idle')
-    setSyncDetail(null)
+    updateConfig(DEFAULT_CONFIG);
+    setSyncPhase('idle');
+    setSyncDetail(null);
     toast.success(
       t({
         'zh-TW': '已重置為預設設定',
         'zh-CN': '已重置为默认设置',
         en: 'Reset to defaults',
       })
-    )
-  }, [t, updateConfig])
+    );
+  }, [t, updateConfig]);
 
   const handleLlmChange = useCallback(
     (llm: Partial<PluginConfig['llm']>) => updateConfig({ llm }),
-    [updateConfig],
-  )
+    [updateConfig]
+  );
 
   const handleAnalysisChange = useCallback(
     (analysis: Partial<PluginConfig['analysis']>) => updateConfig({ analysis }),
-    [updateConfig],
-  )
+    [updateConfig]
+  );
 
   const handleIgnoreChange = useCallback(
     (ignore: Partial<PluginConfig['ignore']>) => updateConfig({ ignore }),
-    [updateConfig],
-  )
+    [updateConfig]
+  );
 
   const handleApiChange = useCallback(
     (api: Partial<PluginConfig['api']>) => updateConfig({ api }),
-    [updateConfig],
-  )
+    [updateConfig]
+  );
 
   const handleUiChange = useCallback(
     (ui: Partial<PluginConfig['ui']>) => updateConfig({ ui }),
-    [updateConfig],
-  )
+    [updateConfig]
+  );
 
   const handleThemeChange = useCallback(
     (mode: ThemeMode) => {
-      setTheme(mode)
+      setTheme(mode);
       toast.success(
         locale === 'en'
           ? `Switched to ${mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light'} theme`
           : locale === 'zh-CN'
             ? `已切换为${mode === 'system' ? '跟随系统' : mode === 'dark' ? '深色' : '浅色'}模式`
-            : `已切換為${mode === 'system' ? '跟隨系統' : mode === 'dark' ? '深色' : '淺色'}模式`,
-      )
+            : `已切換為${mode === 'system' ? '跟隨系統' : mode === 'dark' ? '深色' : '淺色'}模式`
+      );
     },
-    [locale, setTheme],
-  )
+    [locale, setTheme]
+  );
 
-  const preferredTheme: ThemeMode = theme === 'light' || theme === 'dark' ? theme : 'system'
+  const preferredTheme: ThemeMode =
+    theme === 'light' || theme === 'dark' ? theme : 'system';
   const effectiveTheme: 'light' | 'dark' | undefined =
     themeMounted && (resolvedTheme === 'light' || resolvedTheme === 'dark')
       ? resolvedTheme
-      : undefined
+      : undefined;
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -1001,12 +1174,18 @@ export const SettingsPanel: React.FC = () => {
               {t({ 'zh-TW': '設定', 'zh-CN': '设置', en: 'Settings' })}
             </h1>
 
-            <div className="mb-4 rounded-lg border border-cyber-border bg-cyber-bg/35 px-4">
+            <div className="border-cyber-border bg-cyber-bg/35 mb-4 rounded-lg border px-4">
               <FormRow
-                label={t({ 'zh-TW': '介面語言', 'zh-CN': '界面语言', en: 'Language' })}
+                label={t({
+                  'zh-TW': '介面語言',
+                  'zh-CN': '界面语言',
+                  en: 'Language',
+                })}
                 description={t({
-                  'zh-TW': '切換 Webview 顯示語言。Auto 會跟隨 VS Code/瀏覽器語言。',
-                  'zh-CN': '切换 Webview 显示语言。Auto 会跟随 VS Code/浏览器语言。',
+                  'zh-TW':
+                    '切換 Webview 顯示語言。Auto 會跟隨 VS Code/瀏覽器語言。',
+                  'zh-CN':
+                    '切换 Webview 显示语言。Auto 会跟随 VS Code/浏览器语言。',
                   en: 'Switch Webview display language. Auto follows VS Code/Browser locale.',
                 })}
                 htmlFor="ui-language"
@@ -1033,7 +1212,11 @@ export const SettingsPanel: React.FC = () => {
               </FormRow>
 
               <FormRow
-                label={t({ 'zh-TW': '主題模式', 'zh-CN': '主题模式', en: 'Theme Mode' })}
+                label={t({
+                  'zh-TW': '主題模式',
+                  'zh-CN': '主题模式',
+                  en: 'Theme Mode',
+                })}
                 description={t({
                   'zh-TW': '選擇跟隨系統、淺色或深色',
                   'zh-CN': '选择跟随系统、浅色或深色',
@@ -1044,14 +1227,20 @@ export const SettingsPanel: React.FC = () => {
                 <div className="space-y-2">
                   <Select
                     value={preferredTheme}
-                    onValueChange={(value) => handleThemeChange(value as ThemeMode)}
+                    onValueChange={(value) =>
+                      handleThemeChange(value as ThemeMode)
+                    }
                   >
                     <SelectTrigger id="theme-mode" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="system">
-                        {t({ 'zh-TW': '跟隨系統', 'zh-CN': '跟随系统', en: 'System' })}
+                        {t({
+                          'zh-TW': '跟隨系統',
+                          'zh-CN': '跟随系统',
+                          en: 'System',
+                        })}
                       </SelectItem>
                       <SelectItem value="light">
                         {t({ 'zh-TW': '淺色', 'zh-CN': '浅色', en: 'Light' })}
@@ -1061,8 +1250,12 @@ export const SettingsPanel: React.FC = () => {
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="rounded-md border border-cyber-border/60 bg-cyber-bg/40 px-3 py-2 text-xs leading-relaxed text-cyber-textmuted">
-                    {t({ 'zh-TW': '目前生效：', 'zh-CN': '当前生效：', en: 'Current:' })}
+                  <p className="border-cyber-border/60 bg-cyber-bg/40 text-cyber-textmuted rounded-md border px-3 py-2 text-xs leading-relaxed">
+                    {t({
+                      'zh-TW': '目前生效：',
+                      'zh-CN': '当前生效：',
+                      en: 'Current:',
+                    })}
                     {effectiveTheme === 'dark'
                       ? t({ 'zh-TW': '深色', 'zh-CN': '深色', en: 'Dark' })
                       : t({ 'zh-TW': '淺色', 'zh-CN': '浅色', en: 'Light' })}
@@ -1072,9 +1265,7 @@ export const SettingsPanel: React.FC = () => {
             </div>
 
             <Tabs defaultValue="llm">
-              <TabsList
-                className="w-full shrink-0 justify-start gap-1 rounded-lg bg-cyber-surface p-1"
-              >
+              <TabsList className="bg-cyber-surface w-full shrink-0 justify-start gap-1 rounded-lg p-1">
                 <TabsTrigger value="llm" className="gap-1.5 text-xs">
                   <Bot className="h-3.5 w-3.5" />
                   LLM
@@ -1095,7 +1286,11 @@ export const SettingsPanel: React.FC = () => {
 
               <div className="pb-24">
                 <TabsContent value="llm">
-                  <LlmTab locale={locale} llm={config.llm} onChange={handleLlmChange} />
+                  <LlmTab
+                    locale={locale}
+                    llm={config.llm}
+                    onChange={handleLlmChange}
+                  />
                 </TabsContent>
                 <TabsContent value="analysis">
                   <AnalysisTab
@@ -1105,10 +1300,18 @@ export const SettingsPanel: React.FC = () => {
                   />
                 </TabsContent>
                 <TabsContent value="ignore">
-                  <IgnoreTab locale={locale} ignore={config.ignore} onChange={handleIgnoreChange} />
+                  <IgnoreTab
+                    locale={locale}
+                    ignore={config.ignore}
+                    onChange={handleIgnoreChange}
+                  />
                 </TabsContent>
                 <TabsContent value="api">
-                  <ApiTab locale={locale} api={config.api} onChange={handleApiChange} />
+                  <ApiTab
+                    locale={locale}
+                    api={config.api}
+                    onChange={handleApiChange}
+                  />
                 </TabsContent>
               </div>
             </Tabs>
@@ -1117,23 +1320,42 @@ export const SettingsPanel: React.FC = () => {
 
         {/* 固定底部儲存列 */}
         <StickyActionBar
-          left={<SyncIndicator locale={locale} phase={syncPhase} detail={syncDetail} />}
+          left={
+            <SyncIndicator
+              locale={locale}
+              phase={syncPhase}
+              detail={syncDetail}
+            />
+          }
           right={
             <>
-              <Button type="button" variant="outline" size="sm" onClick={handleReset}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleReset}
+              >
                 <RefreshCw className="h-3.5 w-3.5" />
                 {t({ 'zh-TW': '重置', 'zh-CN': '重置', en: 'Reset' })}
               </Button>
               <GlowButton
                 size="sm"
                 onClick={() => {
-                  void handleSave()
+                  void handleSave();
                 }}
-                disabled={syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend'}
+                disabled={
+                  syncPhase === 'syncing_extension' ||
+                  syncPhase === 'syncing_backend'
+                }
               >
                 <Save className="h-3.5 w-3.5" />
-                {syncPhase === 'syncing_extension' || syncPhase === 'syncing_backend'
-                  ? t({ 'zh-TW': '同步中…', 'zh-CN': '同步中…', en: 'Syncing…' })
+                {syncPhase === 'syncing_extension' ||
+                syncPhase === 'syncing_backend'
+                  ? t({
+                      'zh-TW': '同步中…',
+                      'zh-CN': '同步中…',
+                      en: 'Syncing…',
+                    })
                   : t({ 'zh-TW': '儲存', 'zh-CN': '保存', en: 'Save' })}
               </GlowButton>
             </>
@@ -1141,5 +1363,5 @@ export const SettingsPanel: React.FC = () => {
         />
       </m.div>
     </TooltipProvider>
-  )
-}
+  );
+};

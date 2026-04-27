@@ -1,53 +1,66 @@
-import type { PluginConfig } from '@/libs/types'
+import type { PluginConfig } from '@/libs/types';
 
 import {
   callGemini,
   configFromEnv as geminiConfigFromEnv,
   configFromPlugin as geminiConfigFromPlugin,
   DEFAULT_GEMINI_MODEL,
-} from './gemini'
+} from './gemini';
+import {
+  callMiniMaxCn,
+  configFromEnv as miniMaxCnConfigFromEnv,
+  configFromPlugin as miniMaxCnConfigFromPlugin,
+  DEFAULT_MINIMAX_CN_MODEL,
+} from './minimax-cn';
 import {
   callNvidia,
   configFromEnv as nvidiaConfigFromEnv,
   configFromPlugin as nvidiaConfigFromPlugin,
   DEFAULT_NVIDIA_MODEL,
-} from './nvidia'
+} from './nvidia';
 
-export type LlmProvider = PluginConfig['llm']['provider']
+export type LlmProvider = PluginConfig['llm']['provider'];
 
 /** 統一 LLM 客戶端設定 */
 export interface LlmClientConfig {
-  provider: LlmProvider
-  apiKey: string
-  endpoint?: string
-  model?: string
+  provider: LlmProvider;
+  apiKey: string;
+  endpoint?: string;
+  model?: string;
 }
 
 /** 統一 LLM Token 用量 */
 export interface LlmUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 /** 統一 LLM 呼叫結果 */
 export interface LlmCallResult {
-  text: string
-  usage: LlmUsage
+  text: string;
+  usage: LlmUsage;
 }
 
-type FetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal']
+type FetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal'];
 
 /** LLM 呼叫控制選項 */
 export interface LlmCallOptions {
-  signal?: FetchSignal
+  signal?: FetchSignal;
 }
 
-export const DEFAULT_LLM_PROVIDER: LlmProvider = 'nvidia'
+export const DEFAULT_LLM_PROVIDER: LlmProvider = 'nvidia';
 
 /** 取得指定 provider 的預設模型 */
 export function resolveDefaultModel(provider: LlmProvider): string {
-  return provider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_NVIDIA_MODEL
+  switch (provider) {
+    case 'gemini':
+      return DEFAULT_GEMINI_MODEL;
+    case 'minimax-cn':
+      return DEFAULT_MINIMAX_CN_MODEL;
+    case 'nvidia':
+      return DEFAULT_NVIDIA_MODEL;
+  }
 }
 
 /**
@@ -55,16 +68,22 @@ export function resolveDefaultModel(provider: LlmProvider): string {
  * 規則：優先使用 config.apiKey，無值時才回退到對應 provider 的環境變數。
  */
 export function configFromPlugin(config: PluginConfig['llm']): LlmClientConfig {
-  if (config.provider === 'gemini') {
-    return {
-      provider: 'gemini',
-      ...geminiConfigFromPlugin(config),
-    }
-  }
-
-  return {
-    provider: 'nvidia',
-    ...nvidiaConfigFromPlugin(config),
+  switch (config.provider) {
+    case 'gemini':
+      return {
+        provider: 'gemini',
+        ...geminiConfigFromPlugin(config),
+      };
+    case 'minimax-cn':
+      return {
+        provider: 'minimax-cn',
+        ...miniMaxCnConfigFromPlugin(config),
+      };
+    case 'nvidia':
+      return {
+        provider: 'nvidia',
+        ...nvidiaConfigFromPlugin(config),
+      };
   }
 }
 
@@ -72,17 +91,25 @@ export function configFromPlugin(config: PluginConfig['llm']): LlmClientConfig {
  * 從環境變數建立統一 LLM 設定。
  * 未指定 provider 時，預設使用 NVIDIA。
  */
-export function configFromEnv(provider: LlmProvider = DEFAULT_LLM_PROVIDER): LlmClientConfig {
-  if (provider === 'gemini') {
-    return {
-      provider,
-      ...geminiConfigFromEnv(),
-    }
-  }
-
-  return {
-    provider,
-    ...nvidiaConfigFromEnv(),
+export function configFromEnv(
+  provider: LlmProvider = DEFAULT_LLM_PROVIDER
+): LlmClientConfig {
+  switch (provider) {
+    case 'gemini':
+      return {
+        provider,
+        ...geminiConfigFromEnv(),
+      };
+    case 'minimax-cn':
+      return {
+        provider,
+        ...miniMaxCnConfigFromEnv(),
+      };
+    case 'nvidia':
+      return {
+        provider,
+        ...nvidiaConfigFromEnv(),
+      };
   }
 }
 
@@ -90,11 +117,14 @@ export function configFromEnv(provider: LlmProvider = DEFAULT_LLM_PROVIDER): Llm
 export async function callLlm(
   prompt: string,
   config: LlmClientConfig,
-  options: LlmCallOptions = {},
+  options: LlmCallOptions = {}
 ): Promise<LlmCallResult> {
-  if (config.provider === 'gemini') {
-    return callGemini(prompt, config, options)
+  switch (config.provider) {
+    case 'gemini':
+      return callGemini(prompt, config, options);
+    case 'minimax-cn':
+      return callMiniMaxCn(prompt, config, options);
+    case 'nvidia':
+      return callNvidia(prompt, config, options);
   }
-
-  return callNvidia(prompt, config, options)
 }

@@ -15,6 +15,9 @@ import {
   createStableFingerprint,
   extractConfigData,
   normalizeConfigValue,
+  normalizeScanTaskEngineMode,
+  normalizeScanTaskErrorCode,
+  normalizeScanTaskFallbackFrom,
   now,
   toDate,
 } from './snapshot-codec'
@@ -38,7 +41,7 @@ function generateId(): string {
 }
 
 function normalizeVulnerabilityCreate(
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): VulnerabilityRecord {
   const createdAt = now()
   const filePath = String(data.filePath ?? '')
@@ -78,7 +81,8 @@ function normalizeVulnerabilityCreate(
     fixExplanation:
       typeof data.fixExplanation === 'string' ? data.fixExplanation : null,
     aiModel: typeof data.aiModel === 'string' ? data.aiModel : null,
-    aiConfidence: typeof data.aiConfidence === 'number' ? data.aiConfidence : null,
+    aiConfidence:
+      typeof data.aiConfidence === 'number' ? data.aiConfidence : null,
     aiReasoning: typeof data.aiReasoning === 'string' ? data.aiReasoning : null,
     stableFingerprint,
     source: data.source === 'dast' ? 'dast' : 'sast',
@@ -101,7 +105,7 @@ function normalizeVulnerabilityCreate(
 }
 
 function normalizeVulnerabilityEventCreate(
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): VulnerabilityEventRecord {
   return {
     id: typeof data.id === 'string' ? data.id : generateId(),
@@ -116,7 +120,8 @@ function normalizeVulnerabilityEventCreate(
       typeof data.toHumanStatus === 'string' ? data.toHumanStatus : null,
     fromFilePath:
       typeof data.fromFilePath === 'string' ? data.fromFilePath : null,
-    fromLine: typeof data.fromLine === 'number' ? Math.floor(data.fromLine) : null,
+    fromLine:
+      typeof data.fromLine === 'number' ? Math.floor(data.fromLine) : null,
     toFilePath: typeof data.toFilePath === 'string' ? data.toFilePath : null,
     toLine: typeof data.toLine === 'number' ? Math.floor(data.toLine) : null,
     createdAt: now(),
@@ -124,33 +129,31 @@ function normalizeVulnerabilityEventCreate(
 }
 
 function normalizeScanTaskCreate(
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): ScanTaskRecord {
   const createdAt = now()
   return {
     id: typeof data.id === 'string' ? data.id : generateId(),
     status: typeof data.status === 'string' ? data.status : 'pending',
-    engineMode:
-      typeof data.engineMode === 'string' ? data.engineMode : 'agentic_beta',
+    engineMode: normalizeScanTaskEngineMode(data.engineMode),
     progress: typeof data.progress === 'number' ? data.progress : 0,
     totalFiles: typeof data.totalFiles === 'number' ? data.totalFiles : 0,
     scannedFiles: typeof data.scannedFiles === 'number' ? data.scannedFiles : 0,
     fallbackUsed: Boolean(data.fallbackUsed),
-    fallbackFrom:
-      typeof data.fallbackFrom === 'string' ? data.fallbackFrom : null,
+    fallbackFrom: normalizeScanTaskFallbackFrom(data.fallbackFrom),
     fallbackTo: typeof data.fallbackTo === 'string' ? data.fallbackTo : null,
     fallbackReason:
       typeof data.fallbackReason === 'string' ? data.fallbackReason : null,
     errorMessage:
       typeof data.errorMessage === 'string' ? data.errorMessage : null,
-    errorCode: typeof data.errorCode === 'string' ? data.errorCode : null,
+    errorCode: normalizeScanTaskErrorCode(data.errorCode),
     createdAt,
     updatedAt: createdAt,
   }
 }
 
 function normalizeAdviceSnapshotCreate(
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): AdviceSnapshotRecord {
   const createdAt = now()
   return {
@@ -169,12 +172,13 @@ function normalizeAdviceSnapshotCreate(
 }
 
 function normalizeAdviceDecisionCreate(
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): AdviceDecisionRecord {
   return {
     id: typeof data.id === 'string' ? data.id : generateId(),
     sourceEvent: String(data.sourceEvent ?? ''),
-    sourceTaskId: typeof data.sourceTaskId === 'string' ? data.sourceTaskId : null,
+    sourceTaskId:
+      typeof data.sourceTaskId === 'string' ? data.sourceTaskId : null,
     sourceVulnerabilityId:
       typeof data.sourceVulnerabilityId === 'string'
         ? data.sourceVulnerabilityId
@@ -196,7 +200,7 @@ function normalizeAdviceDecisionCreate(
 
 async function findFirstByQuery<T extends object>(
   rows: T[],
-  args: QueryArgs = {},
+  args: QueryArgs = {}
 ): Promise<Record<string, unknown> | null> {
   const ordered = applyOrderBy(applyWhere(rows, args.where), args.orderBy)
   const limited = applyTakeSkip(ordered, args)
@@ -211,7 +215,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       findMany: async (args: QueryArgs = {}) => {
         const ordered = applyOrderBy(
           applyWhere(snapshot.vulnerabilities, args.where),
-          args.orderBy,
+          args.orderBy
         )
         const limited = applyTakeSkip(ordered, args)
         return limited.map((item) => cloneValue(applySelect(item, args.select)))
@@ -227,7 +231,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         applyWhere(snapshot.vulnerabilities, args.where).length,
       create: async (args: MutationArgs) => {
         const record = normalizeVulnerabilityCreate(
-          (args.data ?? {}) as Record<string, unknown>,
+          (args.data ?? {}) as Record<string, unknown>
         )
         snapshot.vulnerabilities.push(record)
         return cloneValue(applySelect(record, args.select))
@@ -236,14 +240,16 @@ export function buildScopedClient(snapshot: Snapshot) {
         const where = args.where
         let record = findUniqueByWhere(
           snapshot.vulnerabilities,
-          where,
+          where
         ) as VulnerabilityRecord | null
 
         if (!record) {
           const createData = {
             ...((args.create ?? {}) as Record<string, unknown>),
           }
-          const events = createData.events as Record<string, unknown> | undefined
+          const events = createData.events as
+            | Record<string, unknown>
+            | undefined
           delete createData.events
           record = normalizeVulnerabilityCreate(createData)
           snapshot.vulnerabilities.push(record)
@@ -254,7 +260,7 @@ export function buildScopedClient(snapshot: Snapshot) {
               normalizeVulnerabilityEventCreate({
                 ...(createEvent as Record<string, unknown>),
                 vulnerabilityId: record.id,
-              }),
+              })
             )
           }
         } else {
@@ -267,7 +273,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       update: async (args: MutationArgs) => {
         const found = findUniqueByWhere(
           snapshot.vulnerabilities,
-          args.where,
+          args.where
         ) as VulnerabilityRecord | null
         if (!found) {
           throw new Error('Record to update not found')
@@ -292,7 +298,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         }
         const before = snapshot.vulnerabilities.length
         snapshot.vulnerabilities = snapshot.vulnerabilities.filter(
-          (item) => !matchesWhere(item, args.where),
+          (item) => !matchesWhere(item, args.where)
         )
         return { count: before - snapshot.vulnerabilities.length }
       },
@@ -301,7 +307,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       findMany: async (args: QueryArgs = {}) => {
         const ordered = applyOrderBy(
           applyWhere(snapshot.vulnerabilityEvents, args.where),
-          args.orderBy,
+          args.orderBy
         )
         const limited = applyTakeSkip(ordered, args)
         return limited.map((item) => cloneValue(applySelect(item, args.select)))
@@ -310,9 +316,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         const rows = Array.isArray(args.data) ? args.data : []
         for (const item of rows) {
           snapshot.vulnerabilityEvents.push(
-            normalizeVulnerabilityEventCreate(
-              item as Record<string, unknown>,
-            ),
+            normalizeVulnerabilityEventCreate(item as Record<string, unknown>)
           )
         }
         return { count: rows.length }
@@ -325,7 +329,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         }
         const before = snapshot.vulnerabilityEvents.length
         snapshot.vulnerabilityEvents = snapshot.vulnerabilityEvents.filter(
-          (item) => !matchesWhere(item, args.where),
+          (item) => !matchesWhere(item, args.where)
         )
         return { count: before - snapshot.vulnerabilityEvents.length }
       },
@@ -336,7 +340,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       findMany: async (args: QueryArgs = {}) => {
         const ordered = applyOrderBy(
           applyWhere(snapshot.scanTasks, args.where),
-          args.orderBy,
+          args.orderBy
         )
         const limited = applyTakeSkip(ordered, args)
         return limited.map((item) => cloneValue(applySelect(item, args.select)))
@@ -350,7 +354,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       },
       create: async (args: MutationArgs) => {
         const record = normalizeScanTaskCreate(
-          (args.data ?? {}) as Record<string, unknown>,
+          (args.data ?? {}) as Record<string, unknown>
         )
         snapshot.scanTasks.push(record)
         return cloneValue(applySelect(record, args.select))
@@ -358,7 +362,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       update: async (args: MutationArgs) => {
         const found = findUniqueByWhere(
           snapshot.scanTasks,
-          args.where,
+          args.where
         ) as ScanTaskRecord | null
         if (!found) throw new Error('Record to update not found')
         applyPatch(found, (args.data ?? {}) as Record<string, unknown>)
@@ -381,7 +385,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         findFirstByQuery(snapshot.adviceSnapshots, args),
       create: async (args: MutationArgs) => {
         const record = normalizeAdviceSnapshotCreate(
-          (args.data ?? {}) as Record<string, unknown>,
+          (args.data ?? {}) as Record<string, unknown>
         )
         snapshot.adviceSnapshots.push(record)
         return cloneValue(applySelect(record, args.select))
@@ -394,7 +398,7 @@ export function buildScopedClient(snapshot: Snapshot) {
         applyWhere(snapshot.adviceDecisions, args.where).length,
       create: async (args: MutationArgs) => {
         const record = normalizeAdviceDecisionCreate(
-          (args.data ?? {}) as Record<string, unknown>,
+          (args.data ?? {}) as Record<string, unknown>
         )
         snapshot.adviceDecisions.push(record)
         return cloneValue(applySelect(record, args.select))
@@ -402,7 +406,7 @@ export function buildScopedClient(snapshot: Snapshot) {
       update: async (args: MutationArgs) => {
         const found = findUniqueByWhere(
           snapshot.adviceDecisions,
-          args.where,
+          args.where
         ) as AdviceDecisionRecord | null
         if (!found) throw new Error('Record to update not found')
         applyPatch(found, (args.data ?? {}) as Record<string, unknown>)
@@ -421,10 +425,10 @@ export function buildScopedClient(snapshot: Snapshot) {
         }
       },
       upsert: async (args: MutationArgs) => {
-        const updatePayload =
-          (args.update as { data?: unknown } | undefined)?.data
-        const createPayload =
-          (args.create as { data?: unknown } | undefined)?.data
+        const updatePayload = (args.update as { data?: unknown } | undefined)
+          ?.data
+        const createPayload = (args.create as { data?: unknown } | undefined)
+          ?.data
         const payload = updatePayload ?? createPayload
         const parsed =
           typeof payload === 'string'
