@@ -139,7 +139,9 @@ confession/
 ├── go-analyzer/
 ├── confession-future-optimizations.md
 ├── confession-thesis.md
+├── confession-thesis-assets/
 ├── confession-thesis-before-ai-reduction.md
+├── confession-thesis-humanized.md
 ├── commitlint.config.mjs
 ├── LICENSE
 ├── package.json
@@ -166,6 +168,13 @@ confession/
 - `schemaVersion = "file-store-v1"`
 - `analysisCacheVersion = "analysis-cache-v1"`
 - `stableFingerprintVersion = "stable-fingerprint-v1"`
+
+根目錄論文文件說明：
+
+- `confession-thesis.md`：目前主要論文稿
+- `confession-thesis-assets/`：論文正文引用的系統截圖素材
+- `confession-thesis-before-ai-reduction.md`：由 Git 物件回溯保留的早期論文稿
+- `confession-thesis-humanized.md`：基於早期論文稿改寫的 AIGC 測試用版本
 
 ## 4. 路徑別名
 
