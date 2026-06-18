@@ -167,37 +167,10 @@ function normalizeConfig(raw) {
   const api = input.api && typeof input.api === 'object' ? input.api : {};
 
   const config = {
-    llm: {
-      provider: VALID_LLM_PROVIDERS.has(llm.provider) ? llm.provider : 'nvidia',
-      apiKey: typeof llm.apiKey === 'string' ? llm.apiKey : '',
-    },
-    analysis: {
-      triggerMode: analysis.triggerMode === 'manual' ? 'manual' : 'onSave',
-      depth: VALID_DEPTHS.has(analysis.depth) ? analysis.depth : 'standard',
-      debounceMs:
-        typeof analysis.debounceMs === 'number'
-          ? Math.max(0, Math.floor(analysis.debounceMs))
-          : 500,
-    },
-    ignore: {
-      paths: normalizeIgnorePaths(ignore.paths),
-      types: Array.isArray(ignore.types)
-        ? Array.from(
-            new Set(
-              ignore.types
-                .map((item) => String(item).trim())
-                .filter((item) => item.length > 0)
-            )
-          )
-        : [],
-    },
-    api: {
-      baseUrl:
-        typeof api.baseUrl === 'string' && api.baseUrl.trim().length > 0
-          ? api.baseUrl.trim()
-          : 'http://localhost:3000',
-      mode: api.mode === 'remote' ? 'remote' : 'local',
-    },
+    llm: normalizeLlmConfig(llm),
+    analysis: normalizeAnalysisConfig(analysis),
+    ignore: normalizeIgnoreConfig(ignore),
+    api: normalizeApiConfig(api),
   };
 
   if (typeof llm.endpoint === 'string' && llm.endpoint.trim().length > 0) {
@@ -208,6 +181,49 @@ function normalizeConfig(raw) {
   }
 
   return config;
+}
+
+function normalizeLlmConfig(llm) {
+  return {
+    provider: VALID_LLM_PROVIDERS.has(llm.provider) ? llm.provider : 'nvidia',
+    apiKey: typeof llm.apiKey === 'string' ? llm.apiKey : '',
+  };
+}
+
+function normalizeAnalysisConfig(analysis) {
+  return {
+    triggerMode: analysis.triggerMode === 'manual' ? 'manual' : 'onSave',
+    depth: VALID_DEPTHS.has(analysis.depth) ? analysis.depth : 'standard',
+    debounceMs:
+      typeof analysis.debounceMs === 'number'
+        ? Math.max(0, Math.floor(analysis.debounceMs))
+        : 500,
+  };
+}
+
+function normalizeIgnoreConfig(ignore) {
+  return {
+    paths: normalizeIgnorePaths(ignore.paths),
+    types: Array.isArray(ignore.types)
+      ? Array.from(
+          new Set(
+            ignore.types
+              .map((item) => String(item).trim())
+              .filter((item) => item.length > 0)
+          )
+        )
+      : [],
+  };
+}
+
+function normalizeApiConfig(api) {
+  return {
+    baseUrl:
+      typeof api.baseUrl === 'string' && api.baseUrl.trim().length > 0
+        ? api.baseUrl.trim()
+        : 'http://localhost:3000',
+    mode: api.mode === 'remote' ? 'remote' : 'local',
+  };
 }
 
 async function readJson(filePath, fallback) {
@@ -301,36 +317,47 @@ async function collectWorkspaceFiles(projectRoot, ignorePaths) {
         break;
       }
 
-      const absolutePath = path.join(dirPath, entry.name);
-      const relativePath = path.relative(projectRoot, absolutePath);
-
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules') continue;
-        if (entry.name === '.git') continue;
-        if (entry.name === CONFESSION_DIR_NAME) continue;
-        await walk(absolutePath);
-        continue;
-      }
-
-      if (!entry.isFile()) continue;
-      if (!SUPPORTED_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
-      if (
-        isIgnored(absolutePath, ignorePaths) ||
-        isIgnored(relativePath, ignorePaths)
-      ) {
-        continue;
-      }
-
-      const language = inferLanguage(absolutePath);
-      if (!language) continue;
-
-      const content = await fs.readFile(absolutePath, 'utf8');
-      results.push({ path: absolutePath, content, language });
+      await collectEntry(entry, dirPath, walk);
     }
   }
 
   await walk(projectRoot);
   return { files: results, workspaceSnapshotComplete: snapshotComplete };
+
+  async function collectEntry(entry, dirPath, walkDir) {
+    const absolutePath = path.join(dirPath, entry.name);
+    const relativePath = path.relative(projectRoot, absolutePath);
+
+    if (entry.isDirectory()) {
+      if (shouldSkipDirectory(entry.name)) return;
+      await walkDir(absolutePath);
+      return;
+    }
+
+    if (!shouldCollectFile(entry, absolutePath, relativePath, ignorePaths)) return;
+    const language = inferLanguage(absolutePath);
+    if (!language) return;
+
+    const content = await fs.readFile(absolutePath, 'utf8');
+    results.push({ path: absolutePath, content, language });
+  }
+}
+
+function shouldSkipDirectory(name) {
+  return (
+    name === 'node_modules' ||
+    name === '.git' ||
+    name === CONFESSION_DIR_NAME
+  );
+}
+
+function shouldCollectFile(entry, absolutePath, relativePath, ignorePaths) {
+  return (
+    entry.isFile() &&
+    SUPPORTED_EXTS.has(path.extname(entry.name).toLowerCase()) &&
+    !isIgnored(absolutePath, ignorePaths) &&
+    !isIgnored(relativePath, ignorePaths)
+  );
 }
 
 function ensureFetchAvailable(runtime) {
@@ -622,36 +649,47 @@ async function commandScan(projectRoot, flags, runtime) {
       }
 
       const status = await fetchScanStatus(baseUrl, taskId, runtime);
-      const scanned = Number(status.scannedFiles ?? 0);
-      const total = Number(status.totalFiles ?? 0);
-      const progress =
-        total > 0
-          ? `${scanned}/${total}`
-          : `${Math.round(Number(status.progress ?? 0) * 100)}%`;
-
-      runtime.stdout.write(
-        `\r[task:${taskId}] ${status.status} ${progress}                    `
-      );
-
-      if (status.status === 'completed') {
-        runtime.stdout.write('\n掃描完成\n');
-        return;
-      }
-
-      if (status.status === 'failed') {
-        const reason =
-          typeof status.errorMessage === 'string' &&
-          status.errorMessage.trim().length > 0
-            ? status.errorMessage.trim()
-            : '未知錯誤';
-        throw new CliError(`掃描失敗：${reason}`);
-      }
+      if (handleScanStatus(taskId, status, runtime)) return;
 
       await runtime.sleepImpl(pollIntervalMs);
     }
   } finally {
     unregisterSigint();
   }
+}
+
+function handleScanStatus(taskId, status, runtime) {
+  runtime.stdout.write(
+    `\r[task:${taskId}] ${status.status} ${formatScanProgress(status)}                    `
+  );
+
+  if (status.status === 'completed') {
+    runtime.stdout.write('\n掃描完成\n');
+    return true;
+  }
+
+  if (status.status === 'failed') {
+    throw new CliError(`掃描失敗：${readScanFailureReason(status)}`);
+  }
+
+  return false;
+}
+
+function formatScanProgress(status) {
+  const scanned = Number(status.scannedFiles ?? 0);
+  const total = Number(status.totalFiles ?? 0);
+  if (total > 0) return `${scanned}/${total}`;
+  return `${Math.round(Number(status.progress ?? 0) * 100)}%`;
+}
+
+function readScanFailureReason(status) {
+  if (
+    typeof status.errorMessage === 'string' &&
+    status.errorMessage.trim().length > 0
+  ) {
+    return status.errorMessage.trim();
+  }
+  return '未知錯誤';
 }
 
 function truncate(text, limit) {
