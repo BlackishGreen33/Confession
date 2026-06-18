@@ -177,55 +177,73 @@ function detectHardcodedSecret(node: ts.Node, out: PatternMatch[]) {
 
 /** 偵測原型鏈變異 */
 function detectPrototypeMutation(node: ts.Node, out: PatternMatch[]) {
-  // __proto__ 賦值：obj.__proto__ = ...
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    const left = node.left
-    if (ts.isPropertyAccessExpression(left) && left.name.text === '__proto__') {
-      out.push({ node, type: 'prototype_mutation', patternName: '__proto__', confidence: 'high' })
-      return
-    }
-    // .prototype = ... 賦值
-    if (ts.isPropertyAccessExpression(left) && left.name.text === 'prototype') {
-      out.push({ node, type: 'prototype_mutation', patternName: 'prototype_assignment', confidence: 'medium' })
-      return
-    }
+  const assignmentPattern = readPrototypeAssignmentPattern(node)
+  if (assignmentPattern) {
+    out.push({ node, ...assignmentPattern })
+    return
   }
 
-  // Object.setPrototypeOf(...)
-  if (ts.isCallExpression(node)) {
-    const name = extractFullCallName(node.expression)
-    if (name === 'Object.setPrototypeOf') {
-      out.push({ node, type: 'prototype_mutation', patternName: 'Object.setPrototypeOf', confidence: 'high' })
-    }
-    if (name === 'Object.assign' && node.arguments.length >= 1) {
-      const targetArg = node.arguments[0]
-      const targetName = extractFullCallName(targetArg)
-      if (targetName === 'Object.prototype') {
-        out.push({
-          node,
-          type: 'prototype_mutation',
-          patternName: 'Object.assign.Object.prototype',
-          confidence: 'high',
-        })
-      }
-    }
-    // Object.assign 含 __proto__
-    if (name === 'Object.assign' && node.arguments.length >= 2) {
-      const secondArg = node.arguments[1]
-      if (ts.isObjectLiteralExpression(secondArg)) {
-        for (const prop of secondArg.properties) {
-          if (ts.isPropertyAssignment(prop)) {
-            const propName = ts.isIdentifier(prop.name) ? prop.name.text
-              : ts.isStringLiteral(prop.name) ? prop.name.text
-              : null
-            if (propName === '__proto__') {
-              out.push({ node, type: 'prototype_mutation', patternName: 'Object.assign.__proto__', confidence: 'high' })
-            }
-          }
-        }
-      }
+  if (!ts.isCallExpression(node)) return
+  const callName = extractFullCallName(node.expression)
+  if (callName === 'Object.setPrototypeOf') {
+    out.push({ node, type: 'prototype_mutation', patternName: callName, confidence: 'high' })
+    return
+  }
+  if (callName !== 'Object.assign') return
+
+  const assignPattern = readObjectAssignPrototypePattern(node)
+  if (assignPattern) {
+    out.push({ node, ...assignPattern })
+  }
+}
+
+function readPrototypeAssignmentPattern(
+  node: ts.Node,
+): Omit<PatternMatch, 'node'> | null {
+  if (!ts.isBinaryExpression(node) || node.operatorToken.kind !== ts.SyntaxKind.EqualsToken) {
+    return null
+  }
+  if (!ts.isPropertyAccessExpression(node.left)) return null
+
+  if (node.left.name.text === '__proto__') {
+    return { type: 'prototype_mutation', patternName: '__proto__', confidence: 'high' }
+  }
+  if (node.left.name.text === 'prototype') {
+    return {
+      type: 'prototype_mutation',
+      patternName: 'prototype_assignment',
+      confidence: 'medium',
     }
   }
+  return null
+}
+
+function readObjectAssignPrototypePattern(
+  node: ts.CallExpression,
+): Omit<PatternMatch, 'node'> | null {
+  if (extractFullCallName(node.arguments[0]) === 'Object.prototype') {
+    return {
+      type: 'prototype_mutation',
+      patternName: 'Object.assign.Object.prototype',
+      confidence: 'high',
+    }
+  }
+  if (objectLiteralHasProtoProperty(node.arguments[1])) {
+    return {
+      type: 'prototype_mutation',
+      patternName: 'Object.assign.__proto__',
+      confidence: 'high',
+    }
+  }
+  return null
+}
+
+function objectLiteralHasProtoProperty(node: ts.Expression | undefined): boolean {
+  if (!node || !ts.isObjectLiteralExpression(node)) return false
+  return node.properties.some((prop) => {
+    if (!ts.isPropertyAssignment(prop)) return false
+    return readPropertyName(prop.name) === '__proto__'
+  })
 }
 
 

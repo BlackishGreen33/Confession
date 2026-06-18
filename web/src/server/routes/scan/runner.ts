@@ -99,14 +99,15 @@ export async function runScan(
       mergeStorageMetrics(agenticOutcome.storageMetrics)
 
       if (agenticOutcome.ok) {
-        assertNotCanceled()
-        await reconcileWorkspaceSnapshotVulnerabilities(
+        await completeSuccessfulAttempt({
           taskId,
           body,
+          totalFiles,
+          engineMode: 'agentic',
+          fallbackMeta,
           assertNotCanceled,
-          agenticOutcome.observedStableFingerprints
-        )
-        await markTaskCompleted(taskId, totalFiles, 'agentic', fallbackMeta)
+          observedStableFingerprints: agenticOutcome.observedStableFingerprints,
+        })
         return
       }
 
@@ -121,19 +122,7 @@ export async function runScan(
       }
       activeEngineMode = 'baseline'
 
-      const fallbackStarted = await storage.scanTask.update({
-        where: { id: taskId },
-        data: {
-          status: 'running',
-          progress: 0,
-          scannedFiles: 0,
-          engineMode: 'baseline',
-          errorCode: null,
-          errorMessage: null,
-          ...toFallbackUpdateData(fallbackMeta),
-        },
-      })
-      emitScanProgress(toScanProgressEvent(fallbackStarted))
+      await markFallbackStarted(taskId, fallbackMeta)
 
       const baselineOutcome = await executeEngineAttempt({
         taskId,
@@ -148,14 +137,15 @@ export async function runScan(
 
       if (baselineOutcome.ok) {
         fallbackSucceeded = true
-        assertNotCanceled()
-        await reconcileWorkspaceSnapshotVulnerabilities(
+        await completeSuccessfulAttempt({
           taskId,
           body,
+          totalFiles,
+          engineMode: 'baseline',
+          fallbackMeta,
           assertNotCanceled,
-          baselineOutcome.observedStableFingerprints
-        )
-        await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta)
+          observedStableFingerprints: baselineOutcome.observedStableFingerprints,
+        })
         return
       }
 
@@ -188,14 +178,15 @@ export async function runScan(
     mergeStorageMetrics(baselineOutcome.storageMetrics)
 
     if (baselineOutcome.ok) {
-      assertNotCanceled()
-      await reconcileWorkspaceSnapshotVulnerabilities(
+      await completeSuccessfulAttempt({
         taskId,
         body,
+        totalFiles,
+        engineMode: 'baseline',
+        fallbackMeta,
         assertNotCanceled,
-        baselineOutcome.observedStableFingerprints
-      )
-      await markTaskCompleted(taskId, totalFiles, 'baseline', fallbackMeta)
+        observedStableFingerprints: baselineOutcome.observedStableFingerprints,
+      })
       return
     }
 
@@ -468,6 +459,54 @@ async function executeEngineAttempt(params: {
       errorMessage: message,
     }
   }
+}
+
+async function completeSuccessfulAttempt(params: {
+  taskId: string
+  body: ScanBody
+  totalFiles: number
+  engineMode: ScanEngineMode
+  fallbackMeta: FallbackMetadata
+  assertNotCanceled: () => void
+  observedStableFingerprints: Set<string>
+}): Promise<void> {
+  const {
+    taskId,
+    body,
+    totalFiles,
+    engineMode,
+    fallbackMeta,
+    assertNotCanceled,
+    observedStableFingerprints,
+  } = params
+
+  assertNotCanceled()
+  await reconcileWorkspaceSnapshotVulnerabilities(
+    taskId,
+    body,
+    assertNotCanceled,
+    observedStableFingerprints
+  )
+  await markTaskCompleted(taskId, totalFiles, engineMode, fallbackMeta)
+}
+
+async function markFallbackStarted(
+  taskId: string,
+  fallbackMeta: FallbackMetadata
+): Promise<void> {
+  const fallbackStarted = await storage.scanTask.update({
+    where: { id: taskId },
+    data: {
+      status: 'running',
+      progress: 0,
+      scannedFiles: 0,
+      engineMode: 'baseline',
+      errorCode: null,
+      errorMessage: null,
+      ...toFallbackUpdateData(fallbackMeta),
+    },
+  })
+  emitScanProgress(toScanProgressEvent(fallbackStarted))
 }
 
 async function markTaskCompleted(
