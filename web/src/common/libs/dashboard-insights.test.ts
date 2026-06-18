@@ -27,6 +27,7 @@ function buildInput(overrides: Partial<DashboardInsightInput> = {}): DashboardIn
       low: 1,
       info: 1,
     },
+    byHumanStatus: overrides.byHumanStatus,
     health: overrides.health ?? null,
     trend:
       overrides.trend ?? [
@@ -260,5 +261,77 @@ describe('dashboard-insights', () => {
     expect(enSummary.action?.kpi.current).toBe('3 items')
     expect(zhCnSummary.action?.label).toBe('立即处理严重级')
     expect(zhCnSummary.action?.kpi.current).toBe('3 笔')
+  })
+
+  it('總結卡決策分支維持既有優先序', () => {
+    const unhealthy = {
+      status: 'ok',
+      evaluatedAt: '2026-03-06T12:34:56.000Z',
+      score: {
+        version: 'v2',
+        value: 50,
+        grade: 'D',
+        components: {
+          exposure: { value: 80, orb: 0.2, lev: 0.3 },
+          remediation: { value: 82, mttrHours: 12, closureRate: 0.7 },
+          quality: { value: 86, efficiency: 0.78, coverage: 0.81 },
+          reliability: {
+            value: 40,
+            successRate: 0.5,
+            fallbackRate: 0.3,
+            workspaceP95Ms: 18000,
+          },
+        },
+        topFactors: [],
+      },
+      engine: {},
+    } satisfies NonNullable<DashboardInsightInput['health']>
+
+    expect(buildSecuritySummary(buildInput({ openCount: 0 })).action).toBeNull()
+    expect(
+      buildSecuritySummary(
+        buildInput({
+          bySeverityOpen: { critical: 1, high: 5, medium: 0, low: 0, info: 0 },
+          byHumanStatus: { pending: 6 },
+          health: unhealthy,
+        }),
+      ).action?.preset,
+    ).toBe('critical_open')
+    expect(
+      buildSecuritySummary(
+        buildInput({
+          bySeverityOpen: { critical: 0, high: 5, medium: 0, low: 0, info: 0 },
+          byHumanStatus: { pending: 6 },
+          health: unhealthy,
+        }),
+      ).action?.preset,
+    ).toBe('high_open')
+    expect(
+      buildSecuritySummary(
+        buildInput({
+          openCount: 10,
+          bySeverityOpen: { critical: 0, high: 0, medium: 10, low: 0, info: 0 },
+          byHumanStatus: { pending: 4 },
+          health: unhealthy,
+        }),
+      ).action?.kpi.label,
+    ).toBe('待審核壓力')
+    expect(
+      buildSecuritySummary(
+        buildInput({
+          bySeverityOpen: { critical: 0, high: 0, medium: 10, low: 0, info: 0 },
+          byHumanStatus: { pending: 0 },
+          health: unhealthy,
+        }),
+      ).action?.kpi.label,
+    ).toBe('掃描可靠度')
+    expect(
+      buildSecuritySummary(
+        buildInput({
+          bySeverityOpen: { critical: 0, high: 0, medium: 10, low: 0, info: 0 },
+          byHumanStatus: { pending: 0 },
+        }),
+      ).action?.kpi.label,
+    ).toBe('7日待處理淨變化')
   })
 })

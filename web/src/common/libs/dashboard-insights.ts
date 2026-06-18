@@ -1,6 +1,15 @@
 import type { ResolvedLocale } from '@/libs/i18n'
 import type { HealthResponseV2, VulnerabilityFilterPreset } from '@/libs/types'
 
+import {
+  getReliabilityHelp,
+  getTrendHelp,
+  type MetricHelpContent,
+} from './dashboard-insights-help'
+
+export type { MetricHelpContent } from './dashboard-insights-help'
+export { HIGH_RISK_MIX_HELP, PENDING_REVIEW_HELP } from './dashboard-insights-help'
+
 export interface TrendSnapshotPoint {
   date: string
   total: number
@@ -17,12 +26,6 @@ export interface DashboardInsightInput {
   byHumanStatus?: Record<string, number>
   health?: HealthResponseV2 | null
   trend?: TrendSnapshotPoint[] | null
-}
-
-export interface MetricHelpContent {
-  formula: string
-  meaning: string
-  ideal: string
 }
 
 export interface SecuritySignal {
@@ -68,6 +71,28 @@ export interface SecuritySummary {
   rationale: string[]
 }
 
+type SecuritySummaryDecision = Pick<
+  SecuritySummary,
+  'headline' | 'tone' | 'coreMessage' | 'solutionMessage' | 'action'
+>
+
+interface SecuritySummaryContext {
+  input: DashboardInsightInput
+  trendInsights: TrendInsights
+  reliabilitySignal: SecuritySignal
+  pendingReview: number
+  pendingReviewPressure: number
+  progress: SecuritySummaryProgress
+  criticalOpen: number
+  highOpen: number
+  highRiskOpen: number
+  highRiskRatio: number
+  reliabilityValue: number | undefined
+  fallbackRate: number | undefined
+  dataTime: string | null
+  dataSourceLabel: string
+}
+
 export interface TrendInsightView {
   key: 'open_net_7d' | 'fix_velocity_7d' | 'eta_days'
   label: string
@@ -85,6 +110,15 @@ export interface TrendInsights {
   pressureHigh: boolean
   pressureReason: string | null
   metrics: TrendInsightView[]
+}
+
+interface TrendWindowStats {
+  firstOpen: number
+  lastOpen: number
+  openNet7d: number
+  fixVelocityPerDay7d: number
+  etaDays: number | null
+  maxRisingStreak: number
 }
 
 export interface RiskPriorityLane {
@@ -146,80 +180,6 @@ const ZERO_OPEN_BY_SEVERITY: Record<'critical' | 'high' | 'medium' | 'low' | 'in
   medium: 0,
   low: 0,
   info: 0,
-}
-
-function getTrendHelp(
-  locale: ResolvedLocale,
-): Record<TrendInsightView['key'], MetricHelpContent> {
-  return {
-    open_net_7d: {
-      formula: 'openNet7d = open(t) - open(t-7d)',
-      meaning: lt(locale, {
-        'zh-TW': '反映最近 7 天待處理庫存是增加或下降。',
-        'zh-CN': '反映最近 7 天待处理库存是增加或下降。',
-        en: 'Shows whether open backlog increased or decreased over the last 7 days.',
-      }),
-      ideal: lt(locale, {
-        'zh-TW': '建議 <= 0，代表待處理沒有持續淨增。',
-        'zh-CN': '建议 <= 0，表示待处理没有持续净增。',
-        en: 'Target <= 0, meaning no sustained net increase in open backlog.',
-      }),
-    },
-    fix_velocity_7d: {
-      formula: 'fixVelocity = (fixed(t) - fixed(t-7d)) / days',
-      meaning: lt(locale, {
-        'zh-TW': '反映近期修復節奏，數值越高表示處理吞吐越好。',
-        'zh-CN': '反映近期修复节奏，数值越高表示处理吞吐越好。',
-        en: 'Indicates recent remediation pace. Higher value means better throughput.',
-      }),
-      ideal: lt(locale, {
-        'zh-TW': '建議維持穩定正值，且可追上待處理淨增。',
-        'zh-CN': '建议维持稳定正值，且可追上待处理净增。',
-        en: 'Keep it stably positive and high enough to catch open net increase.',
-      }),
-    },
-    eta_days: {
-      formula: 'ETA = currentOpen / fixVelocity (fixVelocity>0)',
-      meaning: lt(locale, {
-        'zh-TW': '在當前修復節奏下，清空待處理的估算天數。',
-        'zh-CN': '在当前修复节奏下，清空待处理的估算天数。',
-        en: 'Estimated days to clear open backlog at the current fix velocity.',
-      }),
-      ideal: lt(locale, {
-        'zh-TW': '越短越好；若為無法估算，代表目前修復速度不足。',
-        'zh-CN': '越短越好；若无法估算，表示当前修复速度不足。',
-        en: 'Shorter is better. N/A means current fix velocity is insufficient.',
-      }),
-    },
-  }
-}
-
-function getReliabilityHelp(locale: ResolvedLocale): MetricHelpContent {
-  return {
-    formula: 'Reliability = 0.5*success + 0.2*(1-fallback) + 0.3*latency',
-    meaning: lt(locale, {
-      'zh-TW': '衡量掃描成功率、回退率與延遲穩定度。',
-      'zh-CN': '衡量扫描成功率、回退率与延迟稳定度。',
-      en: 'Measures scan success rate, fallback rate, and latency stability.',
-    }),
-    ideal: lt(locale, {
-      'zh-TW': '建議 >= 80，且 fallback rate 維持低水位。',
-      'zh-CN': '建议 >= 80，且 fallback rate 维持低水位。',
-      en: 'Target >= 80 with a low fallback rate.',
-    }),
-  }
-}
-
-export const HIGH_RISK_MIX_HELP: MetricHelpContent = {
-  formula: 'highRiskRatio = (critical + high) / open_total',
-  meaning: 'High-risk share in open backlog.',
-  ideal: 'Target below 30%.',
-}
-
-export const PENDING_REVIEW_HELP: MetricHelpContent = {
-  formula: 'pendingReviewPressure = pending_review / open_total',
-  meaning: 'Pending-review pressure in decision flow.',
-  ideal: 'Keep below 35%.',
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -567,105 +527,13 @@ export function computeTrendInsights(
 ): TrendInsights {
   const trendHelp = getTrendHelp(locale)
   if (!trend || trend.length < 2) {
-    return {
-      hasEnoughData: false,
-      openNet7d: null,
-      fixVelocityPerDay7d: null,
-      etaDays: null,
-      pressureHigh: false,
-      pressureReason: null,
-      metrics: [
-        {
-          key: 'open_net_7d',
-          label: lt(locale, {
-            'zh-TW': '7日待處理淨變化',
-            'zh-CN': '7日待处理净变化',
-            en: '7d Open Net Change',
-          }),
-          value: lt(locale, {
-            'zh-TW': '樣本不足',
-            'zh-CN': '样本不足',
-            en: 'Not enough samples',
-          }),
-          tone: 'neutral',
-          description: lt(locale, {
-            'zh-TW': '資料不足，暫時無法計算近 7 天待處理淨變化。',
-            'zh-CN': '数据不足，暂时无法计算近 7 天待处理净变化。',
-            en: 'Insufficient data to compute 7-day open net change.',
-          }),
-          help: trendHelp.open_net_7d,
-        },
-        {
-          key: 'fix_velocity_7d',
-          label: lt(locale, {
-            'zh-TW': '修復速度',
-            'zh-CN': '修复速度',
-            en: 'Fix Velocity',
-          }),
-          value: lt(locale, {
-            'zh-TW': '樣本不足',
-            'zh-CN': '样本不足',
-            en: 'Not enough samples',
-          }),
-          tone: 'neutral',
-          description: lt(locale, {
-            'zh-TW': '資料不足，暫時無法估算修復節奏。',
-            'zh-CN': '数据不足，暂时无法估算修复节奏。',
-            en: 'Insufficient data to estimate fix velocity.',
-          }),
-          help: trendHelp.fix_velocity_7d,
-        },
-        {
-          key: 'eta_days',
-          label: lt(locale, {
-            'zh-TW': '清空估算',
-            'zh-CN': '清空估算',
-            en: 'Clear ETA',
-          }),
-          value: lt(locale, {
-            'zh-TW': '樣本不足',
-            'zh-CN': '样本不足',
-            en: 'Not enough samples',
-          }),
-          tone: 'neutral',
-          description: lt(locale, {
-            'zh-TW': '至少需要兩筆趨勢資料才能推估 ETA。',
-            'zh-CN': '至少需要两笔趋势数据才能估算 ETA。',
-            en: 'At least two trend points are required to estimate ETA.',
-          }),
-          help: trendHelp.eta_days,
-        },
-      ],
-    }
+    return buildInsufficientTrendInsights(locale, trendHelp)
   }
 
-  const windowPoints = trend.slice(-7)
-  const first = windowPoints[0]
-  const last = windowPoints[windowPoints.length - 1]
-  const days = Math.max(1, windowPoints.length - 1)
-
-  const openNet7d = last.open - first.open
-  const fixedDelta7d = last.fixed - first.fixed
-  const fixVelocityPerDay7d = fixedDelta7d / days
-  const etaDays = fixVelocityPerDay7d > 0 ? last.open / fixVelocityPerDay7d : null
-
-  let risingStreak = 0
-  let maxRisingStreak = 0
-  for (let i = 1; i < windowPoints.length; i += 1) {
-    const delta = windowPoints[i].open - windowPoints[i - 1].open
-    if (delta > 0) {
-      risingStreak += 1
-      maxRisingStreak = Math.max(maxRisingStreak, risingStreak)
-    } else {
-      risingStreak = 0
-    }
-  }
-
-  const pressureHigh =
-    openNet7d > 0 &&
-    (maxRisingStreak >= 2 || openNet7d >= Math.max(3, Math.ceil((first.open || 1) * 0.2)))
+  const stats = computeTrendWindowStats(trend)
+  const pressureHigh = isTrendPressureHigh(stats)
   const pressureReason = pressureHigh
-    ? maxRisingStreak >= 2
+    ? stats.maxRisingStreak >= 2
       ? lt(locale, {
           'zh-TW': '待處理連續上升，風險壓力正在累積。',
           'zh-CN': '待处理连续上升，风险压力正在累积。',
@@ -678,18 +546,34 @@ export function computeTrendInsights(
         })
     : null
 
-  const openTone: TrendInsightView['tone'] = openNet7d > 0 ? 'negative' : openNet7d < 0 ? 'positive' : 'warning'
-  const velocityTone: TrendInsightView['tone'] =
-    fixVelocityPerDay7d > 0 ? 'positive' : fixVelocityPerDay7d < 0 ? 'negative' : 'warning'
-  const etaTone: TrendInsightView['tone'] = etaDays === null ? 'warning' : etaDays > 30 ? 'negative' : etaDays > 14 ? 'warning' : 'positive'
-
   return {
     hasEnoughData: true,
-    openNet7d,
-    fixVelocityPerDay7d,
-    etaDays,
+    openNet7d: stats.openNet7d,
+    fixVelocityPerDay7d: stats.fixVelocityPerDay7d,
+    etaDays: stats.etaDays,
     pressureHigh,
     pressureReason,
+    metrics: buildTrendInsightMetrics(stats, locale, trendHelp),
+  }
+}
+
+function buildInsufficientTrendInsights(
+  locale: ResolvedLocale,
+  trendHelp: Record<TrendInsightView['key'], MetricHelpContent>,
+): TrendInsights {
+  const value = lt(locale, {
+    'zh-TW': '樣本不足',
+    'zh-CN': '样本不足',
+    en: 'Not enough samples',
+  })
+
+  return {
+    hasEnoughData: false,
+    openNet7d: null,
+    fixVelocityPerDay7d: null,
+    etaDays: null,
+    pressureHigh: false,
+    pressureReason: null,
     metrics: [
       {
         key: 'open_net_7d',
@@ -698,42 +582,29 @@ export function computeTrendInsights(
           'zh-CN': '7日待处理净变化',
           en: '7d Open Net Change',
         }),
-        value: formatDelta(openNet7d, locale),
-        tone: openTone,
-        description:
-          openNet7d > 0
-            ? lt(locale, {
-                'zh-TW': '待處理正在上升，需提升處理速度。',
-                'zh-CN': '待处理正在上升，需要提升处理速度。',
-                en: 'Open backlog is rising; increase remediation throughput.',
-              })
-            : lt(locale, {
-                'zh-TW': '待處理未淨增，節奏可控。',
-                'zh-CN': '待处理未净增，节奏可控。',
-                en: 'No net increase in open backlog; trend is under control.',
-              }),
+        value,
+        tone: 'neutral',
+        description: lt(locale, {
+          'zh-TW': '資料不足，暫時無法計算近 7 天待處理淨變化。',
+          'zh-CN': '数据不足，暂时无法计算近 7 天待处理净变化。',
+          en: 'Insufficient data to compute 7-day open net change.',
+        }),
         help: trendHelp.open_net_7d,
       },
       {
         key: 'fix_velocity_7d',
-        label: lt(locale, { 'zh-TW': '修復速度', 'zh-CN': '修复速度', en: 'Fix Velocity' }),
-        value:
-          locale === 'en'
-            ? `${formatFloat(fixVelocityPerDay7d, 1, '', locale)} / day`
-            : `${formatFloat(fixVelocityPerDay7d, 1, '', locale)} / 日`,
-        tone: velocityTone,
-        description:
-          fixVelocityPerDay7d > 0
-            ? lt(locale, {
-                'zh-TW': '目前有持續修復吞吐，可用於估算清空時間。',
-                'zh-CN': '目前有持续修复吞吐，可用于估算清空时间。',
-                en: 'Current remediation throughput is positive and can estimate ETA.',
-              })
-            : lt(locale, {
-                'zh-TW': '修復速度不足，待處理可能持續堆積。',
-                'zh-CN': '修复速度不足，待处理可能持续堆积。',
-                en: 'Fix velocity is insufficient; open backlog may keep growing.',
-              }),
+        label: lt(locale, {
+          'zh-TW': '修復速度',
+          'zh-CN': '修复速度',
+          en: 'Fix Velocity',
+        }),
+        value,
+        tone: 'neutral',
+        description: lt(locale, {
+          'zh-TW': '資料不足，暫時無法估算修復節奏。',
+          'zh-CN': '数据不足，暂时无法估算修复节奏。',
+          en: 'Insufficient data to estimate fix velocity.',
+        }),
         help: trendHelp.fix_velocity_7d,
       },
       {
@@ -743,29 +614,160 @@ export function computeTrendInsights(
           'zh-CN': '清空估算',
           en: 'Clear ETA',
         }),
-        value:
-          etaDays === null
-            ? lt(locale, { 'zh-TW': '無法估算', 'zh-CN': '无法估算', en: 'N/A' })
-            : locale === 'en'
-              ? `${Math.ceil(etaDays)} days`
-              : `${Math.ceil(etaDays)} 天`,
-        tone: etaTone,
-        description:
-          etaDays === null
-            ? lt(locale, {
-                'zh-TW': '目前修復速度不足，尚無法估算清空時間。',
-                'zh-CN': '目前修复速度不足，尚无法估算清空时间。',
-                en: 'Current remediation velocity is too low to estimate clear ETA.',
-              })
-            : locale === 'en'
-              ? `At current velocity, backlog can be cleared in ~${Math.ceil(etaDays)} days.`
-              : locale === 'zh-CN'
-                ? `若维持当前速度，约 ${Math.ceil(etaDays)} 天可清空待处理。`
-                : `若維持現速，約 ${Math.ceil(etaDays)} 天可清空待處理。`,
+        value,
+        tone: 'neutral',
+        description: lt(locale, {
+          'zh-TW': '至少需要兩筆趨勢資料才能推估 ETA。',
+          'zh-CN': '至少需要两笔趋势数据才能估算 ETA。',
+          en: 'At least two trend points are required to estimate ETA.',
+        }),
         help: trendHelp.eta_days,
       },
     ],
   }
+}
+
+function computeTrendWindowStats(trend: TrendSnapshotPoint[]): TrendWindowStats {
+  const windowPoints = trend.slice(-7)
+  const first = windowPoints[0]
+  const last = windowPoints[windowPoints.length - 1]
+  const days = Math.max(1, windowPoints.length - 1)
+  const fixVelocityPerDay7d = (last.fixed - first.fixed) / days
+
+  return {
+    firstOpen: first.open,
+    lastOpen: last.open,
+    openNet7d: last.open - first.open,
+    fixVelocityPerDay7d,
+    etaDays: fixVelocityPerDay7d > 0 ? last.open / fixVelocityPerDay7d : null,
+    maxRisingStreak: computeMaxRisingStreak(windowPoints),
+  }
+}
+
+function computeMaxRisingStreak(points: TrendSnapshotPoint[]): number {
+  let risingStreak = 0
+  let maxRisingStreak = 0
+
+  for (let i = 1; i < points.length; i += 1) {
+    const delta = points[i].open - points[i - 1].open
+    if (delta > 0) {
+      risingStreak += 1
+      maxRisingStreak = Math.max(maxRisingStreak, risingStreak)
+    } else {
+      risingStreak = 0
+    }
+  }
+
+  return maxRisingStreak
+}
+
+function isTrendPressureHigh(stats: TrendWindowStats): boolean {
+  return (
+    stats.openNet7d > 0 &&
+    (stats.maxRisingStreak >= 2 ||
+      stats.openNet7d >= Math.max(3, Math.ceil((stats.firstOpen || 1) * 0.2)))
+  )
+}
+
+function buildTrendInsightMetrics(
+  stats: TrendWindowStats,
+  locale: ResolvedLocale,
+  trendHelp: Record<TrendInsightView['key'], MetricHelpContent>,
+): TrendInsightView[] {
+  return [
+    {
+      key: 'open_net_7d',
+      label: lt(locale, {
+        'zh-TW': '7日待處理淨變化',
+        'zh-CN': '7日待处理净变化',
+        en: '7d Open Net Change',
+      }),
+      value: formatDelta(stats.openNet7d, locale),
+      tone: stats.openNet7d > 0 ? 'negative' : stats.openNet7d < 0 ? 'positive' : 'warning',
+      description:
+        stats.openNet7d > 0
+          ? lt(locale, {
+              'zh-TW': '待處理正在上升，需提升處理速度。',
+              'zh-CN': '待处理正在上升，需要提升处理速度。',
+              en: 'Open backlog is rising; increase remediation throughput.',
+            })
+          : lt(locale, {
+              'zh-TW': '待處理未淨增，節奏可控。',
+              'zh-CN': '待处理未净增，节奏可控。',
+              en: 'No net increase in open backlog; trend is under control.',
+            }),
+      help: trendHelp.open_net_7d,
+    },
+    {
+      key: 'fix_velocity_7d',
+      label: lt(locale, { 'zh-TW': '修復速度', 'zh-CN': '修复速度', en: 'Fix Velocity' }),
+      value:
+        locale === 'en'
+          ? `${formatFloat(stats.fixVelocityPerDay7d, 1, '', locale)} / day`
+          : `${formatFloat(stats.fixVelocityPerDay7d, 1, '', locale)} / 日`,
+      tone:
+        stats.fixVelocityPerDay7d > 0
+          ? 'positive'
+          : stats.fixVelocityPerDay7d < 0
+            ? 'negative'
+            : 'warning',
+      description:
+        stats.fixVelocityPerDay7d > 0
+          ? lt(locale, {
+              'zh-TW': '目前有持續修復吞吐，可用於估算清空時間。',
+              'zh-CN': '目前有持续修复吞吐，可用于估算清空时间。',
+              en: 'Current remediation throughput is positive and can estimate ETA.',
+            })
+          : lt(locale, {
+              'zh-TW': '修復速度不足，待處理可能持續堆積。',
+              'zh-CN': '修复速度不足，待处理可能持续堆积。',
+              en: 'Fix velocity is insufficient; open backlog may keep growing.',
+            }),
+      help: trendHelp.fix_velocity_7d,
+    },
+    {
+      key: 'eta_days',
+      label: lt(locale, {
+        'zh-TW': '清空估算',
+        'zh-CN': '清空估算',
+        en: 'Clear ETA',
+      }),
+      value:
+        stats.etaDays === null
+          ? lt(locale, { 'zh-TW': '無法估算', 'zh-CN': '无法估算', en: 'N/A' })
+          : locale === 'en'
+            ? `${Math.ceil(stats.etaDays)} days`
+            : `${Math.ceil(stats.etaDays)} 天`,
+      tone: toEtaTone(stats.etaDays),
+      description: formatEtaDescription(stats.etaDays, locale),
+      help: trendHelp.eta_days,
+    },
+  ]
+}
+
+function toEtaTone(etaDays: number | null): TrendInsightView['tone'] {
+  if (etaDays === null) return 'warning'
+  if (etaDays > 30) return 'negative'
+  if (etaDays > 14) return 'warning'
+  return 'positive'
+}
+
+function formatEtaDescription(etaDays: number | null, locale: ResolvedLocale): string {
+  if (etaDays === null) {
+    return lt(locale, {
+      'zh-TW': '目前修復速度不足，尚無法估算清空時間。',
+      'zh-CN': '目前修复速度不足，尚无法估算清空时间。',
+      en: 'Current remediation velocity is too low to estimate clear ETA.',
+    })
+  }
+
+  if (locale === 'en') {
+    return `At current velocity, backlog can be cleared in ~${Math.ceil(etaDays)} days.`
+  }
+  if (locale === 'zh-CN') {
+    return `若维持当前速度，约 ${Math.ceil(etaDays)} 天可清空待处理。`
+  }
+  return `若維持現速，約 ${Math.ceil(etaDays)} 天可清空待處理。`
 }
 
 export function computeRiskPressureScore(params: {
@@ -892,6 +894,24 @@ export function buildSecuritySummary(
   input: DashboardInsightInput,
   locale: ResolvedLocale = 'zh-TW',
 ): SecuritySummary {
+  const context = collectSecuritySummaryContext(input, locale)
+  const decision = selectSecuritySummaryDecision(context, locale)
+  const tone = applyProgressTone(decision.tone, context.progress, input.openCount)
+
+  return {
+    ...decision,
+    tone,
+    dataTime: context.dataTime,
+    dataSourceLabel: context.dataSourceLabel,
+    progress: context.progress,
+    rationale: buildSecuritySummaryRationale(context, locale),
+  }
+}
+
+function collectSecuritySummaryContext(
+  input: DashboardInsightInput,
+  locale: ResolvedLocale,
+): SecuritySummaryContext {
   const openBySeverity = normalizeOpenBySeverity({
     bySeverity: input.bySeverity,
     bySeverityOpen: input.bySeverityOpen,
@@ -921,11 +941,27 @@ export function buildSecuritySummary(
   const criticalOpen = openBySeverity.critical
   const highOpen = openBySeverity.high
   const highRiskOpen = criticalOpen + highOpen
-  const highRiskRatio = input.openCount > 0 ? highRiskOpen / input.openCount : 0
-  const reliabilityValue = input.health?.score.components.reliability.value
-  const fallbackRate = input.health?.score.components.reliability.fallbackRate
-  const dataTime = input.health?.evaluatedAt ?? input.trend?.at(-1)?.date ?? null
-  const dataSourceLabel = input.health
+
+  return {
+    input,
+    trendInsights,
+    reliabilitySignal,
+    pendingReview,
+    pendingReviewPressure,
+    progress,
+    criticalOpen,
+    highOpen,
+    highRiskOpen,
+    highRiskRatio: input.openCount > 0 ? highRiskOpen / input.openCount : 0,
+    reliabilityValue: input.health?.score.components.reliability.value,
+    fallbackRate: input.health?.score.components.reliability.fallbackRate,
+    dataTime: input.health?.evaluatedAt ?? input.trend?.at(-1)?.date ?? null,
+    dataSourceLabel: formatDataSourceLabel(Boolean(input.health), locale),
+  }
+}
+
+function formatDataSourceLabel(hasHealth: boolean, locale: ResolvedLocale): string {
+  return hasHealth
     ? lt(locale, {
         'zh-TW': '規則推導（health + stats + trend）',
         'zh-CN': '规则推导（health + stats + trend）',
@@ -936,61 +972,82 @@ export function buildSecuritySummary(
         'zh-CN': '规则推导（stats + trend）',
         en: 'Rule-based (stats + trend)',
       })
+}
 
-  let headline = lt(locale, {
-    'zh-TW': '目前風險趨勢穩定，可持續按節奏處理。',
-    'zh-CN': '当前风险趋势稳定，可按节奏持续处理。',
-    en: 'Risk trend is stable; continue remediation at current pace.',
-  })
-  let tone: SecuritySummary['tone'] = 'safe'
-  let coreMessage = lt(locale, {
-    'zh-TW': '目前沒有立即風險阻塞，可維持既有節奏。',
-    'zh-CN': '当前没有即时风险阻塞，可维持既有节奏。',
-    en: 'No immediate risk blockers at the moment.',
-  })
-  let solutionMessage = lt(locale, {
-    'zh-TW': '持續工作區掃描與審核抽樣，避免新風險累積。',
-    'zh-CN': '持续工作区扫描与审核抽样，避免新风险累积。',
-    en: 'Keep workspace scans and review sampling to prevent new buildup.',
-  })
-  let action: SecuritySummaryAction | null = null
+function selectSecuritySummaryDecision(
+  context: SecuritySummaryContext,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  const {
+    input,
+    reliabilitySignal,
+    pendingReviewPressure,
+    criticalOpen,
+    highOpen,
+  } = context
 
   if (input.openCount <= 0) {
-    headline = lt(locale, {
+    return buildNoOpenSummaryDecision(locale)
+  }
+  if (criticalOpen > 0) {
+    return buildCriticalSummaryDecision(criticalOpen, locale)
+  }
+  if (highOpen > 0) {
+    return buildHighSummaryDecision(highOpen, locale)
+  }
+  if (pendingReviewPressure >= 0.35) {
+    return buildPendingReviewSummaryDecision(context, locale)
+  }
+  if (reliabilitySignal.tone === 'negative') {
+    return buildReliabilitySummaryDecision(context, locale)
+  }
+  return buildBatchSummaryDecision(context, locale)
+}
+
+function buildNoOpenSummaryDecision(locale: ResolvedLocale): SecuritySummaryDecision {
+  return {
+    headline: lt(locale, {
       'zh-TW': '目前沒有待處理漏洞，建議維持掃描與審核節奏。',
       'zh-CN': '当前没有待处理漏洞，建议维持扫描与审核节奏。',
       en: 'No open vulnerabilities now; keep scan and review cadence.',
-    })
-    tone = 'safe'
-    coreMessage = lt(locale, {
+    }),
+    tone: 'safe',
+    coreMessage: lt(locale, {
       'zh-TW': '目前沒有待處理風險。',
       'zh-CN': '当前没有待处理风险。',
       en: 'No open risk at the moment.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '維持例行掃描與審核節奏，避免風險回升。',
       'zh-CN': '维持例行扫描与审核节奏，避免风险回升。',
       en: 'Maintain routine scans and reviews to avoid regression.',
-    })
-    action = null
-  } else if (criticalOpen > 0) {
-    headline = lt(locale, {
+    }),
+    action: null,
+  }
+}
+
+function buildCriticalSummaryDecision(
+  criticalOpen: number,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  return {
+    headline: lt(locale, {
       'zh-TW': `嚴重級待處理 ${criticalOpen} 筆，建議先止血。`,
       'zh-CN': `严重级待处理 ${criticalOpen} 笔，建议先止血。`,
       en: `${criticalOpen} critical items are still open. Start with immediate containment.`,
-    })
-    tone = 'danger'
-    coreMessage = lt(locale, {
+    }),
+    tone: 'danger',
+    coreMessage: lt(locale, {
       'zh-TW': '最高衝擊面尚未收斂，整體暴露上限仍偏高。',
       'zh-CN': '最高冲击面尚未收敛，整体暴露上限仍偏高。',
       en: 'Highest-impact exposure has not converged yet and risk cap remains high.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '先修嚴重級待處理，完成後再收斂高風險。',
       'zh-CN': '先修严重级待处理，完成后再收敛高风险。',
       en: 'Fix open critical items first, then converge high-risk items.',
-    })
-    action = {
+    }),
+    action: {
       label: lt(locale, {
         'zh-TW': '立即處理嚴重級',
         'zh-CN': '立即处理严重级',
@@ -1009,31 +1066,35 @@ export function buildSecuritySummary(
           'zh-CN': '严重级待处理',
           en: 'Open Critical',
         }),
-        current:
-          locale === 'en'
-            ? `${criticalOpen} items`
-            : `${criticalOpen}${locale === 'zh-CN' ? ' 笔' : ' 筆'}`,
-        target: locale === 'en' ? '0 items' : `0${locale === 'zh-CN' ? ' 笔' : ' 筆'}`,
+        current: formatItemCount(criticalOpen, locale),
+        target: formatItemCount(0, locale),
       },
-    }
-  } else if (highOpen > 0) {
-    headline = lt(locale, {
+    },
+  }
+}
+
+function buildHighSummaryDecision(
+  highOpen: number,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  return {
+    headline: lt(locale, {
       'zh-TW': `高風險待處理 ${highOpen} 筆，建議優先收斂。`,
       'zh-CN': `高风险待处理 ${highOpen} 笔，建议优先收敛。`,
       en: `${highOpen} high-risk items are open. Prioritize convergence.`,
-    })
-    tone = 'warning'
-    coreMessage = lt(locale, {
+    }),
+    tone: 'warning',
+    coreMessage: lt(locale, {
       'zh-TW': '高風險庫存仍偏高，可能持續擠壓修復節奏。',
       'zh-CN': '高风险库存仍偏高，可能持续挤压修复节奏。',
       en: 'High-risk backlog is still elevated and may keep squeezing remediation pace.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '優先清理高風險項，再進行中低風險批次修復。',
       'zh-CN': '优先清理高风险项，再进行中低风险批量修复。',
       en: 'Clear high-risk items first, then move to mid/low-risk batch remediation.',
-    })
-    action = {
+    }),
+    action: {
       label: lt(locale, {
         'zh-TW': '優先清理高風險',
         'zh-CN': '优先清理高风险',
@@ -1052,29 +1113,37 @@ export function buildSecuritySummary(
           'zh-CN': '高风险待处理',
           en: 'Open High Risk',
         }),
-        current:
-          locale === 'en' ? `${highOpen} items` : `${highOpen}${locale === 'zh-CN' ? ' 笔' : ' 筆'}`,
-        target: locale === 'en' ? '0 items' : `0${locale === 'zh-CN' ? ' 笔' : ' 筆'}`,
+        current: formatItemCount(highOpen, locale),
+        target: formatItemCount(0, locale),
       },
-    }
-  } else if (pendingReviewPressure >= 0.35) {
-    headline = lt(locale, {
+    },
+  }
+}
+
+function buildPendingReviewSummaryDecision(
+  context: SecuritySummaryContext,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  const { input, pendingReview, pendingReviewPressure } = context
+
+  return {
+    headline: lt(locale, {
       'zh-TW': `待審核堆積 ${pendingReview} 筆，修復決策受阻。`,
       'zh-CN': `待审核堆积 ${pendingReview} 笔，修复决策受阻。`,
       en: `${pendingReview} items are pending review and remediation decisions are blocked.`,
-    })
-    tone = 'warning'
-    coreMessage = lt(locale, {
+    }),
+    tone: 'warning',
+    coreMessage: lt(locale, {
       'zh-TW': '主要瓶頸是審核流量不足，導致修復動作被卡住。',
       'zh-CN': '主要瓶颈是审核流量不足，导致修复动作被卡住。',
       en: 'The bottleneck is review capacity; remediation actions are blocked.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '先清待審核，再推進已確認項目的修復與忽略決策。',
       'zh-CN': '先清待审核，再推进已确认项目的修复与忽略决策。',
       en: 'Clear pending reviews first, then proceed with confirmed remediation/ignore decisions.',
-    })
-    action = {
+    }),
+    action: {
       label: lt(locale, {
         'zh-TW': '先清待審核',
         'zh-CN': '先清待审核',
@@ -1094,27 +1163,36 @@ export function buildSecuritySummary(
           en: 'Pending Review Pressure',
         }),
         current: `${formatPercent(pendingReviewPressure)} (${pendingReview}/${input.openCount})`,
-        target: locale === 'en' ? '< 20%' : '< 20%',
+        target: '< 20%',
       },
-    }
-  } else if (reliabilitySignal.tone === 'negative') {
-    headline = lt(locale, {
+    },
+  }
+}
+
+function buildReliabilitySummaryDecision(
+  context: SecuritySummaryContext,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  const { input, reliabilityValue, fallbackRate } = context
+
+  return {
+    headline: lt(locale, {
       'zh-TW': '掃描可靠度偏弱，建議先穩定引擎再加速修復。',
       'zh-CN': '扫描可靠度偏弱，建议先稳定引擎再加速修复。',
       en: 'Scan reliability is weak. Stabilize the engine before accelerating remediation.',
-    })
-    tone = 'warning'
-    coreMessage = lt(locale, {
+    }),
+    tone: 'warning',
+    coreMessage: lt(locale, {
       'zh-TW': '掃描可靠度偏低，會影響判斷與後續修復效率。',
       'zh-CN': '扫描可靠度偏低，会影响判断与后续修复效率。',
       en: 'Low reliability impacts signal quality and downstream remediation efficiency.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '先穩定掃描成功率與回退率，再擴大修復節奏。',
       'zh-CN': '先稳定扫描成功率与回退率，再扩大修复节奏。',
       en: 'Stabilize scan success and fallback rates, then expand remediation cadence.',
-    })
-    action = {
+    }),
+    action: {
       label: lt(locale, {
         'zh-TW': '查看待處理清單',
         'zh-CN': '查看待处理清单',
@@ -1133,14 +1211,7 @@ export function buildSecuritySummary(
           'zh-CN': '扫描可靠度',
           en: 'Scan Reliability',
         }),
-        current:
-          typeof reliabilityValue === 'number' && typeof fallbackRate === 'number'
-            ? `${reliabilityValue.toFixed(1)} / fallback ${(fallbackRate * 100).toFixed(1)}%`
-            : lt(locale, {
-                'zh-TW': '資料不足',
-                'zh-CN': '数据不足',
-                en: 'Insufficient data',
-              }),
+        current: formatReliabilityValue(reliabilityValue, fallbackRate, locale),
         target:
           locale === 'en'
             ? '>= 80 and fallback <= 10%'
@@ -1148,25 +1219,34 @@ export function buildSecuritySummary(
               ? '>= 80 且 fallback <= 10%'
               : '>= 80 且 fallback <= 10%',
       },
-    }
-  } else {
-    headline = lt(locale, {
+    },
+  }
+}
+
+function buildBatchSummaryDecision(
+  context: SecuritySummaryContext,
+  locale: ResolvedLocale,
+): SecuritySummaryDecision {
+  const { input, trendInsights } = context
+
+  return {
+    headline: lt(locale, {
       'zh-TW': '目前仍有待處理項目，建議以批次方式快速清庫存。',
       'zh-CN': '当前仍有待处理项目，建议以批量方式快速清库存。',
       en: 'There are still open items. Use batch remediation to reduce backlog quickly.',
-    })
-    tone = trendInsights.pressureHigh ? 'warning' : 'safe'
-    coreMessage = lt(locale, {
+    }),
+    tone: trendInsights.pressureHigh ? 'warning' : 'safe',
+    coreMessage: lt(locale, {
       'zh-TW': '目前無高風險堵點，主要任務是持續清理待處理庫存。',
       'zh-CN': '当前无高风险堵点，主要任务是持续清理待处理库存。',
       en: 'No high-risk blockers now. Primary goal is to drain open backlog steadily.',
-    })
-    solutionMessage = lt(locale, {
+    }),
+    solutionMessage: lt(locale, {
       'zh-TW': '採批次修復，維持穩定吞吐並防止庫存回升。',
       'zh-CN': '采用批量修复，维持稳定吞吐并防止库存回升。',
       en: 'Use batch remediation to keep steady throughput and prevent backlog rebound.',
-    })
-    action = {
+    }),
+    action: {
       label: lt(locale, {
         'zh-TW': '查看待處理清單',
         'zh-CN': '查看待处理清单',
@@ -1195,17 +1275,61 @@ export function buildSecuritySummary(
             : formatDelta(trendInsights.openNet7d, locale),
         target: '<= 0',
       },
-    }
+    },
   }
+}
 
-  if (input.openCount > 0) {
+function formatItemCount(count: number, locale: ResolvedLocale): string {
+  if (locale === 'en') return `${count} items`
+  return `${count}${locale === 'zh-CN' ? ' 笔' : ' 筆'}`
+}
+
+function formatReliabilityValue(
+  reliabilityValue: number | undefined,
+  fallbackRate: number | undefined,
+  locale: ResolvedLocale,
+): string {
+  if (typeof reliabilityValue === 'number' && typeof fallbackRate === 'number') {
+    return `${reliabilityValue.toFixed(1)} / fallback ${(fallbackRate * 100).toFixed(1)}%`
+  }
+  return lt(locale, {
+    'zh-TW': '資料不足',
+    'zh-CN': '数据不足',
+    en: 'Insufficient data',
+  })
+}
+
+function applyProgressTone(
+  tone: SecuritySummary['tone'],
+  progress: SecuritySummaryProgress,
+  openCount: number,
+): SecuritySummary['tone'] {
+  if (openCount > 0) {
     if (progress.stage === 'stop-bleed') {
-      tone = 'danger'
-    } else if (progress.stage === 'converge' && tone === 'safe') {
-      tone = 'warning'
+      return 'danger'
+    }
+    if (progress.stage === 'converge' && tone === 'safe') {
+      return 'warning'
     }
   }
+  return tone
+}
 
+function buildSecuritySummaryRationale(
+  context: SecuritySummaryContext,
+  locale: ResolvedLocale,
+): string[] {
+  const {
+    input,
+    trendInsights,
+    pendingReview,
+    pendingReviewPressure,
+    progress,
+    highRiskOpen,
+    highRiskRatio,
+    reliabilityValue,
+    fallbackRate,
+  } = context
   const trendLabel =
     trendInsights.openNet7d === null
       ? lt(locale, {
@@ -1251,18 +1375,7 @@ export function buildSecuritySummary(
     pressureMixLabel,
     `${trendLabel}；${reliabilityLabel}`,
   ]
-
-  return {
-    headline,
-    tone,
-    coreMessage,
-    solutionMessage,
-    dataTime,
-    dataSourceLabel,
-    progress,
-    action,
-    rationale,
-  }
+  return rationale
 }
 
 export function resolveActionPreset(input: DashboardInsightInput): VulnerabilityFilterPreset {
