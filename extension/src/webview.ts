@@ -158,6 +158,8 @@ function postOperationResult(result: OperationResult): void {
 }
 
 function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): void {
+  if (handleWebviewOperationMessage(msg, getConfig)) return
+
   switch (msg.type) {
     case 'request_scan':
       if (msg.data.scope === 'file') {
@@ -167,36 +169,11 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
       }
       break
 
-    case 'focus_sidebar_view':
-      void handleFocusSidebarViewRequest(msg.requestId, msg.data.view, msg.data.preset)
-      break
-
-    case 'apply_fix':
-      void handleApplyFixRequest(msg.requestId, msg.data.vulnerabilityId)
-      break
-
-    case 'ignore_vulnerability':
-      void handleIgnoreRequest(msg.requestId, msg.data.vulnerabilityId)
-      break
-
-    case 'refresh_vulnerabilities':
-      void handleRefreshRequest(msg.requestId, getConfig)
-      break
-
     case 'navigate_to_code': {
       const { filePath, line, column } = msg.data
       void navigateToCodeLocation(filePath, line, column)
       break
     }
-
-    case 'update_config':
-      void handleUpdateConfigRequest(msg.requestId, msg.data)
-      break
-
-    case 'export_pdf':
-      logWebview(`[PDF 匯出] 收到請求 requestId=${msg.requestId}`)
-      void handleExportPdfRequest(msg.requestId, msg.data, getConfig)
-      break
 
     case 'request_config':
       sendConfigUpdate(getConfig())
@@ -208,6 +185,41 @@ function handleWebviewMessage(msg: WebToExtMsg, getConfig: () => PluginConfig): 
     case 'open_vulnerability_detail':
       void handleOpenVulnerabilityDetail(msg.data.vulnerabilityId, getConfig)
       break
+  }
+}
+
+function handleWebviewOperationMessage(
+  msg: WebToExtMsg,
+  getConfig: () => PluginConfig,
+): boolean {
+  switch (msg.type) {
+    case 'focus_sidebar_view':
+      void handleFocusSidebarViewRequest(msg.requestId, msg.data.view, msg.data.preset)
+      return true
+
+    case 'apply_fix':
+      void handleApplyFixRequest(msg.requestId, msg.data.vulnerabilityId)
+      return true
+
+    case 'ignore_vulnerability':
+      void handleIgnoreRequest(msg.requestId, msg.data.vulnerabilityId)
+      return true
+
+    case 'refresh_vulnerabilities':
+      void handleRefreshRequest(msg.requestId, getConfig)
+      return true
+
+    case 'update_config':
+      void handleUpdateConfigRequest(msg.requestId, msg.data)
+      return true
+
+    case 'export_pdf':
+      logWebview(`[PDF 匯出] 收到請求 requestId=${msg.requestId}`)
+      void handleExportPdfRequest(msg.requestId, msg.data, getConfig)
+      return true
+
+    default:
+      return false
   }
 }
 
@@ -622,6 +634,17 @@ type FixTargetResolution =
   | { kind: 'already_fixed' }
   | { kind: 'not_found' }
 
+type ApplyFixToDocumentResult =
+  | { kind: 'ok'; codeChanged: boolean }
+  | {
+      kind: 'failed'
+      result: {
+        success: false
+        message: string
+        payload: OperationResult['payload']
+      }
+    }
+
 function normalizeSnippetForMatch(text: string): string {
   return text
     .replace(/\r\n/g, '\n')
@@ -734,6 +757,65 @@ function resolveFixTarget(doc: vscode.TextDocument, vuln: Vulnerability): FixTar
   return { kind: 'not_found' }
 }
 
+async function applyFixToDocument(
+  vuln: Vulnerability,
+  vulnId: string,
+): Promise<ApplyFixToDocumentResult> {
+  if (!vuln.fixNewCode) {
+    const message = '此漏洞沒有可用的修復建議'
+    vscode.window.showWarningMessage(`Confession: ${message}`)
+    return {
+      kind: 'failed',
+      result: { success: false, message, payload: { vulnerabilityId: vulnId } },
+    }
+  }
+
+  const uri = vscode.Uri.file(vuln.filePath)
+  const doc = await vscode.workspace.openTextDocument(uri)
+  const fixTarget = resolveFixTarget(doc, vuln)
+
+  if (fixTarget.kind === 'not_found') {
+    const message = '目前檔案找不到可替換的漏洞片段，請先重新掃描再嘗試修復'
+    vscode.window.showWarningMessage(`Confession: ${message}`)
+    return {
+      kind: 'failed',
+      result: { success: false, message, payload: { vulnerabilityId: vulnId } },
+    }
+  }
+
+  if (fixTarget.kind === 'already_fixed') {
+    return { kind: 'ok', codeChanged: false }
+  }
+
+  const edit = new vscode.WorkspaceEdit()
+  edit.replace(uri, fixTarget.range, vuln.fixNewCode)
+
+  const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
+  if (monitoringCode) {
+    const insertLine = Math.min(doc.lineCount, fixTarget.range.end.line + 1)
+    if (!hasMonitoringCodeNearLine(doc, monitoringCode, insertLine)) {
+      const insertPos = new vscode.Position(insertLine, 0)
+      edit.insert(uri, insertPos, `${monitoringCode}\n`)
+    }
+  }
+
+  const applied = await vscode.workspace.applyEdit(edit)
+  if (!applied) {
+    vscode.window.showErrorMessage('Confession: 套用修復失敗')
+    return {
+      kind: 'failed',
+      result: {
+        success: false,
+        message: '套用修復失敗',
+        payload: { vulnerabilityId: vulnId },
+      },
+    }
+  }
+
+  await doc.save()
+  return { kind: 'ok', codeChanged: true }
+}
+
 async function applyVulnerabilityFix(vulnId: string): Promise<{
   success: boolean
   message: string
@@ -760,40 +842,10 @@ async function applyVulnerabilityFix(vulnId: string): Promise<{
       }
     }
 
-    const uri = vscode.Uri.file(vuln.filePath)
-    const doc = await vscode.workspace.openTextDocument(uri)
-    const fixTarget = resolveFixTarget(doc, vuln)
-    let codeChanged = false
+    const applyResult = await applyFixToDocument(vuln, vulnId)
+    if (applyResult.kind === 'failed') return applyResult.result
 
-    if (fixTarget.kind === 'replace') {
-      const edit = new vscode.WorkspaceEdit()
-      edit.replace(uri, fixTarget.range, vuln.fixNewCode)
-
-      // 插入嵌入式監測日誌（修復代碼下一行）
-      const monitoringCode = generateMonitoringCode(vuln, doc.languageId)
-      if (monitoringCode) {
-        const insertLine = Math.min(doc.lineCount, fixTarget.range.end.line + 1)
-        if (!hasMonitoringCodeNearLine(doc, monitoringCode, insertLine)) {
-          const insertPos = new vscode.Position(insertLine, 0)
-          edit.insert(uri, insertPos, monitoringCode + '\n')
-        }
-      }
-
-      const applied = await vscode.workspace.applyEdit(edit)
-      if (!applied) {
-        vscode.window.showErrorMessage('Confession: 套用修復失敗')
-        return { success: false, message: '套用修復失敗', payload: { vulnerabilityId: vulnId } }
-      }
-      codeChanged = true
-    } else if (fixTarget.kind === 'not_found') {
-      const message = '目前檔案找不到可替換的漏洞片段，請先重新掃描再嘗試修復'
-      vscode.window.showWarningMessage(`Confession: ${message}`)
-      return { success: false, message, payload: { vulnerabilityId: vulnId } }
-    }
-
-    if (codeChanged) {
-      await doc.save()
-    }
+    const { codeChanged } = applyResult
     const updated = await updateVulnerabilityStatus(baseUrl, vulnId, 'fixed')
     if (!updated) {
       const updatedVulnerability = await fetchVulnerabilityById(baseUrl, vulnId)

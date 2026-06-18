@@ -581,6 +581,9 @@ describe('AI 自動修復冪等保護', () => {
   let postMessageSpy: ReturnType<typeof vi.fn>;
   let applyEditSpy: ReturnType<typeof vi.fn>;
   let openTextDocumentSpy: ReturnType<typeof vi.fn>;
+  let saveDocumentSpy: ReturnType<typeof vi.fn>;
+  let fixedSnippet: string;
+  let sourceText: string;
 
   function positionToOffset(
     text: string,
@@ -611,14 +614,15 @@ describe('AI 自動修復冪等保護', () => {
   beforeEach(() => {
     postMessageSpy = vi.fn();
     applyEditSpy = vi.fn().mockResolvedValue(true);
+    saveDocumentSpy = vi.fn().mockResolvedValue(undefined);
 
-    const fixedSnippet = `if (payload.__proto__) { delete payload.__proto__ }\nObject.assign(Object.prototype, payload.__proto__ as object)`;
-    const sourceText = `export const mergeConfig = (payload: Record<string, unknown>) => {\n  const target: Record<string, unknown> = {}\n\n  // 高風險：可污染原型鏈\n  ${fixedSnippet}\n\n  return target\n}\n`;
+    fixedSnippet = `if (payload.__proto__) { delete payload.__proto__ }\nObject.assign(Object.prototype, payload.__proto__ as object)`;
+    sourceText = `export const mergeConfig = (payload: Record<string, unknown>) => {\n  const target: Record<string, unknown> = {}\n\n  // 高風險：可污染原型鏈\n  ${fixedSnippet}\n\n  return target\n}\n`;
 
     openTextDocumentSpy = vi.fn().mockResolvedValue({
       uri: { fsPath: '/tmp/prototype-pollution.ts' },
       languageId: 'typescript',
-      save: vi.fn().mockResolvedValue(undefined),
+      save: saveDocumentSpy,
       getText: (range?: {
         start: { line: number; character: number };
         end: { line: number; character: number };
@@ -746,6 +750,7 @@ describe('AI 自動修復冪等保護', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(applyEditSpy).not.toHaveBeenCalled();
+    expect(saveDocumentSpy).not.toHaveBeenCalled();
     expect(mockedUpdateVulnerabilityStatus).toHaveBeenCalledWith(
       'http://localhost:3000',
       'vuln-1',
@@ -758,6 +763,61 @@ describe('AI 自動修復冪等保護', () => {
           requestId: 'req-1',
           operation: 'apply_fix',
           success: true,
+        }),
+      })
+    );
+  });
+
+  it('找到舊片段時，應套用修復、儲存檔案並更新狀態', async () => {
+    sourceText = `export const mergeConfig = (payload: Record<string, unknown>) => {\n  const target: Record<string, unknown> = {}\n\n  // 高風險：可污染原型鏈\n  Object.assign(Object.prototype, payload.__proto__ as object)\n\n  return target\n}\n`;
+
+    messageHandler({
+      type: 'apply_fix',
+      requestId: 'req-2',
+      data: { vulnerabilityId: 'vuln-1' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(applyEditSpy).toHaveBeenCalledOnce();
+    expect(saveDocumentSpy).toHaveBeenCalledOnce();
+    expect(mockedUpdateVulnerabilityStatus).toHaveBeenCalledWith(
+      'http://localhost:3000',
+      'vuln-1',
+      'fixed'
+    );
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operation_result',
+        data: expect.objectContaining({
+          requestId: 'req-2',
+          operation: 'apply_fix',
+          success: true,
+        }),
+      })
+    );
+  });
+
+  it('找不到舊片段或新片段時，不應修改檔案或更新狀態', async () => {
+    sourceText = `export const mergeConfig = () => ({ safe: true })\n`;
+
+    messageHandler({
+      type: 'apply_fix',
+      requestId: 'req-3',
+      data: { vulnerabilityId: 'vuln-1' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(applyEditSpy).not.toHaveBeenCalled();
+    expect(saveDocumentSpy).not.toHaveBeenCalled();
+    expect(mockedUpdateVulnerabilityStatus).not.toHaveBeenCalled();
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operation_result',
+        data: expect.objectContaining({
+          requestId: 'req-3',
+          operation: 'apply_fix',
+          success: false,
+          message: '目前檔案找不到可替換的漏洞片段，請先重新掃描再嘗試修復',
         }),
       })
     );

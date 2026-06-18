@@ -208,27 +208,12 @@ async function waitUntilDoneViaSse(
     const timeout = setTimeout(() => controller.abort(), remainingMs)
 
     try {
-      const headers: Record<string, string> = {}
-      if (lastEventId) {
-        headers['Last-Event-ID'] = lastEventId
-      }
-
-      const res = await fetch(`${base}/api/scan/stream/${taskId}`, {
-        headers,
-        signal: controller.signal,
-      })
-
-      if (!res.ok) {
-        throw new ScanStreamUnavailableError(
-          `SSE 掃描串流不可用: ${res.status}`
-        )
-      }
-
-      const reader = res.body?.getReader()
-      if (!reader) {
-        throw new ScanStreamUnavailableError('SSE 掃描串流無有效回應內容')
-      }
-
+      const reader = await openScanStream(
+        base,
+        taskId,
+        lastEventId,
+        controller.signal
+      )
       const decoder = new globalThis.TextDecoder()
       let buffer = ''
 
@@ -241,23 +226,9 @@ async function waitUntilDoneViaSse(
         buffer = parsed.rest
 
         for (const message of parsed.messages) {
-          if (message.id) {
-            lastEventId = message.id
-          }
-          if (message.event === 'keepalive') continue
-
-          const task = parseStreamTaskStatus(message.data)
-          if (!task) continue
-          onProgress?.(task.progress)
-
-          if (task.status === 'completed') return
-          if (task.status === 'failed') {
-            throw new ScanTaskFailedError(
-              task.errorMessage ?? '掃描失敗',
-              task.errorCode ?? null,
-              task.engineMode ?? null
-            )
-          }
+          const result = handleStreamMessage(message, onProgress)
+          if (result.lastEventId) lastEventId = result.lastEventId
+          if (result.done) return
         }
       }
     } catch (error) {
@@ -283,6 +254,60 @@ async function waitUntilDoneViaSse(
   }
 
   throw new Error(`掃描任務逾時（>${Math.ceil(timeoutMs / 1000)} 秒）`)
+}
+
+async function openScanStream(
+  base: string,
+  taskId: string,
+  lastEventId: string | null,
+  signal: InstanceType<typeof globalThis.AbortController>['signal']
+): Promise<ReturnType<NonNullable<Response['body']>['getReader']>> {
+  const headers: Record<string, string> = {}
+  if (lastEventId) {
+    headers['Last-Event-ID'] = lastEventId
+  }
+
+  const res = await fetch(`${base}/api/scan/stream/${taskId}`, {
+    headers,
+    signal,
+  })
+
+  if (!res.ok) {
+    throw new ScanStreamUnavailableError(`SSE 掃描串流不可用: ${res.status}`)
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) {
+    throw new ScanStreamUnavailableError('SSE 掃描串流無有效回應內容')
+  }
+
+  return reader
+}
+
+function handleStreamMessage(
+  message: ParsedSseMessage,
+  onProgress?: (progress: number) => void
+): { lastEventId?: string; done: boolean } {
+  if (message.event === 'keepalive') {
+    return { lastEventId: message.id, done: false }
+  }
+
+  const task = parseStreamTaskStatus(message.data)
+  if (!task) return { lastEventId: message.id, done: false }
+  onProgress?.(task.progress)
+
+  if (task.status === 'completed') {
+    return { lastEventId: message.id, done: true }
+  }
+  if (task.status === 'failed') {
+    throw new ScanTaskFailedError(
+      task.errorMessage ?? '掃描失敗',
+      task.errorCode ?? null,
+      task.engineMode ?? null
+    )
+  }
+
+  return { lastEventId: message.id, done: false }
 }
 
 async function waitUntilDoneViaPolling(
@@ -336,31 +361,36 @@ function drainSseMessages(payload: string): {
     const raw = normalized.slice(cursor, separator)
     cursor = separator + 2
 
-    let id: string | undefined
-    let event: string | undefined
-    const dataLines: string[] = []
-
-    for (const line of raw.split('\n')) {
-      if (!line || line.startsWith(':')) continue
-      const colon = line.indexOf(':')
-      const field = colon === -1 ? line : line.slice(0, colon)
-      const rawValue = colon === -1 ? '' : line.slice(colon + 1)
-      const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue
-
-      if (field === 'id') {
-        id = value
-      } else if (field === 'event') {
-        event = value
-      } else if (field === 'data') {
-        dataLines.push(value)
-      }
-    }
-
-    if (dataLines.length === 0) continue
-    messages.push({ id, event, data: dataLines.join('\n') })
+    const message = parseSseMessage(raw)
+    if (message) messages.push(message)
   }
 
   return { messages, rest: normalized.slice(cursor) }
+}
+
+function parseSseMessage(raw: string): ParsedSseMessage | null {
+  let id: string | undefined
+  let event: string | undefined
+  const dataLines: string[] = []
+
+  for (const line of raw.split('\n')) {
+    if (!line || line.startsWith(':')) continue
+    const colon = line.indexOf(':')
+    const field = colon === -1 ? line : line.slice(0, colon)
+    const rawValue = colon === -1 ? '' : line.slice(colon + 1)
+    const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue
+
+    if (field === 'id') {
+      id = value
+    } else if (field === 'event') {
+      event = value
+    } else if (field === 'data') {
+      dataLines.push(value)
+    }
+  }
+
+  if (dataLines.length === 0) return null
+  return { id, event, data: dataLines.join('\n') }
 }
 
 function parseStreamTaskStatus(raw: string): ScanTaskStatus | null {
