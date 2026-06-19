@@ -62,6 +62,7 @@ confession/
 ├── .husky/
 ├── confession-cli/
 │   └── bin/
+│       ├── lib/
 │       ├── confession.js
 │       └── confession.test.js
 ├── extension/
