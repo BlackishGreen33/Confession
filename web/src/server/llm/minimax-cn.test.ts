@@ -9,6 +9,8 @@ const originalMiniMaxCnEndpoint = process.env.MINIMAX_CN_ENDPOINT;
 const originalMiniMaxEndpoint = process.env.MINIMAX_ENDPOINT;
 const originalMiniMaxCnModel = process.env.MINIMAX_CN_MODEL;
 const originalMiniMaxModel = process.env.MINIMAX_MODEL;
+const originalUnsafeEndpointOptIn =
+  process.env.CONFESSION_ALLOW_UNSAFE_LLM_ENDPOINTS;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -18,6 +20,10 @@ afterEach(() => {
   restoreEnv('MINIMAX_ENDPOINT', originalMiniMaxEndpoint);
   restoreEnv('MINIMAX_CN_MODEL', originalMiniMaxCnModel);
   restoreEnv('MINIMAX_MODEL', originalMiniMaxModel);
+  restoreEnv(
+    'CONFESSION_ALLOW_UNSAFE_LLM_ENDPOINTS',
+    originalUnsafeEndpointOptIn
+  );
 });
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -109,7 +115,8 @@ describe('MiniMax CN LLM client', () => {
       })
     );
 
-    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    const init = fetchMock.mock.calls[0]?.[1] as { body?: string };
+    const body = JSON.parse(init.body ?? '{}');
     expect(body).toMatchObject({
       model: 'MiniMax-M2.7',
       temperature: 0.1,
@@ -118,5 +125,25 @@ describe('MiniMax CN LLM client', () => {
       stream: false,
       reasoning_split: true,
     });
+  });
+
+  it('callMiniMaxCn 應拒絕不安全的自訂 endpoint', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    for (const endpoint of [
+      'http://127.0.0.1:11434/v1',
+      'http://localhost:11434/v1',
+      'https://10.0.0.5/v1',
+    ]) {
+      await expect(
+        callMiniMaxCn('請輸出 JSON', {
+          apiKey: 'test-key',
+          endpoint,
+        })
+      ).rejects.toThrow(/LLM endpoint/);
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

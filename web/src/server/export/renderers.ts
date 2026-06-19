@@ -378,8 +378,29 @@ function renderMarkdownItem(
 }
 
 function escapeCsvField(value: string): string {
-  if (value.includes(',') || value.includes('\n') || value.includes('"')) {
-    return `"${value.replace(/"/g, '""')}"`
+  const safeValue = neutralizeCsvFormula(value)
+  if (
+    safeValue.includes(',') ||
+    safeValue.includes('\n') ||
+    safeValue.includes('"')
+  ) {
+    return `"${safeValue.replace(/"/g, '""')}"`
+  }
+  return safeValue
+}
+
+function neutralizeCsvFormula(value: string): string {
+  const firstChar = value.charAt(0)
+  const firstNonWhitespace = value.trimStart().charAt(0)
+  if (
+    firstChar === '\t' ||
+    firstChar === '\r' ||
+    firstNonWhitespace === '=' ||
+    firstNonWhitespace === '+' ||
+    firstNonWhitespace === '-' ||
+    firstNonWhitespace === '@'
+  ) {
+    return `'${value}`
   }
   return value
 }

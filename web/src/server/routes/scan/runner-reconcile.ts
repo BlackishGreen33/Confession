@@ -48,6 +48,17 @@ export async function reconcileWorkspaceSnapshotVulnerabilities(
   const filePathSet = new Set(body.files.map((file) => file.path))
   if (filePathSet.size === 0) return
 
+  if (!areAllFilesInWorkspaceRoots(filePathSet, workspaceRoots)) {
+    process.stdout.write(
+      `[Confession][WorkspaceReconcile] ${JSON.stringify({
+        taskId,
+        skipped: true,
+        reason: 'workspace_files_outside_roots',
+      })}\n`,
+    )
+    return
+  }
+
   try {
     assertNotCanceled()
     const openVulnsRaw = await storage.vulnerability.findMany({
@@ -62,7 +73,9 @@ export async function reconcileWorkspaceSnapshotVulnerabilities(
         stableFingerprint: true,
       },
     })
-    const openVulns = openVulnsRaw as unknown as OpenVulnerabilityRow[]
+    const openVulns = (
+      openVulnsRaw as unknown as OpenVulnerabilityRow[]
+    ).filter((item) => isPathInAnyWorkspaceRoot(item.filePath, workspaceRoots))
 
     const stale = openVulns.filter((item) => {
       if (filePathSet.has(item.filePath)) return false
@@ -161,9 +174,37 @@ function normalizeWorkspaceRoots(roots: string[] | undefined): string[] {
   if (!Array.isArray(roots)) return []
 
   const normalized = roots
-    .map((root) => root.trim())
-    .filter((root) => root.length > 0)
-    .map((root) => root.replace(/[\\/]$/, ''))
+    .map((root) => normalizeWorkspacePath(root))
+    .filter((root): root is string => root !== null)
 
   return Array.from(new Set(normalized))
+}
+
+function normalizeWorkspacePath(value: string): string | null {
+  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!normalized) return null
+  if (normalized === '/') return null
+  if (/^[a-zA-Z]:$/.test(normalized)) return null
+  return normalized
+}
+
+function isPathInWorkspaceRoot(filePath: string, workspaceRoot: string): boolean {
+  const normalizedFilePath = filePath.replace(/\\/g, '/')
+  return (
+    normalizedFilePath === workspaceRoot ||
+    normalizedFilePath.startsWith(`${workspaceRoot}/`)
+  )
+}
+
+function isPathInAnyWorkspaceRoot(filePath: string, roots: string[]): boolean {
+  return roots.some((root) => isPathInWorkspaceRoot(filePath, root))
+}
+
+function areAllFilesInWorkspaceRoots(
+  filePaths: Set<string>,
+  roots: string[],
+): boolean {
+  return Array.from(filePaths).every((filePath) =>
+    isPathInAnyWorkspaceRoot(filePath, roots),
+  )
 }

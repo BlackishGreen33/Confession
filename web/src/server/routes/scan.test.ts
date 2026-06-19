@@ -859,6 +859,79 @@ describe('Scan routes', () => {
     expect(mockPrisma.vulnerabilityEvent.createMany).not.toHaveBeenCalled();
   });
 
+  it('workspaceRoots 為 filesystem root 時不應觸發自動關閉', async () => {
+    const res = await app.request('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          {
+            path: '/repo/active.ts',
+            content: 'const a = 1',
+            language: 'typescript',
+          },
+        ],
+        depth: 'standard',
+        scanScope: 'workspace',
+        workspaceSnapshotComplete: true,
+        workspaceRoots: ['/'],
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const created = (await res.json()) as { taskId: string };
+    const finalTask = await waitForTaskStatus(
+      taskState,
+      created.taskId,
+      'completed'
+    );
+
+    expect(finalTask.status).toBe('completed');
+    expect(mockPrisma.vulnerability.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.vulnerabilityEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it('workspaceRoots 應使用 path boundary，避免 /repo 誤匹配 /repo2', async () => {
+    mockPrisma.vulnerability.findMany.mockResolvedValueOnce([
+      {
+        id: 'v-outside',
+        filePath: '/repo2/deleted.ts',
+        humanStatus: 'pending',
+        stableFingerprint: 'o'.repeat(64),
+      },
+    ]);
+
+    const res = await app.request('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          {
+            path: '/repo/active.ts',
+            content: 'const a = 1',
+            language: 'typescript',
+          },
+        ],
+        depth: 'standard',
+        scanScope: 'workspace',
+        workspaceSnapshotComplete: true,
+        workspaceRoots: ['/repo'],
+      }),
+    });
+    expect(res.status).toBe(201);
+
+    const created = (await res.json()) as { taskId: string };
+    const finalTask = await waitForTaskStatus(
+      taskState,
+      created.taskId,
+      'completed'
+    );
+
+    expect(finalTask.status).toBe('completed');
+    expect(mockPrisma.vulnerability.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.vulnerabilityEvent.createMany).not.toHaveBeenCalled();
+  });
+
   it('workspace 收斂遇到同 stableFingerprint 時不應誤判 fixed', async () => {
     mockPrisma.vulnerability.findMany
       .mockResolvedValueOnce([

@@ -5,6 +5,8 @@ import { z } from 'zod/v4';
 
 import type { PluginConfig } from '@/libs/types';
 
+import { normalizeAllowedLlmEndpoint } from '../llm/endpoint-policy';
+
 /** 預設配置（與前端 atoms.ts 一致） */
 const DEFAULT_CONFIG: PluginConfig = {
   llm: { provider: 'nvidia', apiKey: '' },
@@ -17,8 +19,8 @@ const DEFAULT_CONFIG: PluginConfig = {
 const configBodySchema = z.object({
   llm: z
     .object({
-      provider: z.enum(['gemini', 'nvidia', 'minimax-cn']),
-      apiKey: z.string(),
+      provider: z.enum(['gemini', 'nvidia', 'minimax-cn']).optional(),
+      apiKey: z.string().optional(),
       endpoint: z.string().nullable().optional(),
       model: z.string().nullable().optional(),
     })
@@ -65,6 +67,7 @@ function normalizeConfig(raw: unknown): PluginConfig {
     llm?: {
       provider?: PluginConfig['llm']['provider'];
       apiKey?: string;
+      apiKeyConfigured?: boolean;
       endpoint?: string | null;
       model?: string | null;
     };
@@ -93,6 +96,10 @@ function normalizeConfig(raw: unknown): PluginConfig {
     llm: {
       provider: normalizeLlmProvider(input.llm?.provider),
       apiKey: input.llm?.apiKey ?? DEFAULT_CONFIG.llm.apiKey,
+      apiKeyConfigured:
+        typeof input.llm?.apiKey === 'string'
+          ? input.llm.apiKey.trim().length > 0
+          : input.llm?.apiKeyConfigured === true,
       ...(endpoint ? { endpoint } : {}),
       ...(model ? { model } : {}),
     },
@@ -136,6 +143,23 @@ function normalizeOptional(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function redactConfig(config: PluginConfig): PluginConfig {
+  return {
+    ...config,
+    llm: {
+      ...config.llm,
+      apiKey: '',
+      apiKeyConfigured: config.llm.apiKey.trim().length > 0,
+    },
+  };
+}
+
+function stripLlmMetadata(llm: PluginConfig['llm']): PluginConfig['llm'] {
+  const sanitized = { ...llm };
+  delete sanitized.apiKeyConfigured;
+  return sanitized;
+}
+
 function mergeLlmConfig(
   prev: typeof DEFAULT_CONFIG.llm,
   nextPartial: z.infer<typeof configBodySchema>['llm']
@@ -144,15 +168,15 @@ function mergeLlmConfig(
 
   const merged: typeof DEFAULT_CONFIG.llm = { ...prev };
 
-  if ('provider' in nextPartial) {
+  if ('provider' in nextPartial && nextPartial.provider) {
     merged.provider = nextPartial.provider;
   }
-  if ('apiKey' in nextPartial) {
+  if ('apiKey' in nextPartial && typeof nextPartial.apiKey === 'string') {
     merged.apiKey = nextPartial.apiKey;
   }
 
   if ('endpoint' in nextPartial) {
-    const endpoint = normalizeOptional(nextPartial.endpoint);
+    const endpoint = normalizeAllowedLlmEndpoint(nextPartial.endpoint);
     if (endpoint) {
       merged.endpoint = endpoint;
     } else {
@@ -177,8 +201,8 @@ function mergeLlmConfig(
  */
 configRoutes.get('/', async (c) => {
   const row = await storage.config.findUnique({ where: { id: 'default' } });
-  if (!row) return c.json(DEFAULT_CONFIG);
-  return c.json(normalizeConfig(JSON.parse(row.data)));
+  if (!row) return c.json(redactConfig(DEFAULT_CONFIG));
+  return c.json(redactConfig(normalizeConfig(JSON.parse(row.data))));
 });
 
 /**
@@ -195,8 +219,16 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
     ? normalizeConfig(JSON.parse(existing.data))
     : DEFAULT_CONFIG;
 
+  let mergedLlm: typeof DEFAULT_CONFIG.llm;
+  try {
+    mergedLlm = mergeLlmConfig(prev.llm, body.llm);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'LLM endpoint 不合法';
+    return c.json({ error: message }, 400);
+  }
+
   const merged = {
-    llm: mergeLlmConfig(prev.llm, body.llm),
+    llm: stripLlmMetadata(mergedLlm),
     analysis: { ...prev.analysis, ...body.analysis },
     ignore: { ...prev.ignore, ...body.ignore },
     api: { ...prev.api, ...body.api },
@@ -209,5 +241,5 @@ configRoutes.put('/', zValidator('json', configBodySchema), async (c) => {
     update: { data: JSON.stringify(merged) },
   });
 
-  return c.json(merged);
+  return c.json(redactConfig(merged));
 });

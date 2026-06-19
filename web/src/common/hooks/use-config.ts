@@ -40,7 +40,7 @@ export function useUpdateConfig() {
 /** LLM 是否已設定 API Key */
 export function useIsLlmConfigured() {
   const config = useConfig()
-  return config.llm.apiKey.length > 0
+  return config.llm.apiKey.length > 0 || config.llm.apiKeyConfigured === true
 }
 
 /** 目前 API 模式（local / remote） */
@@ -54,7 +54,11 @@ export function useApiMode() {
 const CONFIG_QUERY_KEY = ['config'] as const
 
 type PersistedPluginConfig = Omit<PluginConfig, 'llm'> & {
-  llm: Omit<PluginConfig['llm'], 'endpoint' | 'model'> & {
+  llm: Omit<
+    PluginConfig['llm'],
+    'apiKey' | 'apiKeyConfigured' | 'endpoint' | 'model'
+  > & {
+    apiKey?: string
     endpoint?: string | null
     model?: string | null
   }
@@ -98,10 +102,16 @@ export function useSaveConfig() {
 
   return useMutation({
     mutationFn: async (config: PluginConfig) => {
+      const { apiKey, apiKeyConfigured, ...llmConfig } = config.llm
+      const apiKeyPatch =
+        apiKey.length > 0 || apiKeyConfigured !== true
+          ? { apiKey }
+          : {}
       const payload: PersistedPluginConfig = {
         ...config,
         llm: {
-          ...config.llm,
+          ...llmConfig,
+          ...apiKeyPatch,
           // 明確傳 null，避免 undefined 在 JSON 序列化時被省略，導致後端沿用舊值
           endpoint: config.llm.endpoint ?? null,
           model: config.llm.model ?? null,

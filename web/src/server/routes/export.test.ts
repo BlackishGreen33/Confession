@@ -163,6 +163,33 @@ describe('exportRoutes', () => {
     )
   })
 
+  it('csv 匯出會中和 spreadsheet formula 欄位', async () => {
+    mockPrisma.vulnerability.findMany.mockResolvedValue([
+      buildVulnerability({
+        description: '=WEBSERVICE("https://example.test")',
+        riskDescription: '+cmd',
+        fixExplanation: '-cmd',
+        humanComment: '@SUM(1,2)',
+        codeSnippet: '\t=cmd',
+      }),
+    ])
+
+    const res = await app.request('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'csv', locale: 'en' }),
+    })
+
+    expect(res.status).toBe(200)
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const text = new TextDecoder('utf-8').decode(bytes)
+    expect(text).toContain('"\'=WEBSERVICE(""https://example.test"")"')
+    expect(text).toContain("'+cmd")
+    expect(text).toContain("'-cmd")
+    expect(text).toContain('"\'@SUM(1,2)"')
+    expect(text).toContain("'\t=cmd")
+  })
+
   it('markdown 匯出會包含摘要與漏洞明細章節', async () => {
     mockPrisma.vulnerability.findMany.mockResolvedValue([buildVulnerability()])
 

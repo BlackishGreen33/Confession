@@ -1,5 +1,7 @@
 import type { PluginConfig } from '@/libs/types';
 
+import { normalizeAllowedLlmEndpoint } from './endpoint-policy';
+
 /** MiniMax CN OpenAI 相容 Chat Completions API 回應（僅擷取必要欄位） */
 interface MiniMaxCnResponse {
   choices?: Array<{
@@ -106,7 +108,7 @@ export async function callMiniMaxCn(
 ): Promise<MiniMaxCnCallResult> {
   const {
     apiKey,
-    endpoint = DEFAULT_ENDPOINT,
+    endpoint,
     model = DEFAULT_MINIMAX_CN_MODEL,
   } = config;
 
@@ -114,7 +116,8 @@ export async function callMiniMaxCn(
     throw new Error('MiniMax CN API key 未設定');
   }
 
-  const url = `${endpoint.replace(/\/+$/, '')}/chat/completions`;
+  const safeEndpoint = normalizeAllowedLlmEndpoint(endpoint) ?? DEFAULT_ENDPOINT;
+  const url = `${safeEndpoint}/chat/completions`;
 
   const res = await fetch(url, {
     method: 'POST',

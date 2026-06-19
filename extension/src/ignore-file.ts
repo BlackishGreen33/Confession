@@ -81,13 +81,6 @@ function isPathInRoot(filePath: string, rootPath: string): boolean {
   return !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function normalizeLlmProvider(value: unknown): PluginConfig['llm']['provider'] {
-  if (value === 'gemini' || value === 'nvidia' || value === 'minimax-cn') {
-    return value;
-  }
-  return 'nvidia';
-}
-
 function fallbackResolveWorkspaceFolder(
   filePath: string
 ): vscode.WorkspaceFolder | undefined {
@@ -121,12 +114,6 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
   }
 
   const input = raw as {
-    llm?: {
-      provider?: PluginConfig['llm']['provider'];
-      apiKey?: string;
-      endpoint?: string;
-      model?: string;
-    };
     analysis?: {
       triggerMode?: PluginConfig['analysis']['triggerMode'];
       depth?: PluginConfig['analysis']['depth'];
@@ -136,20 +123,14 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
       paths?: string[];
       types?: string[];
     };
-    api?: {
-      baseUrl?: string;
-      mode?: PluginConfig['api']['mode'];
-    };
     ui?: {
       language?: PluginConfig['ui']['language'];
     };
   };
+  const defaults = cloneDefaultConfig();
 
   const config: PluginConfig = {
-    llm: {
-      provider: normalizeLlmProvider(input.llm?.provider),
-      apiKey: typeof input.llm?.apiKey === 'string' ? input.llm.apiKey : '',
-    },
+    llm: defaults.llm,
     analysis: {
       triggerMode:
         input.analysis?.triggerMode === 'manual' ? 'manual' : 'onSave',
@@ -170,13 +151,7 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
         Array.isArray(input.ignore?.types) ? input.ignore.types : []
       ),
     },
-    api: {
-      baseUrl:
-        typeof input.api?.baseUrl === 'string'
-          ? input.api.baseUrl
-          : 'http://localhost:3000',
-      mode: input.api?.mode === 'remote' ? 'remote' : 'local',
-    },
+    api: defaults.api,
     ui: {
       language:
         input.ui?.language === 'zh-TW' ||
@@ -187,14 +162,32 @@ function normalizeConfigValue(raw: unknown): PluginConfig {
     },
   };
 
-  const endpoint =
-    typeof input.llm?.endpoint === 'string' ? input.llm.endpoint.trim() : '';
-  const model =
-    typeof input.llm?.model === 'string' ? input.llm.model.trim() : '';
-  if (endpoint) config.llm.endpoint = endpoint;
-  if (model) config.llm.model = model;
-
   return config;
+}
+
+function readRawConfigFileByPath(filePath: string): Record<string, unknown> {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const raw = JSON.parse(content);
+    return raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildProjectConfigForWrite(
+  existingRaw: Record<string, unknown>,
+  config: PluginConfig
+): Record<string, unknown> {
+  const normalizedConfig = normalizeConfigValue(config);
+  return {
+    ...existingRaw,
+    analysis: normalizedConfig.analysis,
+    ignore: normalizedConfig.ignore,
+    ui: normalizedConfig.ui,
+  };
 }
 
 function readConfigFileByPath(filePath: string): {
@@ -309,16 +302,18 @@ export async function writeScopedProjectConfig(
 
   const rootPath = scopedRoot.uri.fsPath;
   const filePath = getConfigFilePathForRoot(rootPath);
+  const existingRaw = readRawConfigFileByPath(filePath);
+  const projectConfig = buildProjectConfigForWrite(existingRaw, normalizedConfig);
   await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
   await fsPromises.writeFile(
     filePath,
-    `${JSON.stringify(normalizedConfig, null, 2)}\n`,
+    `${JSON.stringify(projectConfig, null, 2)}\n`,
     'utf8'
   );
 
   return {
     written: true,
-    config: normalizedConfig,
+    config: normalizeConfigValue(projectConfig),
     rootPath,
     filePath,
   };

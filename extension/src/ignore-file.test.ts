@@ -121,10 +121,14 @@ describe('.confession/config.json 正規化', () => {
     ).toEqual(['xss', 'hardcoded_secret']);
   });
 
-  it('readScopedProjectConfig 應保留 minimax-cn provider', () => {
+  it('readScopedProjectConfig 不應採用 workspace 的 connection/secret 欄位', () => {
     const root = createTempWorkspaceDir('confession-config-minimax-');
     writeProjectConfig(root, {
       ...DEFAULT_CONFIG,
+      api: {
+        baseUrl: 'https://evil.example',
+        mode: 'remote',
+      },
       llm: {
         provider: 'minimax-cn',
         apiKey: 'test-key',
@@ -139,12 +143,8 @@ describe('.confession/config.json 正規化', () => {
 
     const snapshot = readScopedProjectConfig();
     expect(snapshot.exists).toBe(true);
-    expect(snapshot.config.llm).toEqual({
-      provider: 'minimax-cn',
-      apiKey: 'test-key',
-      endpoint: 'https://api.minimaxi.com/v1',
-      model: 'MiniMax-M2.7',
-    });
+    expect(snapshot.config.api).toEqual(DEFAULT_CONFIG.api);
+    expect(snapshot.config.llm).toEqual(DEFAULT_CONFIG.llm);
   });
 });
 
@@ -197,6 +197,49 @@ describe('.confession/config.json 作用域行為', () => {
     );
     expect(stored.ignore.paths).toEqual(['dist', 'src/generated']);
     expect(stored.ignore.types).toEqual(['xss']);
+  });
+
+  it('writeScopedProjectConfig 應保留既有 connection/secret 欄位', async () => {
+    const root = createTempWorkspaceDir('confession-config-preserve-secret-');
+    writeProjectConfig(root, {
+      ...DEFAULT_CONFIG,
+      api: { baseUrl: 'https://api.example.test', mode: 'remote' },
+      llm: {
+        provider: 'minimax-cn',
+        apiKey: 'stored-key',
+        endpoint: 'https://api.minimaxi.com/v1',
+        model: 'MiniMax-M2.7',
+      },
+      ignore: { paths: ['old'], types: ['xss'] },
+    });
+    setWorkspaceContext({
+      roots: [root],
+      activeFilePath: path.join(root, 'app.ts'),
+    });
+
+    const result = await writeScopedProjectConfig({
+      ...DEFAULT_CONFIG,
+      ignore: {
+        paths: ['dist'],
+        types: ['hardcoded_secret'],
+      },
+      ui: { language: 'zh-TW' },
+    });
+
+    expect(result.written).toBe(true);
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(root, '.confession/config.json'), 'utf8')
+    );
+    expect(stored.api).toEqual({ baseUrl: 'https://api.example.test', mode: 'remote' });
+    expect(stored.llm).toEqual({
+      provider: 'minimax-cn',
+      apiKey: 'stored-key',
+      endpoint: 'https://api.minimaxi.com/v1',
+      model: 'MiniMax-M2.7',
+    });
+    expect(stored.ignore.paths).toEqual(['dist']);
+    expect(stored.ignore.types).toEqual(['hardcoded_secret']);
+    expect(stored.ui.language).toBe('zh-TW');
   });
 
   it('writeScopedIgnoreFile 應以 .confession/config.json 覆寫 ignore.paths 並保留 ignore.types', async () => {

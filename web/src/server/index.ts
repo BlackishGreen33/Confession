@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 
 import { buildHealthResponse } from './health-score';
 import { adviceRoutes } from './routes/advice';
@@ -11,7 +10,90 @@ import { vulnerabilityRoutes } from './routes/vulnerabilities';
 
 const app = new Hono().basePath('/api');
 
-app.use('*', cors());
+const DEFAULT_CORS_ORIGINS = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+function allowedCorsOrigins(): Set<string> {
+  const configured = process.env.CONFESSION_CORS_ORIGINS?.split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0 && origin !== '*');
+  return new Set(configured?.length ? configured : DEFAULT_CORS_ORIGINS);
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return (
+    normalized === 'localhost' ||
+    normalized.endsWith('.localhost') ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '0:0:0:0:0:0:0:1'
+  );
+}
+
+function requestUrl(requestUrl: string): URL {
+  return new URL(requestUrl);
+}
+
+function isLoopbackRequest(requestUrlValue: string): boolean {
+  try {
+    return isLoopbackHostname(requestUrl(requestUrlValue).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isPublicApiPath(requestUrlValue: string): boolean {
+  try {
+    return requestUrl(requestUrlValue).pathname === '/api/health';
+  } catch {
+    return false;
+  }
+}
+
+function hasValidApiToken(authorization: string | undefined): boolean {
+  const token = process.env.CONFESSION_API_TOKEN;
+  if (!token) return false;
+  return authorization === `Bearer ${token}`;
+}
+
+app.use('*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  const allowedOrigins = allowedCorsOrigins();
+
+  if (origin) {
+    if (!allowedOrigins.has(origin)) {
+      return c.json({ error: 'CORS origin not allowed' }, 403);
+    }
+
+    c.header('Access-Control-Allow-Origin', origin);
+    c.header('Vary', 'Origin');
+    c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Last-Event-ID');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    c.header('Access-Control-Expose-Headers', 'Content-Disposition, X-Confession-Sarif-Warning');
+  }
+
+  if (c.req.method === 'OPTIONS') {
+    return c.body(null, 204);
+  }
+
+  const reqUrl = c.req.url;
+  if (
+    !isPublicApiPath(reqUrl) &&
+    !isLoopbackRequest(reqUrl) &&
+    !hasValidApiToken(c.req.header('Authorization'))
+  ) {
+    return c.json({ error: '未授權' }, 401);
+  }
+
+  return next();
+});
 
 app.get('/health', async (c) => {
   const rawWindowDays = c.req.query('windowDays');

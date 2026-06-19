@@ -30,12 +30,13 @@ import type {
 import {
   buildHtml,
   postMessageToWebview,
+  redactConfigForWebview,
   registerDashboardProvider,
   sendConfigUpdate,
 } from './webview';
 
 describe('Feature: sidebar-security-panel, Property 1: iframe URL 注入正確性', () => {
-  it('buildHtml(baseUrl, route) 產生的 HTML 應包含 iframe 且 src 等於 baseUrl + route', () => {
+  it('buildHtml(baseUrl, route) 產生的 HTML 應包含 iframe 且 src 由 URL API 解析', () => {
     const routes = ['/', '/vulnerabilities', '/settings'] as const;
     fc.assert(
       fc.property(fc.webUrl(), fc.constantFrom(...routes), (baseUrl, route) => {
@@ -48,11 +49,21 @@ describe('Feature: sidebar-security-panel, Property 1: iframe URL 注入正確�
         // 必須找到 iframe
         expect(match).not.toBeNull();
 
-        // src 屬性值必須等於傳入的 baseUrl + route
-        expect(match![1]).toBe(baseUrl + route);
+        expect(match![1]).toBe(new URL(route, new URL(baseUrl)).href);
       }),
       { numRuns: 100 }
     );
+  });
+
+  it('buildHtml 應避免 quote payload 注入 script，並限制 iframe message origin', () => {
+    const payload = `http://localhost:3000';vscode.postMessage({type:'paste_clipboard'});//`;
+    const html = buildHtml(payload, '/settings');
+
+    expect(html).not.toContain("vscode.postMessage({type:'paste_clipboard'})");
+    expect(html).toContain('event.source === iframe.contentWindow');
+    expect(html).toContain('event.origin === trustedOrigin');
+    expect(html).toContain('postMessage(data, trustedOrigin)');
+    expect(html).not.toContain("postMessage(data, '*')");
   });
 });
 
@@ -121,6 +132,7 @@ const arbPluginConfig: fc.Arbitrary<PluginConfig> = fc.record({
       'minimax-cn' as const
     ),
     apiKey: fc.string(),
+    apiKeyConfigured: fc.option(fc.boolean(), { nil: undefined }),
     endpoint: fc.option(fc.string(), { nil: undefined }),
     model: fc.option(fc.string(), { nil: undefined }),
   }),
@@ -562,7 +574,7 @@ describe('Feature: sidebar-security-panel, Property 3: Webview → Extension 訊
             // 應透過 postMessage 推送 config_updated 訊息
             expect(postMessageSpy).toHaveBeenCalledWith({
               type: 'config_updated',
-              data: mockConfig,
+              data: redactConfigForWebview(mockConfig),
             });
             break;
           case 'paste_clipboard':
@@ -835,10 +847,10 @@ describe('Feature: sidebar-security-panel, Property 4: 配置變更觸發通知'
         // postMessage 應被呼叫恰好一次
         expect(postMessageSpy).toHaveBeenCalledOnce();
 
-        // 訊息類型為 config_updated，資料等於傳入的配置
+        // 訊息類型為 config_updated，敏感 key 需遮蔽
         expect(postMessageSpy).toHaveBeenCalledWith({
           type: 'config_updated',
-          data: config,
+          data: redactConfigForWebview(config),
         });
       }),
       { numRuns: 100 }
@@ -933,10 +945,10 @@ describe('Feature: sidebar-security-panel, Property 5: 可見性變更觸發配�
         // postMessage 應被呼叫恰好一次
         expect(postMessageSpy).toHaveBeenCalledOnce();
 
-        // 訊息類型為 config_updated，資料等於目前配置
+        // 訊息類型為 config_updated，敏感 key 需遮蔽
         expect(postMessageSpy).toHaveBeenCalledWith({
           type: 'config_updated',
-          data: config,
+          data: redactConfigForWebview(config),
         });
       }),
       { numRuns: 100 }

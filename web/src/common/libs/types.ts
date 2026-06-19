@@ -324,6 +324,7 @@ export interface PluginConfig {
   llm: {
     provider: LlmProvider;
     apiKey: string;
+    apiKeyConfigured?: boolean;
     endpoint?: string;
     model?: string;
   };

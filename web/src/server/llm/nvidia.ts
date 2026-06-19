@@ -1,5 +1,7 @@
 import type { PluginConfig } from '@/libs/types'
 
+import { normalizeAllowedLlmEndpoint } from './endpoint-policy'
+
 /** NVIDIA 相容 OpenAI Chat Completions API 回應（僅擷取必要欄位） */
 interface NvidiaResponse {
   choices?: Array<{
@@ -84,13 +86,14 @@ export async function callNvidia(
   config: NvidiaClientConfig,
   options: NvidiaCallOptions = {},
 ): Promise<NvidiaCallResult> {
-  const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_NVIDIA_MODEL } = config
+  const { apiKey, endpoint, model = DEFAULT_NVIDIA_MODEL } = config
 
   if (!apiKey) {
     throw new Error('NVIDIA API key 未設定')
   }
 
-  const url = `${endpoint.replace(/\/+$/, '')}/chat/completions`
+  const safeEndpoint = normalizeAllowedLlmEndpoint(endpoint) ?? DEFAULT_ENDPOINT
+  const url = `${safeEndpoint}/chat/completions`
 
   const res = await fetch(url, {
     method: 'POST',

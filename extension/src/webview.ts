@@ -39,6 +39,39 @@ export function setWebviewLogger(logger: WebviewLogger): void {
   webviewLogger = logger
 }
 
+const DEFAULT_WEBVIEW_BASE_URL = 'http://localhost:3000'
+
+export function redactConfigForWebview(config: PluginConfig): PluginConfig {
+  return {
+    ...config,
+    llm: {
+      ...config.llm,
+      apiKey: '',
+      apiKeyConfigured:
+        config.llm.apiKey.trim().length > 0 || config.llm.apiKeyConfigured === true,
+    },
+  }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+function resolveIframeTarget(baseUrl: string, route: string): { src: string; origin: string } {
+  try {
+    const url = new URL(route, new URL(baseUrl))
+    return { src: url.href, origin: url.origin }
+  } catch {
+    const url = new URL(route, DEFAULT_WEBVIEW_BASE_URL)
+    return { src: url.href, origin: url.origin }
+  }
+}
+
 /** 側邊欄 Webview 視圖 Provider（通用，每個視圖實例持有自己的 route） */
 export class ConfessionViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView
@@ -75,7 +108,10 @@ export class ConfessionViewProvider implements vscode.WebviewViewProvider {
     // 視圖可見性變更時推送目前配置
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this.postMessage({ type: 'config_updated', data: this.getConfig() })
+        this.postMessage({
+          type: 'config_updated',
+          data: redactConfigForWebview(this.getConfig()),
+        })
       }
     })
   }
@@ -146,7 +182,7 @@ export function sendScanProgress(status: string, progress: number): void {
  * 推送配置更新到 Webview
  */
 export function sendConfigUpdate(config: PluginConfig): void {
-  postMessageToWebview({ type: 'config_updated', data: config })
+  postMessageToWebview({ type: 'config_updated', data: redactConfigForWebview(config) })
 }
 
 // === 內部：處理 Webview 傳來的訊息 ===
@@ -604,7 +640,7 @@ async function writeConfigToSettings(
     return {
       success: true,
       message: `Extension 設定已套用${warningSuffix}`,
-      config: normalizedConfig,
+      config: redactConfigForWebview(normalizedConfig),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : '未知錯誤'
@@ -927,7 +963,7 @@ export function openSettingsPanel(getConfig: () => PluginConfig): void {
   // 推送目前配置
   settingsPanel.webview.postMessage({
     type: 'config_updated',
-    data: getConfig(),
+    data: redactConfigForWebview(getConfig()),
   } satisfies ExtToWebMsg)
 }
 
@@ -935,7 +971,12 @@ export function openSettingsPanel(getConfig: () => PluginConfig): void {
  * 產生漏洞詳情 Editor Panel 的 HTML
  */
 export function buildDetailHtml(baseUrl: string, vulnId: string): string {
-  const iframeSrc = `${baseUrl}/vulnerability-detail?id=${vulnId}`
+  const iframeTarget = resolveIframeTarget(
+    baseUrl,
+    `/vulnerability-detail?id=${encodeURIComponent(vulnId)}`,
+  )
+  const iframeSrc = iframeTarget.src
+  const iframeOrigin = iframeTarget.origin
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -954,12 +995,13 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
 </head>
 <body>
   <div class="loading" id="loading">載入漏洞詳情中…</div>
-  <iframe id="app" src="${iframeSrc}" style="display:none;"></iframe>
+  <iframe id="app" src="${escapeHtmlAttribute(iframeSrc)}" style="display:none;"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
       const iframe = document.getElementById('app');
       const loading = document.getElementById('loading');
+      const trustedOrigin = ${JSON.stringify(iframeOrigin)};
 
       iframe.addEventListener('load', () => {
         loading.style.display = 'none';
@@ -973,9 +1015,10 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
           data &&
           data.type &&
           iframe.contentWindow &&
+          event.source !== iframe.contentWindow &&
           data.__confessionBridge !== 'iframe'
         ) {
-          iframe.contentWindow.postMessage(data, '*');
+          iframe.contentWindow.postMessage(data, trustedOrigin);
         }
       });
 
@@ -983,8 +1026,8 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
       window.addEventListener('message', (event) => {
         const data = event.data;
         const isFromIframe =
-          event.source === iframe.contentWindow ||
-          data?.__confessionBridge === 'iframe';
+          event.source === iframe.contentWindow &&
+          event.origin === trustedOrigin;
         if (isFromIframe && data && data.type) {
           vscode.postMessage(data);
         }
@@ -999,7 +1042,9 @@ export function buildDetailHtml(baseUrl: string, vulnId: string): string {
 // === 內部：產生 Sidebar Webview HTML ===
 
 export function buildHtml(baseUrl: string, route: string): string {
-  const iframeSrc = baseUrl + route
+  const iframeTarget = resolveIframeTarget(baseUrl, route)
+  const iframeSrc = iframeTarget.src
+  const iframeOrigin = iframeTarget.origin
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1030,7 +1075,7 @@ export function buildHtml(baseUrl: string, route: string): string {
     <div class="error-message">無法載入安全儀表盤，請確認服務是否已啟動。</div>
     <button class="retry-button" id="retryBtn">重試</button>
   </div>
-  <iframe id="app" src="${iframeSrc}" style="display:none;"></iframe>
+  <iframe id="app" src="${escapeHtmlAttribute(iframeSrc)}" style="display:none;"></iframe>
   <script>
     (function () {
       const vscode = acquireVsCodeApi();
@@ -1038,7 +1083,8 @@ export function buildHtml(baseUrl: string, route: string): string {
       const loading = document.getElementById('loading');
       const error = document.getElementById('error');
       const retryBtn = document.getElementById('retryBtn');
-      const iframeSrc = '${iframeSrc}';
+      const iframeSrc = ${JSON.stringify(iframeSrc)};
+      const trustedOrigin = ${JSON.stringify(iframeOrigin)};
 
       /** 顯示錯誤狀態並隱藏載入提示與 iframe */
       function showError() {
@@ -1076,9 +1122,10 @@ export function buildHtml(baseUrl: string, route: string): string {
           data &&
           data.type &&
           iframe.contentWindow &&
+          event.source !== iframe.contentWindow &&
           data.__confessionBridge !== 'iframe'
         ) {
-          iframe.contentWindow.postMessage(data, '*');
+          iframe.contentWindow.postMessage(data, trustedOrigin);
         }
       });
 
@@ -1086,8 +1133,8 @@ export function buildHtml(baseUrl: string, route: string): string {
       window.addEventListener('message', (event) => {
         const data = event.data;
         const isFromIframe =
-          event.source === iframe.contentWindow ||
-          data?.__confessionBridge === 'iframe';
+          event.source === iframe.contentWindow &&
+          event.origin === trustedOrigin;
         if (isFromIframe && data && data.type) {
           vscode.postMessage(data);
         }

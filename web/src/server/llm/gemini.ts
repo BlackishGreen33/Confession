@@ -1,5 +1,7 @@
 import type { PluginConfig } from '@/libs/types'
 
+import { normalizeAllowedLlmEndpoint } from './endpoint-policy'
+
 /** Gemini API 回應結構（僅擷取需要的欄位） */
 interface GeminiResponse {
   candidates?: Array<{
@@ -77,13 +79,14 @@ export async function callGemini(
   config: GeminiClientConfig,
   options: GeminiCallOptions = {},
 ): Promise<GeminiCallResult> {
-  const { apiKey, endpoint = DEFAULT_ENDPOINT, model = DEFAULT_GEMINI_MODEL } = config
+  const { apiKey, endpoint, model = DEFAULT_GEMINI_MODEL } = config
 
   if (!apiKey) {
     throw new Error('Gemini API key 未設定')
   }
 
-  const url = `${endpoint}/${model}:generateContent?key=${apiKey}`
+  const safeEndpoint = normalizeAllowedLlmEndpoint(endpoint) ?? DEFAULT_ENDPOINT
+  const url = `${safeEndpoint}/${model}:generateContent?key=${apiKey}`
 
   const res = await fetch(url, {
     method: 'POST',

@@ -160,8 +160,15 @@ const LlmTab: React.FC<LlmTabProps> = ({ locale, llm, onChange }) => {
       : llm.provider === 'minimax-cn'
         ? 'MiniMax CN'
         : 'Google Gemini';
+  const hasStoredApiKey = llm.apiKeyConfigured === true && llm.apiKey.length === 0;
   const apiKeyPlaceholder =
-    llm.provider === 'nvidia'
+    hasStoredApiKey
+      ? tx(locale, {
+          'zh-TW': 'API Key 已設定，輸入新值可覆寫…',
+          'zh-CN': 'API Key 已设置，输入新值可覆盖…',
+          en: 'API key configured; enter a new value to replace it…',
+        })
+      : llm.provider === 'nvidia'
       ? tx(locale, {
           'zh-TW': '輸入 NVIDIA API Key…',
           'zh-CN': '输入 NVIDIA API Key…',

@@ -251,12 +251,17 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 
 規範重點：
 
+- CORS 僅允許 `CONFESSION_CORS_ORIGINS` allowlist；未設定時只允許本機前端來源
+- `/api/health` 公開；非 loopback host 的其他 `/api/*` 需 `Authorization: Bearer $CONFESSION_API_TOKEN`
 - 請求驗證使用 `zod/v4` + `@hono/zod-validator`
 - 錯誤回應格式：`{ error: string, details?: unknown }`
 - 儲存來源固定為 `.confession/*.json`
 - project root 解析：`CONFESSION_PROJECT_ROOT`（有值時）否則 `process.cwd()`
 - 掃描流程需保留去重（fingerprint）與背景執行
 - `agentic` 失敗需自動回退 `baseline`
+- `GET /api/config` 不得回傳明文 `llm.apiKey`；需回傳 `apiKey: ""` 與 `apiKeyConfigured`
+- `PUT /api/config` 省略 `llm.apiKey` 時保留既有 key；傳新值時更新；明確傳空字串時清除
+- 自訂 LLM endpoint 預設僅允許 `https:` 且不得指向 localhost/private IP；開發例外需明確設定 `CONFESSION_ALLOW_UNSAFE_LLM_ENDPOINTS=1`
 - `/api/scan/status/:id`、`/api/scan/recent` 需回傳 `engineMode`、`errorCode`、fallback 欄位
 - `/api/scan/status/:id`、`/api/scan/recent` 讀路徑需優先命中記憶體熱索引，未命中再回退 FileStore
 - `/api/scan/stream/:id` 需：
@@ -271,8 +276,10 @@ Hono app 由 `web/src/server/index.ts` 統一掛載於 `/api`。
 - `sarif` 匯出需套用 `maxResults`/`maxBytes` guard；發生截斷時以 `X-Confession-Sarif-Warning` 回傳警告
 - 漏洞事件需支援 `scan_relocated`，並帶 `fromFilePath/fromLine/toFilePath/toLine`
 - 工作區快照收斂需 fingerprint-aware：`filePath` 不在快照且 `stableFingerprint` 未出現時才 auto-fix
+- 工作區快照收斂需驗證 `workspaceRoots` 不為空、非 filesystem root，且所有 submitted files 都在 roots 邊界內；path matching 必須 path-boundary aware
 - 掃描引擎 metrics 需包含 `fs_write_ops_per_scan`、`db_lock_wait_ms_p95`、`db_lock_hold_ms_p95`、`db_lock_timeout_count`
 - 狀態查詢 metrics 需包含 `status_cache_hit_rate`、`status_cache_reload_ms`、`status_read_elapsed_ms`
+- CSV 匯出需中和 spreadsheet formula injection：第一個非空白字元為 `= + - @`，或欄位以 tab/CR 開頭時需加安全前綴後再做 CSV quote escaping
 
 ## 7. Extension 規範
 
@@ -296,6 +303,9 @@ ignore / config 同步規範：
 - Ignore 僅存在 `.confession/config.json.ignore.paths/types`
 - 設定頁儲存時，需同步寫入 VS Code settings 與 `.confession/config.json`
 - 語言設定需支援 `confession.ui.language = auto|zh-TW|zh-CN|en`，並同步到 `.confession/config.json.ui.language`
+- `.confession/config.json` 不得覆寫 Extension 的 connection/secret 欄位：`api.baseUrl`、`api.mode`、`llm.apiKey`、`llm.endpoint`
+- Extension 傳給 webview / iframe 的 config 不得包含明文 API key，需使用 `apiKeyConfigured` 表示是否已設定
+- VS Code webview iframe bridge 只可信任 `event.source === iframe.contentWindow` 且 `event.origin === trustedOrigin` 的訊息；Extension → iframe `postMessage` 需指定 trusted origin
 - Extension 需監聽 `**/.confession/config.json` 的 create/change/delete 並推送 `config_updated`
 - `scanWorkspace` 與 onSave 忽略判斷需 root-aware：依檔案所屬 root 套用對應 `.confession/config.json`
 
